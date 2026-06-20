@@ -9,6 +9,26 @@
 import SwiftUI
 
 extension View {
+    /// Applies a deep Liquid Glass style for sidebars and popovers.
+    func liquidGlassSidebar(cornerRadius: CGFloat = 16) -> some View {
+        self
+            .background(.ultraThinMaterial)
+            .background(Color.black.opacity(0.15))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(
+                        LinearGradient(
+                            colors: [.white.opacity(0.1), .clear, .black.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.2), radius: 20, y: 10)
+    }
+
     /// Applies a premium Liquid Glass panel style with blurred background and refractive border.
     func liquidGlassPanel(cornerRadius: CGFloat = 12, opacity: Double = 0.08) -> some View {
         self

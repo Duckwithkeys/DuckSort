@@ -118,6 +118,7 @@ struct ContentView: View {
             }
         }
         .toolbar(viewModel.isLargeImageViewerOpen ? .hidden : .visible, for: .windowToolbar)
+        .toolbarBackground(.hidden, for: .windowToolbar)
     }
 
     private var errorBinding: Binding<Bool> {

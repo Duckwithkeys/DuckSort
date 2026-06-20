@@ -80,37 +80,15 @@ struct PhotoSetCell: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
-            .background(statusColor.opacity(photoSet.isSelected ? 0.12 : (isHovered ? 0.08 : 0.04)))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5)) // Base layer
+            .liquidGlassButton(isHovered: isHovered, isApplied: photoSet.isSelected, accentColor: statusColor)
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(
-                        LinearGradient(
-                            colors: [
-                                isFocusedGridItem 
-                                    ? Color.accentColor 
-                                    : (photoSet.isSelected 
-                                        ? statusColor 
-                                        : (isHovered ? statusColor.opacity(0.7) : .white.opacity(0.12))),
-                            .white.opacity(0.02),
-                            .black.opacity(0.1)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: isFocusedGridItem ? 2.5 : 1
-                    )
+                if isFocusedGridItem {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.accentColor, lineWidth: 2.5)
+                        .padding(-2)
+                }
             }
-            .shadow(
-                color: isFocusedGridItem 
-                    ? Color.accentColor.opacity(0.3) 
-                    : (photoSet.isSelected ? statusColor.opacity(0.15) : (isHovered ? Color.black.opacity(0.10) : .clear)),
-                radius: isFocusedGridItem ? 10 : (photoSet.isSelected ? 8 : (isHovered ? 4 : 0)),
-                y: isFocusedGridItem ? 4 : (photoSet.isSelected ? 2 : 0)
-            )
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovered)
             .onHover { isHovered in
                 self.isHovered = isHovered
                 if isHovered {

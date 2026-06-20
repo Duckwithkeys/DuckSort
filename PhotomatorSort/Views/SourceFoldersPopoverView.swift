@@ -84,6 +84,7 @@ struct SourceFoldersPopoverView: View {
             }
         }
         .frame(width: 320)
+        .liquidGlassSidebar(cornerRadius: 16)
     }
 }
 

@@ -53,6 +53,7 @@ struct TagManagerView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 520)
+        .liquidGlassSidebar(cornerRadius: 16)
         .onAppear {
             if newTagCategoryID == nil {
                 newTagCategoryID = tagStore.categories.first?.id
