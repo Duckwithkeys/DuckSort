@@ -505,10 +505,16 @@ final class PhotoLibraryViewModel: ObservableObject {
         operationProgress = nil
         errorMessage = nil
         statusMessage = "\(operation.progressTitle) \(selected.count) selected photo sets (\(selectedFileCount) files)..."
+        let tagNameMap: [UUID: Set<String>] = Dictionary(
+            uniqueKeysWithValues: selected.map { set in
+                (set.id, Set(tagStore.assignedTags(for: set.id).map(\.name)))
+            }
+        )
         let plan = TransferPlan(
             operation: operation,
             destinationDirectory: destinationDirectory,
-            photoSets: selected
+            photoSets: selected,
+            tagNames: tagNameMap
         )
         let currentSources = sourceDirectories
         transferTask = Task { [transferService, currentSources] in
@@ -520,6 +526,9 @@ final class PhotoLibraryViewModel: ObservableObject {
                     }
                 }
                 self.statusMessage = "\(summary.operation.rawValue) complete: \(summary.fileCount) files to \(summary.destinationDirectory.lastPathComponent)."
+                if summary.sidecarFailures > 0 {
+                    self.statusMessage += " (\(summary.sidecarFailures) sidecar(s) could not be written)"
+                }
                 self.clearSelection()
                 if operation == .move {
                     self.scanSourceDirectories(currentSources)
@@ -596,6 +605,9 @@ final class PhotoLibraryViewModel: ObservableObject {
                 }
                 let foldersText = summary.foldersCreated == 1 ? "1 folder" : "\(summary.foldersCreated) folders"
                 self.statusMessage = "\(operation.displayName) complete: \(summary.fileCount) files across \(foldersText) under \(summary.baseDestination.lastPathComponent)."
+                if summary.sidecarFailures > 0 {
+                    self.statusMessage += " (\(summary.sidecarFailures) sidecar(s) could not be written)"
+                }
                 self.clearSelection()
                 if operation == .moveOriginals {
                     self.scanSourceDirectories(currentSources)
