@@ -29,14 +29,14 @@ A native macOS application designed to automate the workflow of scanning, organi
 ## Project Structure
 
 - `Package.swift`: Swift Package Manager configuration file.
-- `PhotomatorSort/`: Main source code directory containing:
+- `DuckSort/`: Main source code directory containing:
   - `Models/`: Data models for PhotoSet, Tags, Routing Rules, and User Preferences.
   - `ViewModels/`: View-models implementing business logic and UI state.
   - `Views/`: SwiftUI components and layouts.
   - `Utilities/`: Helper extensions, window managers, and shortcut handlers.
   - `Resources/`: Application assets (icons, etc.).
-- `package_app.sh`: Bash script to build the app in release mode and package it into `PhotomatorSort.app`.
-- `create_dmg.sh`: Bash script to package the app bundle into a user-friendly disk image (`PhotomatorSort.dmg`).
+- `package_app.sh`: Bash script to build the app in release mode and package it into `DuckSort.app`.
+- `create_dmg.sh`: Bash script to package the app bundle into a user-friendly disk image (`DuckSort.dmg`).
 
 ---
 
@@ -86,7 +86,7 @@ To publish this project to GitHub, make sure you configure your repository corre
 
 ### What to Upload (Tracked in Git)
 
-- **Source Code**: All directories containing Swift source code files (`PhotomatorSort/`).
+- **Source Code**: All directories containing Swift source code files (`DuckSort/`).
 - **Configuration**: Swift Package Manager manifest (`Package.swift`).
 - **Scripts**: Packaging scripts (`package_app.sh` and `create_dmg.sh`).
 - **Documentation**: This `README.md` and standard repository files (such as `.gitignore` or `LICENSE`).
@@ -96,6 +96,6 @@ To publish this project to GitHub, make sure you configure your repository corre
 We have configured a `.gitignore` file to ensure the following files are **not** uploaded to GitHub:
 - **Build Artifacts**: The Swift PM `.build/` folder and Xcode `build/` or `DerivedData` directories.
 - **User Settings**: Local Xcode user data and workspaces (`.swiftpm/`, `xcuserdata/`, `*.xcuserstate`).
-- **Compiled Binaries**: The final compiled app bundle (`PhotomatorSort.app/`) and packaging workspaces (`dmg_workspace/`, `tmp_iconset/`).
-- **Distribution Packages**: The final disk image (`PhotomatorSort.dmg`).
+- **Compiled Binaries**: The final compiled app bundle (`DuckSort.app/` or `PhotomatorSort.app/`) and packaging workspaces (`dmg_workspace/`, `tmp_iconset/`).
+- **Distribution Packages**: The final disk image (`DuckSort.dmg` or `PhotomatorSort.dmg`).
 - **OS Metadata**: Finder metadata (`.DS_Store`).

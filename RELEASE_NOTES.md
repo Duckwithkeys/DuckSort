@@ -1,6 +1,6 @@
-# Photomator Sort v1.1.0 (UI Redesign & Viewer Navigation)
+# DuckSort v1.1.0 (UI Redesign & Viewer Navigation)
 
-Welcome to version 1.1.0 of **Photomator Sort**! This release introduces a comprehensive UI overhaul to match Photomator's flat, dark professional theme, along with a newly designed sidebar, collapsible tag categories, and navigation enhancements in the large image viewer.
+Welcome to version 1.1.0 of **DuckSort**! This release introduces a comprehensive UI overhaul to match Photomator's flat, dark professional theme, along with a newly designed sidebar, collapsible tag categories, and navigation enhancements in the large image viewer.
 
 ## ✨ What's New in v1.1.0
 * **Photomator Dark UI Overhaul**: Replaced the glossy "liquid glass" elements with a flat, dark professional style using a premium charcoal and dark grey palette.
@@ -14,9 +14,9 @@ Welcome to version 1.1.0 of **Photomator Sort**! This release introduces a compr
 
 ---
 
-# Photomator Sort v1.0.0 (Initial Release)
+# DuckSort v1.0.0 (Initial Release)
 
-Welcome to the first official release of **Photomator Sort**! This native macOS application is designed to automate the workflow of scanning, organizing, tagging, and routing your photo sets—specifically built for high-end photography workflows (like Fujifilm RAW + JPEG shooters).
+Welcome to the first official release of **DuckSort**! This native macOS application is designed to automate the workflow of scanning, organizing, tagging, and routing your photo sets—specifically built for high-end photography workflows (like Fujifilm RAW + JPEG shooters).
 
 ## ✨ Key Features
 * **Smart Photo Grouping**: Automatically pairs RAW files with their corresponding JPEG representations and sidecar files (e.g., `.photo` files, edit metadata) as unified photo sets.
@@ -32,7 +32,7 @@ Welcome to the first official release of **Photomator Sort**! This native macOS 
 * **macOS 14.0 (Sonoma)** or newer.
 
 ## 📥 Installation
-1. Download the **`PhotomatorSort.dmg`** file from the assets below.
+1. Download the **`DuckSort.dmg`** file from the assets below.
 2. Double-click the downloaded `.dmg` file to mount it.
-3. Drag the **Photomator Sort** app into your `Applications` folder.
+3. Drag the **DuckSort** app into your `Applications` folder.
 4. Launch the app from Launchpad or your Applications folder!

@@ -54,7 +54,7 @@ struct ContentView: View {
             }
         }
         .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
-        .alert("Photomator Sort", isPresented: errorBinding) {
+        .alert("DuckSort", isPresented: errorBinding) {
             Button("OK", role: .cancel) {
                 viewModel.errorMessage = nil
             }
@@ -72,7 +72,7 @@ struct ContentView: View {
 
     private var customTopBar: some View {
         HStack(spacing: 12) {
-            Text("Photomator Sort")
+            Text("DuckSort")
                 .font(.headline.weight(.semibold))
                 .padding(.trailing, 4)
 

@@ -11,6 +11,8 @@ build/
 DerivedData/
 
 # Local Build & Packaging Artifacts
+DuckSort.app/
+DuckSort.dmg
 PhotomatorSort.app/
 PhotomatorSort.dmg
 dmg_workspace/

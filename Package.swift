@@ -3,17 +3,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "PhotomatorSort",
+    name: "DuckSort",
     platforms: [
         .macOS("26.0")
     ],
     products: [
-        .executable(name: "PhotomatorSort", targets: ["PhotomatorSort"])
+        .executable(name: "DuckSort", targets: ["DuckSort"])
     ],
     targets: [
         .executableTarget(
-            name: "PhotomatorSort",
-            path: "PhotomatorSort",
+            name: "DuckSort",
+            path: "DuckSort",
             resources: [
                 .process("Resources")
             ]

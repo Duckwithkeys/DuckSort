@@ -18,11 +18,11 @@ struct EmptyLibraryView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.primary)
             } else {
-                Text("Welcome to Photomator Sort")
+                Text("Welcome to DuckSort")
                     .font(.largeTitle.weight(.bold))
                     .foregroundStyle(PhotomatorTheme.textPrimary)
                 
-                Text("To get started with Photomator Sort, do any of the following:")
+                Text("To get started with DuckSort, do any of the following:")
                     .font(.subheadline)
                     .foregroundStyle(PhotomatorTheme.textSecondary)
                 
@@ -31,7 +31,7 @@ struct EmptyLibraryView: View {
                         Image(systemName: "square.and.arrow.down.on.square")
                             .font(.system(size: 36))
                             .foregroundStyle(PhotomatorTheme.textSecondary)
-                        Text("Drag files or folders directly\ninto Photomator Sort.")
+                        Text("Drag files or folders directly\ninto DuckSort.")
                             .font(.caption)
                             .foregroundStyle(PhotomatorTheme.textSecondary)
                             .multilineTextAlignment(.center)

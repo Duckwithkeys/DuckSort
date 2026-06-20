@@ -4,20 +4,20 @@ set -e
 # Ensure we run from the project root
 cd "$(dirname "$0")"
 
-echo "=== Building PhotomatorSort in Release mode ==="
+echo "=== Building DuckSort in Release mode ==="
 DEVELOPER_DIR=/Users/oliver/Downloads/Xcode-beta.app/Contents/Developer \
-xcodebuild -scheme PhotomatorSort -destination 'platform=macOS' -configuration Release SYMROOT=build OBJROOT=build/intermediates build
+xcodebuild -scheme DuckSort -destination 'platform=macOS' -configuration Release SYMROOT=build OBJROOT=build/intermediates build
 
 echo "=== Creating App Bundle ==="
-APP_DIR="PhotomatorSort.app"
+APP_DIR="DuckSort.app"
 rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 echo "=== Copying Binaries and Resources ==="
-cp build/Release/PhotomatorSort "$APP_DIR/Contents/MacOS/"
-cp -R build/Release/PhotomatorSort_PhotomatorSort.bundle "$APP_DIR/Contents/Resources/"
-cp PhotomatorSort/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/"
+cp build/Release/DuckSort "$APP_DIR/Contents/MacOS/"
+cp -R build/Release/DuckSort_DuckSort.bundle "$APP_DIR/Contents/Resources/"
+cp DuckSort/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/"
 
 echo "=== Generating Info.plist ==="
 cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
@@ -28,15 +28,15 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>PhotomatorSort</string>
+    <string>DuckSort</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
     <key>CFBundleIdentifier</key>
-    <string>com.oliver.PhotomatorSort</string>
+    <string>com.oliver.DuckSort</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Photomator Sort</string>
+    <string>DuckSort</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -54,4 +54,4 @@ EOF
 echo "=== Codesigning App Bundle ==="
 codesign --force --deep --sign - "$APP_DIR"
 
-echo "=== Package Complete: PhotomatorSort.app ==="
+echo "=== Package Complete: DuckSort.app ==="

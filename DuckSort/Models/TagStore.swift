@@ -28,7 +28,13 @@ final class TagStore: ObservableObject {
         let appSupport = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first ?? FileManager.default.temporaryDirectory
-        let folder = appSupport.appendingPathComponent("PhotomatorSort", isDirectory: true)
+        let folder = appSupport.appendingPathComponent("DuckSort", isDirectory: true)
+        let oldFolder = appSupport.appendingPathComponent("PhotomatorSort", isDirectory: true)
+        
+        if !FileManager.default.fileExists(atPath: folder.path) && FileManager.default.fileExists(atPath: oldFolder.path) {
+            try? FileManager.default.moveItem(at: oldFolder, to: folder)
+        }
+        
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         self.storeURL = folder.appendingPathComponent("tags.json")
         load()

@@ -4,8 +4,8 @@ set -e
 # Ensure we run from the project root
 cd "$(dirname "$0")"
 
-APP_NAME="PhotomatorSort.app"
-DMG_NAME="PhotomatorSort.dmg"
+APP_NAME="DuckSort.app"
+DMG_NAME="DuckSort.dmg"
 WORKSPACE="dmg_workspace"
 
 if [ ! -d "$APP_NAME" ]; then
@@ -25,7 +25,7 @@ ln -s /Applications "$WORKSPACE/Applications"
 
 echo "=== Building Compressed DMG ==="
 rm -f "$DMG_NAME"
-hdiutil create -volname "Photomator Sort" -srcfolder "$WORKSPACE" -ov -format UDZO "$DMG_NAME"
+hdiutil create -volname "DuckSort" -srcfolder "$WORKSPACE" -ov -format UDZO "$DMG_NAME"
 
 echo "=== Cleaning Up ==="
 rm -rf "$WORKSPACE"

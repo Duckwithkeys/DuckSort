@@ -7,7 +7,7 @@ import SwiftUI
 import AppKit
 
 @main
-struct PhotomatorSortApp: App {
+struct DuckSortApp: App {
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
