@@ -91,6 +91,8 @@ actor FileTransferService {
         for photoSet in plan.photoSets {
             let mediaSet = Set(photoSet.mediaFiles.map { $0.standardizedFileURL })
             let tagNames = plan.tagNames[photoSet.id] ?? []
+            let setMetadata = photoSet.preferredPreviewURL
+                .map { metadataReader.metadata(for: $0) } ?? MetadataSnapshot()
 
             for sourceURL in photoSet.allFiles {
                 try Task.checkCancellation()
@@ -112,7 +114,7 @@ actor FileTransferService {
                 if mediaSet.contains(sourceURL.standardizedFileURL) {
                     let payload = SidecarPayload(
                         tagNames: tagNames,
-                        capture: metadataReader.metadata(for: destinationURL)
+                        capture: setMetadata
                     )
                     do {
                         try await sidecarService.writeExportSidecar(payload, besideDestinationFile: destinationURL)

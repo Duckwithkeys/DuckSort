@@ -26,6 +26,33 @@ final class FileTransferSidecarTests: XCTestCase {
         XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""))
     }
 
+    func test_copy_rawJpegShareSidecar_capturesReadableJpegMetadata() async throws {
+        let src = try TempDir.make(); let dst = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
+
+        // Readable JPEG with EXIF + an unreadable RAW sibling sharing the basename.
+        let jpg = src.appendingPathComponent("IMG.jpg")
+        try ImageFixture.writeJPEG(to: jpg, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        let raf = src.appendingPathComponent("IMG.raf")
+        try Data("not a real raw".utf8).write(to: raf)
+        let set = PhotoSet(baseName: "IMG", mediaFiles: [jpg, raf], editPath: nil)
+
+        let plan = TransferPlan(
+            operation: .copy,
+            destinationDirectory: dst,
+            photoSets: [set],
+            tagNames: [set.id: ["Family"]]
+        )
+        let summary = try await FileTransferService().execute(plan)
+        XCTAssertEqual(summary.sidecarFailures, 0)
+
+        // The single shared sidecar must carry the JPEG-derived camera model,
+        // not empty data from the unreadable RAF processed last.
+        let xml = try String(contentsOf: dst.appendingPathComponent("IMG.xmp"), encoding: .utf8)
+        XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""), "shared sidecar should keep readable JPEG metadata")
+        XCTAssertTrue(xml.contains("<rdf:li>Family</rdf:li>"))
+    }
+
     func test_move_sameLocation_preservesSidecar() async throws {
         let dir = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: dir) }
