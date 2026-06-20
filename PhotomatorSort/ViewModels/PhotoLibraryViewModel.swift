@@ -20,6 +20,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     let tagStore: TagStore
     let ruleStore: ExportRuleStore
     
+    private var isInitializing = true
+    
     // MARK: - Published state
     
     @Published private(set) var sourceDirectories: [URL] = []
@@ -28,24 +30,28 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:]
     @Published var filterRule: PhotoFilterRule = .allPhotos {
         didSet {
+            guard !isInitializing else { return }
             UserPreferences.shared.lastFilterRule = filterRule
             UserPreferences.shared.save()
         }
     }
     @Published var namingPreset: ExportNamingPreset = .dateOriginalSequence {
         didSet {
+            guard !isInitializing else { return }
             UserPreferences.shared.lastNamingPreset = namingPreset
             UserPreferences.shared.save()
         }
     }
     @Published var jpegQuality: Double = 0.92 {
         didSet {
+            guard !isInitializing else { return }
             UserPreferences.shared.lastJpegQuality = jpegQuality
             UserPreferences.shared.save()
         }
     }
     @Published var isJpegOnlyMode: Bool = false {
         didSet {
+            guard !isInitializing else { return }
             UserPreferences.shared.isJpegOnlyMode = isJpegOnlyMode
             UserPreferences.shared.save()
             if !sourceDirectories.isEmpty {
@@ -55,6 +61,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
     @Published var isInspectorOpen: Bool = false {
         didSet {
+            guard !isInitializing else { return }
             UserPreferences.shared.isInspectorOpen = isInspectorOpen
             UserPreferences.shared.save()
         }
@@ -113,6 +120,8 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.tagManagerHotkey = UserPreferences.shared.tagManagerHotkey
         self.ruleEditorHotkey = UserPreferences.shared.ruleEditorHotkey
         self.openSourceHotkey = UserPreferences.shared.openSourceHotkey
+        
+        self.isInitializing = false
         
         if !sourceDirectories.isEmpty {
             Task { [weak self] in
@@ -431,10 +440,11 @@ final class PhotoLibraryViewModel: ObservableObject {
     private func commitTagChange(_ tagIDs: Set<UUID>, for photo: PhotoSet, remove: Bool) {
         tagStore.setTags(tagIDs, for: photo.id)
         
-        tagTask?.cancel()
         let names = tagIDs.compactMap { tagStore.tag(id: $0)?.name }
         let nameSet = Set(names)
+        let previousTask = tagTask
         tagTask = Task { [xmpTagging] in
+            _ = await previousTask?.result
             do {
                 if remove {
                     try await xmpTagging.clear(for: photo)

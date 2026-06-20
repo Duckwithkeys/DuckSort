@@ -73,18 +73,25 @@ final class ExportRuleStore: ObservableObject {
     // MARK: - Persistence
 
     func load() {
-        guard FileManager.default.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let decoded = try? JSONDecoder().decode(PersistedShape.self, from: data)
-        else { return }
-        rules = decoded.rules
-        selectedRuleID = decoded.selectedRuleID
+        guard FileManager.default.fileExists(atPath: storeURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: storeURL)
+            let decoded = try JSONDecoder().decode(PersistedShape.self, from: data)
+            rules = decoded.rules
+            selectedRuleID = decoded.selectedRuleID
+        } catch {
+            print("Failed to load ExportRuleStore JSON: \(error)")
+        }
     }
 
     func save() {
         let shape = PersistedShape(rules: rules, selectedRuleID: selectedRuleID)
-        guard let data = try? JSONEncoder().encode(shape) else { return }
-        try? data.write(to: storeURL, options: .atomic)
+        do {
+            let data = try JSONEncoder().encode(shape)
+            try data.write(to: storeURL, options: .atomic)
+        } catch {
+            print("Failed to save ExportRuleStore JSON: \(error)")
+        }
     }
 
     // MARK: - Defaults

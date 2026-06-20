@@ -67,7 +67,7 @@ struct InspectorPanelView: View {
     }
     
     private func formatShutter(_ value: Double?) -> String {
-        guard let value else { return "--" }
+        guard let value = value, value > 0 else { return "--" }
         if value >= 1 {
             return String(format: "%.1fs", value)
         } else {

@@ -173,16 +173,19 @@ final class TagStore: ObservableObject {
     // MARK: - Persistence
 
     func load() {
-        guard FileManager.default.fileExists(atPath: storeURL.path),
-              let data = try? Data(contentsOf: storeURL),
-              let decoded = try? JSONDecoder().decode(PersistedShape.self, from: data)
-        else {
+        guard FileManager.default.fileExists(atPath: storeURL.path) else {
             return
         }
-        categories = decoded.categories
-        tags = decoded.tags
-        let map = Dictionary(uniqueKeysWithValues: decoded.assignments.map { ($0.photoSetID, $0) })
-        assignments = map
+        do {
+            let data = try Data(contentsOf: storeURL)
+            let decoded = try JSONDecoder().decode(PersistedShape.self, from: data)
+            categories = decoded.categories
+            tags = decoded.tags
+            let map = Dictionary(uniqueKeysWithValues: decoded.assignments.map { ($0.photoSetID, $0) })
+            assignments = map
+        } catch {
+            print("Failed to load TagStore JSON: \(error)")
+        }
     }
 
     func save() {
@@ -191,8 +194,12 @@ final class TagStore: ObservableObject {
             tags: tags,
             assignments: Array(assignments.values)
         )
-        guard let data = try? JSONEncoder().encode(shape) else { return }
-        try? data.write(to: storeURL, options: .atomic)
+        do {
+            let data = try JSONEncoder().encode(shape)
+            try data.write(to: storeURL, options: .atomic)
+        } catch {
+            print("Failed to save TagStore JSON: \(error)")
+        }
     }
 
     // MARK: - Default seeding

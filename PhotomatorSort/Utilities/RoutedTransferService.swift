@@ -177,7 +177,7 @@ actor RoutedTransferService {
                 // Now clean up original source files since they have been copied to all destinations
                 for sourceURL in routed.photoSet.allFiles {
                     if fm.fileExists(atPath: sourceURL.path) {
-                        try? fm.removeItem(at: sourceURL)
+                        try fm.removeItem(at: sourceURL)
                     }
                 }
                 
