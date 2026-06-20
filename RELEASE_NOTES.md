@@ -1,3 +1,19 @@
+# Photomator Sort v1.1.0 (UI Redesign & Viewer Navigation)
+
+Welcome to version 1.1.0 of **Photomator Sort**! This release introduces a comprehensive UI overhaul to match Photomator's flat, dark professional theme, along with a newly designed sidebar, collapsible tag categories, and navigation enhancements in the large image viewer.
+
+## ✨ What's New in v1.1.0
+* **Photomator Dark UI Overhaul**: Replaced the glossy "liquid glass" elements with a flat, dark professional style using a premium charcoal and dark grey palette.
+* **Collapsible Tags Sidebar**: A brand new left navigation sidebar that spans the full height of the window, featuring collapsible sections for library items, folders, and custom tags.
+* **Interactive Tag Filtering**: Click tags in the sidebar to filter the grid instantly. Supports multi-selection filters for fine-tuned organization.
+* **Large Image Viewer Enhancements**:
+  * **Unified Grey Background**: Replaced the pitch-black canvas background with the same dark grey background as the grid view for visual consistency.
+  * **Back Chevron Button**: Added an intuitive `<` back button next to the window control traffic lights to quickly exit/close the large image viewer.
+  * **Clean Top Bar Spacing**: Aligned viewer top-bar elements to guarantee that text never clips under native macOS traffic lights.
+* **Refined Photo Cells**: Compacted grid cells with a 2px selection border (using the signature Photomator blue) and subtle hover highlights.
+
+---
+
 # Photomator Sort v1.0.0 (Initial Release)
 
 Welcome to the first official release of **Photomator Sort**! This native macOS application is designed to automate the workflow of scanning, organizing, tagging, and routing your photo sets—specifically built for high-end photography workflows (like Fujifilm RAW + JPEG shooters).
