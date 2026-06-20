@@ -1,0 +1,21 @@
+# macOS Finder files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Swift Package Manager & Xcode Build artifacts
+.build/
+.swiftpm/
+build/
+DerivedData/
+
+# Local Build & Packaging Artifacts
+PhotomatorSort.app/
+PhotomatorSort.dmg
+dmg_workspace/
+tmp_iconset/
+
+# Xcode user settings
+xcuserdata/
+*.xcuserstate
