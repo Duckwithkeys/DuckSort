@@ -50,7 +50,7 @@ struct ExportRuleEditorView: View {
             }
         }
         .frame(minWidth: 820, minHeight: 540)
-        .liquidGlassSidebar(cornerRadius: 16)
+        .background(.ultraThinMaterial)
     }
 
     private var ruleList: some View {

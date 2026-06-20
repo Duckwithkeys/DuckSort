@@ -24,7 +24,7 @@ struct LargeImagePane: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            PhotomatorTheme.background
                 .ignoresSafeArea()
 
             let highResImage = (imageLoader.loadedURL == photoSet.preferredPreviewURL ? imageLoader.image : nil) ?? LargeImageLoader.cachedImage(for: photoSet.preferredPreviewURL)

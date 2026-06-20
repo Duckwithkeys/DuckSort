@@ -17,7 +17,7 @@ struct PhotomatorSortApp: App {
         WindowGroup {
             ContentView()
         }
-        .windowStyle(.titleBar)
+        .windowStyle(.hiddenTitleBar)
         .commands {
             SidebarCommands()
             TextEditingCommands()

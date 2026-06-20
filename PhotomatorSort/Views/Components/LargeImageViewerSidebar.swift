@@ -63,7 +63,7 @@ struct LargeImageViewerSidebar: View {
                     }
 
                     Divider()
-                        .background(Color.white.opacity(0.12))
+                        .background(PhotomatorTheme.separator)
 
                     // MARK: - Section 2: Metadata
                     VStack(alignment: .leading, spacing: 12) {
@@ -89,7 +89,7 @@ struct LargeImageViewerSidebar: View {
                     }
 
                     Divider()
-                        .background(Color.white.opacity(0.12))
+                        .background(PhotomatorTheme.separator)
 
                     // MARK: - Section 3: Export Preview
                     VStack(alignment: .leading, spacing: 10) {
@@ -142,7 +142,7 @@ struct LargeImageViewerSidebar: View {
                             }
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+                            .background(PhotomatorTheme.cellBackground, in: RoundedRectangle(cornerRadius: 6))
                         }
                     }
                 }
@@ -150,8 +150,8 @@ struct LargeImageViewerSidebar: View {
             }
         }
         .frame(width: 260)
-        .background(.thinMaterial)
-        .border(width: 1, edges: [.leading], color: Color.white.opacity(0.12))
+        .background(PhotomatorTheme.sidebarBackground)
+        .border(width: 1, edges: [.leading], color: PhotomatorTheme.separator)
     }
 
     // MARK: - Helper Views / Formatters

@@ -14,26 +14,29 @@ struct ContentView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 12) {
-                if viewModel.photoSets.isEmpty {
-                    EmptyLibraryView(isScanning: viewModel.isScanning) {
-                        viewModel.addSourceDirectory()
-                    }
-                } else {
-                    PhotoGridView(viewModel: viewModel)
-                }
+            HStack(spacing: 0) {
+                SidebarView(viewModel: viewModel)
                 
-                TransferFooter(viewModel: viewModel)
+                VStack(spacing: 0) {
+                    customTopBar
+                        .zIndex(1)
+                    
+                    VStack(spacing: 12) {
+                        if viewModel.photoSets.isEmpty {
+                            EmptyLibraryView(isScanning: viewModel.isScanning) {
+                                viewModel.addSourceDirectory()
+                            }
+                        } else {
+                            PhotoGridView(viewModel: viewModel)
+                        }
+                        
+                        TransferFooter(viewModel: viewModel)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(PhotomatorTheme.background)
+                }
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                LinearGradient(
-                    colors: [Color(NSColor.windowBackgroundColor), Color(NSColor.underPageBackgroundColor).opacity(0.85)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
             .onAppear {
                 windowWidth = geometry.size.width
             }
@@ -64,61 +67,77 @@ struct ContentView: View {
                 return handleGlobalKeyPress(event)
             }
         }
-        .toolbar {
-            ToolbarItem(id: "title", placement: .navigation) {
-                Text("Photomator Sort")
-                    .font(.headline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.primary)
-                    .padding(.trailing, 6)
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    private var customTopBar: some View {
+        HStack(spacing: 12) {
+            Text("Photomator Sort")
+                .font(.headline.weight(.semibold))
+                .padding(.trailing, 4)
+
+            Button {
+                showSourcesPopover = true
+            } label: {
+                Label(
+                    viewModel.sourceDirectories.isEmpty
+                        ? "Add Source"
+                        : "\(viewModel.sourceDirectories.count) Source\(viewModel.sourceDirectories.count == 1 ? "" : "s")",
+                    systemImage: "photo.on.rectangle.angled"
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .liquidGlassButton(isHovered: false)
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showSourcesPopover, arrowEdge: .bottom) {
+                SourceFoldersPopoverView(viewModel: viewModel)
             }
 
-            ToolbarItem(id: "sources", placement: .navigation) {
-                Button {
-                    showSourcesPopover = true
-                } label: {
-                    Label(
-                        viewModel.sourceDirectories.isEmpty
-                            ? "Add Source"
-                            : "\(viewModel.sourceDirectories.count) Source\(viewModel.sourceDirectories.count == 1 ? "" : "s")",
-                        systemImage: "photo.on.rectangle.angled"
-                    )
-                }
-                .help("Manage source folders")
-                .popover(isPresented: $showSourcesPopover, arrowEdge: .bottom) {
-                    SourceFoldersPopoverView(viewModel: viewModel)
-                }
+            Button {
+                viewModel.clearSelection()
+            } label: {
+                Label("Unselect All", systemImage: "checkmark.circle.badge.xmark")
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .liquidGlassButton(isHovered: false)
             }
+            .buttonStyle(.plain)
+            .disabled(viewModel.selectedCount == 0)
 
-            ToolbarItem(id: "deselectAll", placement: .navigation) {
-                Button {
-                    viewModel.clearSelection()
-                } label: {
-                    Label("Unselect All", systemImage: "checkmark.circle.badge.xmark")
-                }
-                .disabled(viewModel.selectedCount == 0)
-                .help("Unselect all photo sets")
-            }
+            Spacer()
 
-            ToolbarItem(id: "jpegOnly", placement: .navigation) {
-                Toggle("JPEG Only", isOn: $viewModel.isJpegOnlyMode)
-                    .toggleStyle(.switch)
-                    .help("Only scan JPEGs and disable edit warnings")
-            }
-
-            ToolbarItem(id: "filterRule", placement: .navigation) {
-                Picker("Filter", selection: $viewModel.filterRule) {
-                    ForEach(PhotoFilterRule.allCases) { rule in
-                        Text(rule.rawValue)
-                            .tag(rule)
-                    }
+            Button {
+                viewModel.isJpegOnlyMode.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: viewModel.isJpegOnlyMode ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(viewModel.isJpegOnlyMode ? .blue : .secondary)
+                    Text("JPEG Only")
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 360)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .liquidGlassButton(isHovered: false, isApplied: viewModel.isJpegOnlyMode)
             }
+            .buttonStyle(.plain)
+            .help("Only scan JPEGs and disable edit warnings")
+
         }
-        .toolbar(viewModel.isLargeImageViewerOpen ? .hidden : .visible, for: .windowToolbar)
-        .toolbarBackground(.hidden, for: .windowToolbar)
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
+        .background(
+            Rectangle()
+                .fill(PhotomatorTheme.toolbarBackground)
+                .ignoresSafeArea()
+        )
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(PhotomatorTheme.separator),
+            alignment: .bottom
+        )
     }
 
     private var errorBinding: Binding<Bool> {
@@ -433,12 +452,11 @@ struct ShortcutsPopoverView: View {
                             }
                         }
                     }
-                    .frame(maxHeight: 120)
                 }
             }
         }
-        .padding(14)
-        .frame(width: 320)
+        .padding(20)
+        .frame(minWidth: 320, idealWidth: 360, maxWidth: .infinity, minHeight: 400, idealHeight: 480, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func shortcutRow(label: String, shortcut: String) -> some View {

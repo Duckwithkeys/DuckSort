@@ -15,14 +15,14 @@ struct PhotoSetCell: View {
     @State private var isHovered = false
 
     private var statusColor: Color {
-        if photoSet.isSelected { return .green }
-        if isJpegOnlyMode { return .blue }
+        if photoSet.isSelected { return PhotomatorTheme.selectedBlue }
+        if isJpegOnlyMode { return PhotomatorTheme.selectedBlue }
         if !photoSet.hasEdit { return .red }
         return .orange
     }
 
     private var statusBackground: Color {
-        statusColor.opacity(photoSet.isSelected ? 0.18 : 0.10)
+        statusColor.opacity(photoSet.isSelected ? 0.20 : 0.10)
     }
 
     var body: some View {
@@ -78,14 +78,13 @@ struct PhotoSetCell: View {
                     tagPills
                 }
             }
-            .padding(10)
+            .padding(8)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5)) // Base layer
             .liquidGlassButton(isHovered: isHovered, isApplied: photoSet.isSelected, accentColor: statusColor)
             .overlay {
                 if isFocusedGridItem {
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.accentColor, lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.accentColor, lineWidth: 2)
                         .padding(-2)
                 }
             }
@@ -97,7 +96,7 @@ struct PhotoSetCell: View {
             }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 
     @ViewBuilder
@@ -110,9 +109,9 @@ struct PhotoSetCell: View {
             .font(.caption.weight(.bold))
             .foregroundStyle(.white)
             .labelStyle(.iconOnly)
-            .padding(7)
+            .padding(5)
             .background(statusColor, in: Circle())
-            .padding(7)
+            .padding(5)
             .help(photoSet.hasEdit ? "Photomator edit detected" : "No Photomator edit sidecar found")
         }
     }
@@ -130,7 +129,7 @@ struct PhotoSetCell: View {
                 }
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
-                .background(tag.color.opacity(0.15), in: Capsule())
+                .background(tag.color.opacity(0.20), in: Capsule())
             }
         }
     }

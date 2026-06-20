@@ -2,84 +2,66 @@
 //  LiquidGlassStyle.swift
 //  PhotomatorSort
 //
-//  Design system modifiers for the Apple iOS 27 style "Liquid Glass" theme.
-//  Provides glassmorphism panels, cut-glass edge borders, and fluid button scales.
+//  Design system modifiers inspired by Photomator's dark professional aesthetic.
+//  Provides flat dark panels, subtle hover highlights, and consistent styling.
 //
 
 import SwiftUI
 
+// MARK: - Photomator Color Constants
+
+enum PhotomatorTheme {
+    static let background = Color(red: 0.176, green: 0.176, blue: 0.176)        // #2D2D2D
+    static let sidebarBackground = Color(red: 0.145, green: 0.145, blue: 0.145) // #252525
+    static let toolbarBackground = Color(red: 0.200, green: 0.200, blue: 0.200) // #333333
+    static let cellBackground = Color(red: 0.160, green: 0.160, blue: 0.160)    // #292929
+    static let separator = Color(red: 0.227, green: 0.227, blue: 0.227)         // #3A3A3A
+    static let selectedBlue = Color(red: 0.251, green: 0.537, blue: 1.0)        // #4089FF
+    static let textPrimary = Color.white.opacity(0.88)
+    static let textSecondary = Color.white.opacity(0.50)
+    static let textTertiary = Color.white.opacity(0.30)
+}
+
 extension View {
-    /// Applies a deep Liquid Glass style for sidebars and popovers.
-    func liquidGlassSidebar(cornerRadius: CGFloat = 16) -> some View {
+    /// Applies the Photomator-style dark sidebar background.
+    func liquidGlassSidebar(cornerRadius: CGFloat = 0) -> some View {
         self
-            .background(.ultraThinMaterial)
-            .background(Color.black.opacity(0.15))
+            .background(PhotomatorTheme.sidebarBackground)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+    }
+
+    /// Applies a flat dark panel style with subtle border.
+    func liquidGlassPanel(cornerRadius: CGFloat = 8, opacity: Double = 0.08) -> some View {
+        self
+            .background(PhotomatorTheme.cellBackground)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(
-                        LinearGradient(
-                            colors: [.white.opacity(0.1), .clear, .black.opacity(0.2)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
+                    .stroke(PhotomatorTheme.separator, lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.2), radius: 20, y: 10)
     }
 
-    /// Applies a premium Liquid Glass panel style with blurred background and refractive border.
-    func liquidGlassPanel(cornerRadius: CGFloat = 12, opacity: Double = 0.08) -> some View {
-        self
-            .background(.thinMaterial)
-            .background(Color.white.opacity(opacity))
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(
-                        LinearGradient(
-                            colors: [.white.opacity(0.18), .white.opacity(0.04), .black.opacity(0.10)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.15), radius: 10, y: 4)
-    }
-
-    /// Applies a refractive glass style suitable for buttons and interactive components.
-    func liquidGlassButton(isHovered: Bool = false, isApplied: Bool = false, accentColor: Color = .accentColor) -> some View {
+    /// Applies a flat dark button style with subtle hover and selection states.
+    func liquidGlassButton(isHovered: Bool = false, isApplied: Bool = false, accentColor: Color = PhotomatorTheme.selectedBlue) -> some View {
         self
             .background(
                 ZStack {
                     if isApplied {
-                        accentColor.opacity(0.15)
+                        accentColor.opacity(0.20)
                     } else if isHovered {
-                        Color.white.opacity(0.12)
+                        Color.white.opacity(0.08)
                     } else {
-                        Color.white.opacity(0.05)
+                        Color.white.opacity(0.04)
                     }
                 }
             )
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 6)
                     .stroke(
-                        LinearGradient(
-                            colors: [
-                                isApplied ? accentColor.opacity(0.6) : .white.opacity(isHovered ? 0.25 : 0.12),
-                                .white.opacity(0.02),
-                                .black.opacity(0.08)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
+                        isApplied ? accentColor.opacity(0.5) : Color.white.opacity(isHovered ? 0.15 : 0.08),
                         lineWidth: 1
                     )
             )
-            .scaleEffect(isHovered ? 1.02 : 1.0)
-            .animation(.easeOut(duration: 0.15), value: isHovered)
     }
 }

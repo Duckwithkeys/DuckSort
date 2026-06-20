@@ -96,8 +96,14 @@ struct TransferFooter: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .liquidGlassPanel()
+        .padding(.vertical, 8)
+        .background(PhotomatorTheme.background)
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(PhotomatorTheme.separator),
+            alignment: .top
+        )
         .sheet(isPresented: $showExportConfigurator) {
             JPEGExportConfiguratorSheet(viewModel: viewModel)
         }
@@ -126,7 +132,7 @@ struct TransferFooter: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color.secondary.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+            .background(PhotomatorTheme.cellBackground, in: RoundedRectangle(cornerRadius: 6))
         } else {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")

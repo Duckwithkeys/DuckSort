@@ -10,14 +10,14 @@ struct PhotoGridView: View {
     @State private var gridWidth: CGFloat = 800
 
     private let columns = [
-        GridItem(.adaptive(minimum: 208), spacing: 18)
+        GridItem(.adaptive(minimum: 180), spacing: 14)
     ]
 
     var body: some View {
         GeometryReader { geometry in
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 18) {
+                    LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
                             let isFocused = index == viewModel.focusedPhotoIndex
                             PhotoSetCell(
@@ -48,8 +48,8 @@ struct PhotoGridView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 22)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 16)
                 }
                 .onChange(of: viewModel.focusedPhotoIndex) { _, newIndex in
                     withAnimation(.easeInOut(duration: 0.15)) {
@@ -68,7 +68,7 @@ struct PhotoGridView: View {
             if viewModel.isScanning {
                 ProgressView("Scanning subfolders...")
                     .padding(12)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .background(PhotomatorTheme.cellBackground, in: RoundedRectangle(cornerRadius: 8))
                     .padding(.top, 18)
             }
         }

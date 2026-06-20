@@ -13,12 +13,12 @@ struct LargeImageViewer: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            PhotomatorTheme.background
                 .ignoresSafeArea()
 
             HStack(spacing: 0) {
                 // Left Column (Top Bar + Image Canvas + Bottom Filmstrip)
-                VStack(spacing: 12) {
+                VStack(spacing: 0) {
                     // Top bar: photo info + close
                     if let photo = viewModel.currentFocusedPhotoSet {
                         topBar(photo)
@@ -48,17 +48,17 @@ struct LargeImageViewer: View {
                         FilmstripView(viewModel: viewModel)
                             .liquidGlassPanel()
                     }
+                    .padding([.horizontal, .bottom], 12)
+                    .padding(.top, 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .animation(.spring(response: 0.3, dampingFraction: 0.8), value: viewModel.isInspectorOpen)
                 }
-                .padding(.vertical, 12)
-                .padding(.leading, 12)
-                .padding(.trailing, 12)
 
                 // Right Column (Sidebar controls & metadata)
                 LargeImageViewerSidebar(viewModel: viewModel)
                     .ignoresSafeArea()
             }
+            .ignoresSafeArea(edges: .top)
         }
     }
 
@@ -67,6 +67,25 @@ struct LargeImageViewer: View {
     @ViewBuilder
     private func topBar(_ photo: PhotoSet) -> some View {
         HStack(spacing: 12) {
+            Spacer().frame(width: 72) // Space for macOS traffic lights
+
+            // Back/Escape button next to traffic lights
+            Button {
+                viewModel.closeLargeImageViewer()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(6)
+                    .liquidGlassButton(isHovered: false)
+            }
+            .buttonStyle(.plain)
+            .help("Close viewer (Esc)")
+
+            Rectangle()
+                .fill(PhotomatorTheme.separator)
+                .frame(width: 1, height: 16)
+
             // Navigation counter
             Text("\(viewModel.focusedPhotoIndex + 1) / \(viewModel.filteredPhotoSets.count)")
                 .font(.caption.monospacedDigit())
@@ -108,15 +127,12 @@ struct LargeImageViewer: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: photo.isSelected ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
                         .foregroundStyle(photo.isSelected ? .green : .white.opacity(0.7))
                     Text(photo.isSelected ? "Selected" : "Unselected")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.9))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(.ultraThinMaterial, in: Capsule())
+                .liquidGlassButton(isHovered: false, isApplied: photo.isSelected, accentColor: .green)
             }
             .buttonStyle(.plain)
             .help("Toggle selection (S)")
@@ -126,10 +142,10 @@ struct LargeImageViewer: View {
                 viewModel.isInspectorOpen.toggle()
             } label: {
                 Image(systemName: "info.circle")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(viewModel.isInspectorOpen ? .accentColor : .white.opacity(0.7))
-                    .padding(8)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .padding(6)
+                    .liquidGlassButton(isHovered: false, isApplied: viewModel.isInspectorOpen)
             }
             .buttonStyle(.plain)
             .help("Toggle Metadata Inspector (I)")
@@ -139,16 +155,27 @@ struct LargeImageViewer: View {
                 viewModel.closeLargeImageViewer()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(.white.opacity(0.7))
-                    .padding(8)
-                    .background(.ultraThinMaterial, in: Circle())
+                    .padding(6)
+                    .liquidGlassButton(isHovered: false)
             }
             .buttonStyle(.plain)
             .help("Close viewer (Esc)")
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .liquidGlassPanel()
+        .padding(.trailing, 12)
+        .padding(.top, 10) // Matches ContentView's top padding for traffic lights
+        .padding(.bottom, 8)
+        .background(
+            Rectangle()
+                .fill(PhotomatorTheme.sidebarBackground)
+                .ignoresSafeArea()
+        )
+        .overlay(
+            Rectangle()
+                .frame(height: 1)
+                .foregroundStyle(PhotomatorTheme.separator),
+            alignment: .bottom
+        )
     }
 }

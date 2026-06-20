@@ -35,6 +35,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             UserPreferences.shared.save()
         }
     }
+    @Published var selectedTagFilters: Set<UUID> = []
     @Published var namingPreset: ExportNamingPreset = .dateOriginalSequence {
         didSet {
             guard !isInitializing else { return }
@@ -145,7 +146,11 @@ final class PhotoLibraryViewModel: ObservableObject {
     // MARK: - Derived state
     
     var filteredPhotoSets: [PhotoSet] {
-        photoSets.filter { filterRule.matches($0) }
+        var list = photoSets.filter { filterRule.matches($0) }
+        if !selectedTagFilters.isEmpty {
+            list = list.filter { !selectedTagFilters.isDisjoint(with: tagStore.assignedTagIDs(for: $0.id)) }
+        }
+        return list
     }
     
     var selectedPhotoSets: [PhotoSet] {
