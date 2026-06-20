@@ -192,6 +192,81 @@ actor XMPTaggingService {
         return names.isEmpty ? nil : names
     }
 
+    // MARK: - Export sidecars
+
+    /// Destination sidecar URL for a media file (BASENAME.xmp).
+    nonisolated static func exportSidecarURL(for fileURL: URL) -> URL {
+        fileURL.deletingPathExtension().appendingPathExtension("xmp")
+    }
+
+    /// Write a fresh export sidecar beside a destination media file, recording
+    /// both custom tag keywords and capture metadata. Overwrites any existing
+    /// sidecar at that path (destination sidecars are export artifacts).
+    func writeExportSidecar(_ payload: SidecarPayload, besideDestinationFile fileURL: URL) throws {
+        let url = Self.exportSidecarURL(for: fileURL)
+        let xmp = Self.exportXMP(payload)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try xmp.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private static func exportXMP(_ payload: SidecarPayload) -> String {
+        var attrs: [String] = []
+        if let v = payload.capture.cameraModel { attrs.append("tiff:Model=\"\(escape(v))\"") }
+        if let v = payload.capture.lensModel { attrs.append("exif:LensModel=\"\(escape(v))\"") }
+        if let v = payload.capture.aperture { attrs.append("exif:FNumber=\"\(formatNumber(v))\"") }
+        if let v = payload.capture.shutterSpeed { attrs.append("exif:ExposureTime=\"\(formatNumber(v))\"") }
+        if let v = payload.capture.iso { attrs.append("exif:ISOSpeedRatings=\"\(v)\"") }
+        if let date = payload.capture.captureDate {
+            attrs.append("exif:DateTimeOriginal=\"\(iso8601.string(from: date))\"")
+        }
+        let captureAttrs = attrs.isEmpty ? "" : "\n          " + attrs.joined(separator: "\n          ")
+
+        let subjectBlock: String
+        let sortedNames = payload.tagNames.sorted()
+        if sortedNames.isEmpty {
+            subjectBlock = ""
+        } else {
+            let keywords = sortedNames
+                .map { "<rdf:li>\(escape($0))</rdf:li>" }
+                .joined(separator: "\n                ")
+            subjectBlock = """
+
+              <dc:subject>
+                <rdf:Bag>
+                  \(keywords)
+                </rdf:Bag>
+              </dc:subject>
+            """
+        }
+
+        return """
+        <?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="DuckSort">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description
+              xmlns:dc="http://purl.org/dc/elements/1.1/"
+              xmlns:tiff="http://ns.adobe.com/tiff/1.0/"
+              xmlns:exif="http://ns.adobe.com/exif/1.0/"\(captureAttrs)>\(subjectBlock)
+            </rdf:Description>
+          </rdf:RDF>
+        </x:xmpmeta>
+        <?xpacket end="r"?>
+        """
+    }
+
+    private static func formatNumber(_ value: Double) -> String {
+        if value == value.rounded() { return String(Int(value)) }
+        return String(format: "%.4g", value)
+    }
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     // MARK: - XML escaping
 
     private static func escape(_ value: String) -> String {

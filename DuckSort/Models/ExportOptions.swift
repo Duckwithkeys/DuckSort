@@ -49,6 +49,13 @@ struct MetadataSnapshot: Sendable {
     var iso: Int?
 }
 
+/// Everything an export sidecar records for one destination file:
+/// the custom tag keywords plus the capture metadata snapshot.
+struct SidecarPayload: Sendable {
+    let tagNames: Set<String>
+    let capture: MetadataSnapshot
+}
+
 struct FileOperationProgress: Sendable {
     let completed: Int
     let total: Int
