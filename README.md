@@ -1,4 +1,4 @@
-# Photomator Sort
+# DuckSort
 
 A native macOS application designed to automate the workflow of scanning, organizing, tagging, and routing photo sets. It groups RAW files, JPEGs, and sidecar files (such as Photomator edits) into unified sets, allowing you to manage and export them efficiently using customizable routing rules.
 
