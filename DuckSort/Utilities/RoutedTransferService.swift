@@ -219,9 +219,10 @@ actor RoutedTransferService {
                     let dest = uniqueDestinationURL(
                         forFileName: fileName, in: folder, fileManager: fm
                     )
-                    try writeJPEG(from: sourceURL, to: dest, quality: plan.jpegQuality, tagNames: Set(routed.tags.map(\.name)))
+                    let tagNames = Set(routed.tags.map(\.name))
+                    try writeJPEG(from: sourceURL, to: dest, quality: plan.jpegQuality, tagNames: tagNames)
                     await writeSidecar(
-                        tagNames: Set(routed.tags.map(\.name)),
+                        tagNames: tagNames,
                         capture: metadata,
                         besideDestination: dest,
                         failures: &sidecarFailures
