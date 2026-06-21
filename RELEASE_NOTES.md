@@ -1,3 +1,25 @@
+# DuckSort v1.2.0 (Branded UI, Extended Scroll & Streamlined Operations)
+
+Welcome to version 1.2.0 of **DuckSort**! This release introduces custom branded visual assets, layout refinements that maximize vertical screen real estate, enhanced sidebar features, and streamlined culling controls.
+
+## ✨ What's New in v1.2.0
+* **Branded Custom Logo**: Replaced the generic app/folder icon next to the "DuckSort" header with the custom logo (a duck floating on filmstrips) dynamically loaded from the bundle resources.
+* **Accent Separator Line**: Added a solid, 1px horizontal accent line (colored with signature brand blue) in the sidebar to define a clear visual break between the branded app header and library list.
+* **Extended Grid Scroll Layout**: Removed the top-level container padding to allow the photos grid `ScrollView` to stretch to the absolute top of the window frame (`0pt`), preventing scrollable images from getting early boundary clipped.
+* **Window Controls Clearance**: Offset the top margin of grid items (`44pt`) and the subfolder scanning indicator (`48pt`) to sit cleanly below the window traffic lights when scrolled to the top.
+* **Sidebar Sources Management**:
+  - Integrated "+ Add Source..." directly under the sources list.
+  - Added hover action icons to reveal any source folder in Finder (magnifying glass) or remove it (x).
+  - Added context menus with right-click reveal and remove commands.
+* **Flags & Ratings Filters**: Added a "Flags & Ratings" collapsible section in the sidebar with live matching counts for Flagged, Rejected, Unrated, and Star ratings.
+* **Keyboard Navigation & Selection**:
+  - Escape/Delete keys now instantly clear/deselect currently selected photos.
+  - Command + A selects all visible photo sets in the active grid.
+* **Cleaned Up Redundant JPEG Export**: Removed the redundant "Export JPEGs" action and settings sheet from both the bottom Transfer Footer UI and backend transfer engine to simplify the application's core culling and sorting focus.
+* **Cell identity Caching Fixes**: Bound photoshoot grid cells to stable UUID keys to resolve caching issues on filter switches.
+
+---
+
 # DuckSort v1.1.0 (UI Redesign & Viewer Navigation)
 
 Welcome to version 1.1.0 of **DuckSort**! This release introduces a comprehensive UI overhaul to match Photomator's flat, dark professional theme, along with a newly designed sidebar, collapsible tag categories, and navigation enhancements in the large image viewer.
