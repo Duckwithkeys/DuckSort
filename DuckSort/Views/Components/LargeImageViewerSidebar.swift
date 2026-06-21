@@ -76,7 +76,7 @@ struct LargeImageViewerSidebar: View {
                             
                             VStack(alignment: .leading, spacing: 10) {
                                 metadataField(label: "Filename", value: photo.baseName, systemImage: "photo")
-                                metadataField(label: "Files in Set", value: "\(photo.mediaCount) files\(photo.hasEdit ? " + edit" : "")", systemImage: "link")
+                                metadataField(label: "Files in Set", value: "\(photo.mediaCount) files\(photo.hasEdit ? " + edit" : "")", systemImage: photo.hasEdit ? "wand.and.stars" : "link", iconColor: photo.hasEdit ? .orange : .secondary)
                                 metadataField(label: "Captured", value: meta.captureDate.map(formatDate) ?? "—", systemImage: "calendar")
                                 metadataField(label: "Camera", value: meta.cameraModel ?? "—", systemImage: "camera")
                                 metadataField(label: "Lens", value: meta.lensModel ?? "—", systemImage: "camera.macro")
@@ -156,11 +156,11 @@ struct LargeImageViewerSidebar: View {
 
     // MARK: - Helper Views / Formatters
 
-    private func metadataField(label: String, value: String, systemImage: String) -> some View {
+    private func metadataField(label: String, value: String, systemImage: String, iconColor: Color = .secondary) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: systemImage)
                 .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(iconColor)
                 .frame(width: 14, alignment: .center)
                 .padding(.top, 2)
             

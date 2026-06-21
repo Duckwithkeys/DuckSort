@@ -223,11 +223,12 @@ final class LargeImageLoader: ObservableObject {
             return
         }
         
-        let isHEIF = url.pathExtension.lowercased() == "hif" || url.pathExtension.lowercased() == "heic"
+        let ext = url.pathExtension.lowercased()
+        let alwaysCreate = ["heic", "heif", "hif", "raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"].contains(ext)
         Task.detached(priority: .userInitiated) {
             guard let imageSource = CGImageSourceCreateWithURL(standardized as CFURL, nil) else { return }
             let options: [CFString: Any] = [
-                isHEIF ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                 kCGImageSourceThumbnailMaxPixelSize: CGFloat(2048),
                 kCGImageSourceCreateThumbnailWithTransform: true
             ]
@@ -256,13 +257,14 @@ final class LargeImageLoader: ObservableObject {
 
         // 1. Try to load using the fast ImageIO CGImageSource in a detached task
         // We load as CGImage (which is thread-safe and has no Sendable restrictions)
-        let isHEIF = url.pathExtension.lowercased() == "hif" || url.pathExtension.lowercased() == "heic"
+        let ext = url.pathExtension.lowercased()
+        let alwaysCreate = ["heic", "heif", "hif", "raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"].contains(ext)
         let decodeTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
             if Task.isCancelled { return nil }
             guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
             if Task.isCancelled { return nil }
             let options: [CFString: Any] = [
-                isHEIF ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                 kCGImageSourceThumbnailMaxPixelSize: CGFloat(2048),
                 kCGImageSourceCreateThumbnailWithTransform: true
             ]

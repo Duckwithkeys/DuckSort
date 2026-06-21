@@ -11,34 +11,39 @@ import ImageIO
 struct ThumbnailView: View {
     let url: URL?
     var size: CGSize = CGSize(width: 300, height: 300)
+    var cornerRadius: CGFloat = 12
     @StateObject private var loader = ThumbnailLoader()
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color(nsColor: .controlBackgroundColor),
-                            Color(nsColor: .quaternaryLabelColor).opacity(0.22)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+        GeometryReader { geo in
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(nsColor: .controlBackgroundColor),
+                                Color(nsColor: .quaternaryLabelColor).opacity(0.22)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
 
-            if let image = (loader.loadedURL == url ? loader.image : nil) ?? ThumbnailLoader.cachedImage(for: url) {
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(4)
-            } else {
-                Image(systemName: "photo")
-                    .font(.system(size: 34))
-                    .foregroundStyle(.secondary)
+                if let image = (loader.loadedURL == url ? loader.image : nil) ?? ThumbnailLoader.cachedImage(for: url) {
+                    Image(nsImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                } else {
+                    Image(systemName: "photo")
+                        .font(.system(size: 34))
+                        .foregroundStyle(.secondary)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
             }
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         }
-        .clipped()
         .task(id: url) {
             do {
                 // 80ms debounce: Skip loading thumbnails if the user scrolls past quickly
@@ -76,13 +81,14 @@ final class ThumbnailLoader: ObservableObject {
 
         // 1. Try to load using the fast ImageIO CGImageSource in a detached task
         let maxPixelSize = max(size.width, size.height)
-        let isHEIF = url.pathExtension.lowercased() == "hif" || url.pathExtension.lowercased() == "heic"
+        let ext = url.pathExtension.lowercased()
+        let alwaysCreate = ["heic", "heif", "hif", "raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"].contains(ext)
         let decodeTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
             if Task.isCancelled { return nil }
             guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
             if Task.isCancelled { return nil }
             let options: [CFString: Any] = [
-                isHEIF ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                 kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
                 kCGImageSourceCreateThumbnailWithTransform: true
             ]

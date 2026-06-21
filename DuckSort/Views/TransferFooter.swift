@@ -28,10 +28,20 @@ struct TransferFooter: View {
                 Button {
                     viewModel.chooseDestinationDirectory()
                 } label: {
-                    Label(viewModel.destinationDirectory?.lastPathComponent ?? "Choose Destination", systemImage: "tray.and.arrow.down")
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .liquidGlassButton(isHovered: isDestHovered)
+                    HStack(spacing: 6) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .foregroundStyle(PhotomatorTheme.selectedBlue)
+                        if let dest = viewModel.destinationDirectory {
+                            Text("Destination: \(Text(dest.lastPathComponent).foregroundStyle(PhotomatorTheme.textPrimary))")
+                                .foregroundStyle(PhotomatorTheme.textSecondary)
+                        } else {
+                            Text("Choose Destination...")
+                                .foregroundStyle(PhotomatorTheme.textPrimary)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .flatSidebarButton(isHovered: isDestHovered)
                 }
                 .buttonStyle(.plain)
                 .onHover { isDestHovered = $0 }
@@ -51,10 +61,15 @@ struct TransferFooter: View {
                     Button {
                         viewModel.performRoutedOperation(op)
                     } label: {
-                        Label(op.displayName, systemImage: op.systemImage)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .liquidGlassButton(isHovered: hoveredOp == op)
+                        HStack(spacing: 6) {
+                            Image(systemName: op.systemImage)
+                                .foregroundStyle(PhotomatorTheme.selectedBlue)
+                            Text(op.displayName)
+                                .foregroundStyle(PhotomatorTheme.textPrimary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .flatSidebarButton(isHovered: hoveredOp == op)
                     }
                     .buttonStyle(.plain)
                     .disabled(!viewModel.canTransfer)
@@ -92,7 +107,7 @@ struct TransferFooter: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(PhotomatorTheme.background)
+        .background(PhotomatorTheme.footerBackground)
         .overlay(
             Rectangle()
                 .frame(height: 1)

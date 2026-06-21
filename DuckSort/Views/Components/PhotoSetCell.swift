@@ -13,90 +13,141 @@ struct PhotoSetCell: View {
     let toggleSelection: () -> Void
     @State private var isHovered = false
 
-    private var statusColor: Color {
-        if photoSet.isSelected { return PhotomatorTheme.selectedBlue }
-        if isJpegOnlyMode { return PhotomatorTheme.selectedBlue }
-        if !photoSet.hasEdit { return .red }
-        return .orange
+    private var mediaFormats: (isRaw: Bool, isHeif: Bool, isJpeg: Bool) {
+        let extensions = Set(photoSet.mediaFiles.map { $0.pathExtension.lowercased() })
+        var isRaw = false
+        var isJpeg = false
+        var isHeif = false
+        for ext in extensions {
+            if ["raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"].contains(ext) {
+                isRaw = true
+            } else if ["jpg", "jpeg"].contains(ext) {
+                isJpeg = true
+            } else if ["heic", "heif", "hif"].contains(ext) {
+                isHeif = true
+            }
+        }
+        return (isRaw, isHeif, isJpeg)
     }
 
-    private var statusBackground: Color {
-        statusColor.opacity(photoSet.isSelected ? 0.20 : 0.10)
+    private var formatLabel: String {
+        let formats = mediaFormats
+        var parts: [String] = []
+        if formats.isRaw { parts.append("RAW") }
+        if formats.isHeif { parts.append("HEIF") }
+        if formats.isJpeg { parts.append("JPEG") }
+        if parts.isEmpty {
+            return "MEDIA"
+        }
+        return parts.joined(separator: " + ")
     }
 
     var body: some View {
         Button(action: toggleSelection) {
-            VStack(alignment: .leading, spacing: 8) {
-                ZStack(alignment: .topTrailing) {
-                    ThumbnailView(url: photoSet.preferredPreviewURL)
-                        .frame(maxWidth: .infinity)
-                        .aspectRatio(1, contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .grayscale(photoSet.pick == -1 ? 0.8 : 0)
-                        .opacity(photoSet.pick == -1 ? 0.6 : 1.0)
-
-                    statusBadge
-
-                    if photoSet.pick == 1 || photoSet.pick == -1 {
-                        Image(systemName: photoSet.pick == 1 ? "flag.fill" : "flag.slash.fill")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(photoSet.pick == 1 ? .white : .red)
-                            .padding(6)
-                            .background(.black.opacity(0.5), in: Circle())
-                            .padding(8)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    
-                    if let rating = photoSet.rating, rating > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.yellow)
-                            Text("\(rating)")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.white)
+            VStack(alignment: .leading, spacing: 6) {
+                ThumbnailView(url: photoSet.preferredPreviewURL)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .grayscale(photoSet.pick == -1 ? 0.8 : 0)
+                    .opacity(photoSet.pick == -1 ? 0.6 : 1.0)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(
+                                photoSet.isSelected ? Color.green : (isHovered ? Color.white.opacity(0.15) : Color.clear),
+                                lineWidth: photoSet.isSelected ? 3 : 1
+                            )
+                    )
+                    .overlay {
+                        if isFocusedGridItem {
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(PhotomatorTheme.selectedBlue, lineWidth: 2.5)
                         }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.5), in: Capsule())
+                    }
+                    .overlay(alignment: .topLeading) {
+                        // Format Badge & Wand/Warning Icon on Top-Left (Wand = edited in orange; Exclamation = needs edit in red)
+                        HStack(spacing: 4) {
+                            Text(formatLabel)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.black)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 4))
+                            
+                            let formats = mediaFormats
+                            let isComplete = formats.isRaw && formats.isHeif && photoSet.hasEdit
+                            let showWand = isJpegOnlyMode ? photoSet.hasEdit : isComplete
+                            let showWarning = !isJpegOnlyMode && !isComplete
+                            
+                            if showWand {
+                                Image(systemName: "wand.and.stars")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 16, height: 16)
+                                    .background(Color.orange, in: Circle())
+                            } else if showWarning {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 16, height: 16)
+                                    .background(Color.red, in: Circle())
+                            }
+                        }
                         .padding(8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
-                }
-
-                HStack(spacing: 8) {
-                    Image(systemName: photoSet.isSelected ? "checkmark.circle.fill" : "circle.fill")
-                        .font(.system(size: 20, weight: .medium))
-                        .foregroundStyle(statusColor)
-                        .frame(width: 24, height: 24)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(photoSet.baseName)
-                            .font(.callout.weight(.medium))
-                            .lineLimit(1)
-
-                        Text("\(photoSet.mediaCount) media\(photoSet.hasEdit ? " + edit" : "")")
-                            .font(.caption)
-                            .foregroundStyle(photoSet.hasEdit ? Color.secondary : Color.red)
-                            .lineLimit(1)
+                    .overlay(alignment: .bottomLeading) {
+                        // Rating Badge on Bottom-Left
+                        if let rating = photoSet.rating, rating > 0 {
+                            HStack(spacing: 2) {
+                                Text("\(rating)")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.6), in: Capsule())
+                            .padding(8)
+                        }
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .bottomTrailing) {
+                        // Flag Badge on Bottom-Right
+                        if let pick = photoSet.pick, pick == 1 || pick == -1 {
+                            Image(systemName: pick == 1 ? "flag.fill" : "flag.slash.fill")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(pick == 1 ? .red : .orange)
+                                .padding(5)
+                                .background(.black.opacity(0.6), in: Circle())
+                                .padding(8)
+                        }
+                    }
+
+                // Text below thumbnail, centered
+                VStack(spacing: 2) {
+                    Text(photoSet.baseName)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(photoSet.isSelected ? Color.green : (isFocusedGridItem ? PhotomatorTheme.selectedBlue : PhotomatorTheme.textPrimary))
+                        .lineLimit(1)
+
+                    Text("\(photoSet.mediaCount) media\(photoSet.hasEdit ? " + edit" : "")")
+                        .font(.caption)
+                        .foregroundStyle(PhotomatorTheme.textSecondary)
+                        .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
 
                 if !tags.isEmpty {
                     tagPills
+                        .frame(maxWidth: .infinity)
                 }
+                
+                Spacer(minLength: 0)
             }
-            .padding(8)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .liquidGlassButton(isHovered: isHovered, isApplied: photoSet.isSelected, accentColor: statusColor)
-            .overlay {
-                if isFocusedGridItem {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.accentColor, lineWidth: 2)
-                        .padding(-2)
-                }
-            }
+            .padding(4)
+            .frame(maxHeight: .infinity, alignment: .top)
             .onHover { isHovered in
                 self.isHovered = isHovered
                 if isHovered {
@@ -105,24 +156,7 @@ struct PhotoSetCell: View {
             }
         }
         .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
-    }
-
-    @ViewBuilder
-    private var statusBadge: some View {
-        if !isJpegOnlyMode {
-            Label(
-                photoSet.hasEdit ? "Edited" : "Needs edit",
-                systemImage: photoSet.hasEdit ? "wand.and.stars" : "exclamationmark.triangle.fill"
-            )
-            .font(.caption.weight(.bold))
-            .foregroundStyle(.white)
-            .labelStyle(.iconOnly)
-            .padding(5)
-            .background(statusColor, in: Circle())
-            .padding(5)
-            .help(photoSet.hasEdit ? "Photomator edit detected" : "No Photomator edit sidecar found")
-        }
+        .contentShape(Rectangle())
     }
 
     private var tagPills: some View {

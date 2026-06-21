@@ -28,6 +28,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// Individually imported files (via drag-and-drop or Import…) that live
     /// outside of a scanned source directory.
     @Published private(set) var looseFiles: [URL] = []
+    @Published private(set) var failedSources: Set<URL> = []
     @Published private(set) var destinationDirectory: URL?
     @Published private(set) var photoSets: [PhotoSet] = []
     @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:]
@@ -291,6 +292,15 @@ final class PhotoLibraryViewModel: ObservableObject {
         scanSourceDirectories(updated)
     }
 
+    func removeLooseFile(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        var updated = looseFiles
+        updated.removeAll { $0.standardizedFileURL == standardized }
+        looseFiles = updated
+        persistSources()
+        scanSourceDirectories(sourceDirectories)
+    }
+
     func clearSourceDirectories() {
         sourceDirectories = []
         looseFiles = []
@@ -316,6 +326,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         sourceDirectories = urls
         photoSets = []
         photoMetadata = [:]
+        failedSources = []
         errorMessage = nil
         isScanning = true
         
@@ -333,39 +344,42 @@ final class PhotoLibraryViewModel: ObservableObject {
             : "Scanning \(foldersText) and subfolders..."
 
         scanTask = Task { [scanner, isJpegOnlyMode] in
-            do {
-                var photoSets: [PhotoSet] = []
-                var scannedFileCount = 0
+            var photoSets: [PhotoSet] = []
+            var scannedFileCount = 0
+            var failed: Set<URL> = []
 
-                if !urls.isEmpty {
-                    let dirResult = try await scanner.scanDirectories(urls, jpegOnly: isJpegOnlyMode)
-                    photoSets.append(contentsOf: dirResult.photoSets)
-                    scannedFileCount += dirResult.scannedFileCount
-                }
-
-                if !looseFiles.isEmpty {
-                    let fileResult = try await scanner.scanFiles(looseFiles, jpegOnly: isJpegOnlyMode)
-                    photoSets.append(contentsOf: fileResult.photoSets)
-                    scannedFileCount += fileResult.scannedFileCount
-                }
-
-                photoSets.sort {
-                    $0.baseName.localizedStandardCompare($1.baseName) == .orderedAscending
-                }
-
-                self.photoSets = photoSets
-                let sourceLabel = urls.map(\.lastPathComponent).joined(separator: ", ")
-                let scope = looseFiles.isEmpty ? sourceLabel
-                    : (urls.isEmpty ? "imported files" : "\(sourceLabel) + imported files")
-                self.statusMessage = "Found \(photoSets.count) photo sets across [\(scope)], \(scannedFileCount) matching files."
-                self.loadExistingTags(for: photoSets)
-                self.loadMetadata(for: photoSets)
-            } catch is CancellationError {
-                self.statusMessage = "Scan cancelled."
-            } catch {
-                self.errorMessage = error.localizedDescription
-                self.statusMessage = "Scan failed."
+            if !urls.isEmpty {
+                let dirResult = await scanner.scanDirectories(urls, jpegOnly: isJpegOnlyMode)
+                photoSets.append(contentsOf: dirResult.photoSets)
+                scannedFileCount += dirResult.scannedFileCount
+                failed.formUnion(dirResult.failedDirectories)
             }
+
+            if !looseFiles.isEmpty {
+                let fileResult = await scanner.scanFiles(looseFiles, jpegOnly: isJpegOnlyMode)
+                photoSets.append(contentsOf: fileResult.photoSets)
+                scannedFileCount += fileResult.scannedFileCount
+                failed.formUnion(fileResult.failedDirectories)
+            }
+
+            photoSets.sort {
+                $0.baseName.localizedStandardCompare($1.baseName) == .orderedAscending
+            }
+
+            self.photoSets = photoSets
+            self.failedSources = failed
+            let sourceLabel = urls.map(\.lastPathComponent).joined(separator: ", ")
+            let scope = looseFiles.isEmpty ? sourceLabel
+                : (urls.isEmpty ? "imported files" : "\(sourceLabel) + imported files")
+            
+            if failed.isEmpty {
+                self.statusMessage = "Found \(photoSets.count) photo sets across [\(scope)], \(scannedFileCount) matching files."
+            } else {
+                self.statusMessage = "Found \(photoSets.count) photo sets, \(scannedFileCount) matching files. Warning: \(failed.count) source(s) failed to load."
+            }
+            
+            self.loadExistingTags(for: photoSets)
+            self.loadMetadata(for: photoSets)
             self.isScanning = false
         }
     }

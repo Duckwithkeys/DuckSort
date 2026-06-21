@@ -29,36 +29,56 @@ struct PhotoGridView: View {
         GeometryReader { geometry in
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 14) {
-                        ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
-                            let isFocused = index == viewModel.focusedPhotoIndex
-                            PhotoSetCell(
-                                photoSet: photoSet,
-                                tags: viewModel.assignedTags(for: photoSet),
-                                isFocusedGridItem: isFocused,
-                                isJpegOnlyMode: viewModel.isJpegOnlyMode,
-                                toggleSelection: {
-                                    viewModel.focusedPhotoIndex = index
-                                    viewModel.toggleSelection(for: photoSet.id)
-                                }
-                            )
-                            .id(photoSet.id)
-                            .simultaneousGesture(
-                                TapGesture().onEnded {
-                                    viewModel.focusedPhotoIndex = index
-                                }
-                            )
-                            .simultaneousGesture(
-                                TapGesture(count: 2).onEnded {
-                                    viewModel.focusedPhotoIndex = index
-                                    viewModel.openLargeImageViewer()
-                                }
-                            )
+                    VStack(alignment: .leading, spacing: 0) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(viewModel.filterRule.rawValue)
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(PhotomatorTheme.textPrimary)
+                            
+                            Text("\(viewModel.filteredPhotoSets.count) item\(viewModel.filteredPhotoSets.count == 1 ? "" : "s")")
+                                .font(.subheadline)
+                                .foregroundStyle(PhotomatorTheme.textSecondary)
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 44)
+                        .padding(.bottom, 12)
+
+                        Rectangle()
+                            .fill(PhotomatorTheme.selectedBlue)
+                            .frame(height: 1)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
+
+                        LazyVGrid(columns: columns, spacing: 14) {
+                            ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
+                                let isFocused = index == viewModel.focusedPhotoIndex
+                                PhotoSetCell(
+                                    photoSet: photoSet,
+                                    tags: viewModel.assignedTags(for: photoSet),
+                                    isFocusedGridItem: isFocused,
+                                    isJpegOnlyMode: viewModel.isJpegOnlyMode,
+                                    toggleSelection: {
+                                        viewModel.focusedPhotoIndex = index
+                                        viewModel.toggleSelection(for: photoSet.id)
+                                    }
+                                )
+                                .id(photoSet.id)
+                                .simultaneousGesture(
+                                    TapGesture().onEnded {
+                                        viewModel.focusedPhotoIndex = index
+                                    }
+                                )
+                                .simultaneousGesture(
+                                    TapGesture(count: 2).onEnded {
+                                        viewModel.focusedPhotoIndex = index
+                                        viewModel.openLargeImageViewer()
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 16)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 44)
-                    .padding(.bottom, 16)
                 }
                 .onChange(of: viewModel.focusedPhotoIndex) { _, newIndex in
                     if newIndex >= 0 && newIndex < viewModel.filteredPhotoSets.count {

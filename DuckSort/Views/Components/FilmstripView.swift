@@ -14,6 +14,8 @@ struct FilmstripView: View {
                 HStack(spacing: 8) {
                     ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
                         let isFocused = index == viewModel.focusedPhotoIndex
+                        let isNearFocus = abs(index - viewModel.focusedPhotoIndex) <= 10
+                        let previewURL = isNearFocus ? photoSet.preferredPreviewURL : nil
                         
                         Button {
                             withAnimation(.easeOut(duration: 0.12)) {
@@ -22,7 +24,7 @@ struct FilmstripView: View {
                         } label: {
                             ZStack(alignment: .bottomTrailing) {
                                 // Thumbnail
-                                ThumbnailView(url: photoSet.preferredPreviewURL, size: CGSize(width: 120, height: 80))
+                                ThumbnailView(url: previewURL, size: CGSize(width: 120, height: 80), cornerRadius: 4)
                                     .frame(width: 72, height: 48)
                                     .clipShape(RoundedRectangle(cornerRadius: 4))
                                     .overlay(

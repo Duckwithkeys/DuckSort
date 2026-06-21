@@ -89,11 +89,27 @@ struct SidebarView: View {
                     ForEach(viewModel.sourceDirectories, id: \.self) { url in
                         SourceRow(
                             url: url,
+                            isFolder: true,
+                            hasError: viewModel.failedSources.contains(url),
                             onReveal: {
                                 NSWorkspace.shared.activateFileViewerSelecting([url])
                             },
                             onRemove: {
                                 viewModel.removeSourceDirectory(url)
+                            }
+                        )
+                    }
+
+                    ForEach(viewModel.looseFiles, id: \.self) { url in
+                        SourceRow(
+                            url: url,
+                            isFolder: false,
+                            hasError: viewModel.failedSources.contains(url),
+                            onReveal: {
+                                NSWorkspace.shared.activateFileViewerSelecting([url])
+                            },
+                            onRemove: {
+                                viewModel.removeLooseFile(url)
                             }
                         )
                     }
@@ -243,19 +259,28 @@ struct SidebarView: View {
 
 struct SourceRow: View {
     let url: URL
+    let isFolder: Bool
+    let hasError: Bool
     let onReveal: () -> Void
     let onRemove: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         HStack {
-            Image(systemName: "folder")
-                .foregroundStyle(PhotomatorTheme.textSecondary)
+            Image(systemName: isFolder ? "folder" : "photo")
+                .foregroundStyle(hasError ? Color.red : PhotomatorTheme.textSecondary)
                 .frame(width: 16)
             Text(url.lastPathComponent)
-                .foregroundStyle(PhotomatorTheme.textPrimary)
+                .foregroundStyle(hasError ? Color.red : PhotomatorTheme.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            if hasError {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .help("Failed to read this source")
+            }
 
             Spacer()
 
@@ -275,7 +300,7 @@ struct SourceRow: View {
                             .foregroundStyle(PhotomatorTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
-                    .help("Remove source")
+                    .help(isFolder ? "Remove source folder" : "Remove source file")
                 }
             }
         }
@@ -288,7 +313,7 @@ struct SourceRow: View {
             Button("Reveal in Finder") {
                 onReveal()
             }
-            Button("Remove Source") {
+            Button(isFolder ? "Remove Source Folder" : "Remove Source File") {
                 onRemove()
             }
         }

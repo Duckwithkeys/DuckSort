@@ -15,6 +15,7 @@ enum PhotomatorTheme {
     static let sidebarBackground = Color(red: 0.145, green: 0.145, blue: 0.145) // #252525
     static let toolbarBackground = Color(red: 0.200, green: 0.200, blue: 0.200) // #333333
     static let cellBackground = Color(red: 0.160, green: 0.160, blue: 0.160)    // #292929
+    static let footerBackground = Color(red: 0.125, green: 0.125, blue: 0.125)  // #202020
     static let separator = Color(red: 0.227, green: 0.227, blue: 0.227)         // #3A3A3A
     static let selectedBlue = Color(red: 0.251, green: 0.537, blue: 1.0)        // #4089FF
     static let textPrimary = Color.white.opacity(0.88)
@@ -63,5 +64,15 @@ extension View {
                         lineWidth: 1
                     )
             )
+    }
+
+    /// Applies the flat borderless button style from the sidebar.
+    func flatSidebarButton(isHovered: Bool = false, isSelected: Bool = false, accentColor: Color = PhotomatorTheme.selectedBlue) -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? accentColor.opacity(0.15) : (isHovered ? Color.white.opacity(0.08) : Color.clear))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6))
     }
 }
