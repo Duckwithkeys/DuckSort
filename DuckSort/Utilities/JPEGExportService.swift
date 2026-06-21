@@ -87,8 +87,9 @@ actor JPEGExportService {
             try writeJPEG(from: sourceURL, to: destinationURL, quality: plan.options.jpegQuality, tagNames: plan.tagNames[photoSet.id] ?? [])
             let tagNamesForSet = plan.tagNames[photoSet.id] ?? []
             let payload = SidecarPayload(tagNames: tagNamesForSet, capture: metadata)
+            let sourceSidecarURL = XMPTaggingService.exportSidecarURL(for: sourceURL)
             do {
-                try await sidecarService.writeExportSidecar(payload, besideDestinationFile: destinationURL)
+                try await sidecarService.writeExportSidecar(payload, besideDestinationFile: destinationURL, mergingSourceSidecar: sourceSidecarURL)
             } catch {
                 sidecarFailures += 1
             }

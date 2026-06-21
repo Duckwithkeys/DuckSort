@@ -73,4 +73,45 @@ final class FileTransferSidecarTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: sidecar.path),
                       "Same-location move must not delete the freshly written sidecar")
     }
+
+    func test_copy_preservesRatingAndCameraMetadata() async throws {
+        let src = try TempDir.make()
+        let dst = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
+
+        let media = src.appendingPathComponent("IMG_0002.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        
+        let sidecarURL = src.appendingPathComponent("IMG_0002.xmp")
+        let initialXMP = """
+        <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 6.0.0">
+          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description rdf:about=""
+                xmlns:xmp="http://ns.adobe.com/xap/1.0/"
+                xmp:Rating="3">
+            </rdf:Description>
+          </rdf:RDF>
+        </x:xmpmeta>
+        """
+        try initialXMP.write(to: sidecarURL, atomically: true, encoding: .utf8)
+        
+        let set = PhotoSet(baseName: "IMG_0002", mediaFiles: [media], editPath: nil)
+
+        let plan = TransferPlan(
+            operation: .copy,
+            destinationDirectory: dst,
+            photoSets: [set],
+            tagNames: [set.id: ["Family"]]
+        )
+        let summary = try await FileTransferService().execute(plan)
+
+        XCTAssertEqual(summary.sidecarFailures, 0)
+        let destSidecar = dst.appendingPathComponent("IMG_0002.xmp")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: destSidecar.path))
+        
+        let xml = try String(contentsOf: destSidecar, encoding: .utf8)
+        XCTAssertTrue(xml.contains("xmp:Rating=\"3\""), "Destination sidecar should preserve the source rating when it is not in media metadata")
+        XCTAssertTrue(xml.contains("<rdf:li>Family</rdf:li>"), "Destination sidecar should contain custom tag keywords")
+        XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""), "Destination sidecar should preserve camera model")
+    }
 }

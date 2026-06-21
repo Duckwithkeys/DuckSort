@@ -95,6 +95,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     private var tagTask: Task<Void, Never>?
     private var metadataTask: Task<Void, Never>?
     
+    private var cancellables = Set<AnyCancellable>()
+    
     // MARK: - Init
     
     init(
@@ -103,6 +105,12 @@ final class PhotoLibraryViewModel: ObservableObject {
     ) {
         self.tagStore = tagStore ?? TagStore()
         self.ruleStore = ruleStore ?? ExportRuleStore()
+        
+        self.tagStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
         
         UserPreferences.shared.load()
         self.filterRule = UserPreferences.shared.lastFilterRule
@@ -325,6 +333,16 @@ final class PhotoLibraryViewModel: ObservableObject {
             
             if !Task.isCancelled {
                 self.photoMetadata = cache
+                for (id, snapshot) in cache {
+                    if let idx = self.photoSets.firstIndex(where: { $0.id == id }) {
+                        if self.photoSets[idx].rating == nil {
+                            self.photoSets[idx].rating = snapshot.rating
+                        }
+                        if self.photoSets[idx].pick == nil {
+                            self.photoSets[idx].pick = snapshot.pick
+                        }
+                    }
+                }
             }
         }
     }
@@ -339,6 +357,36 @@ final class PhotoLibraryViewModel: ObservableObject {
     func setSelection(_ isSelected: Bool, for id: PhotoSet.ID) {
         guard let index = photoSets.firstIndex(where: { $0.id == id }) else { return }
         photoSets[index].isSelected = isSelected
+    }
+    
+    // MARK: - Permanent Tags (Rating & Pick)
+
+    func setRating(_ rating: Int?, for id: PhotoSet.ID) {
+        guard let index = photoSets.firstIndex(where: { $0.id == id }) else { return }
+        photoSets[index].rating = rating
+        let photo = photoSets[index]
+        
+        Task { [xmpTagging] in
+            do {
+                try await xmpTagging.updatePermanentTags(rating: rating, pick: photo.pick, for: photo)
+            } catch {
+                await MainActor.run { self.errorMessage = "Failed to write rating: \(error.localizedDescription)" }
+            }
+        }
+    }
+
+    func setPick(_ pick: Int?, for id: PhotoSet.ID) {
+        guard let index = photoSets.firstIndex(where: { $0.id == id }) else { return }
+        photoSets[index].pick = pick
+        let photo = photoSets[index]
+        
+        Task { [xmpTagging] in
+            do {
+                try await xmpTagging.updatePermanentTags(rating: photo.rating, pick: pick, for: photo)
+            } catch {
+                await MainActor.run { self.errorMessage = "Failed to write pick flag: \(error.localizedDescription)" }
+            }
+        }
     }
     
     func selectVisiblePhotoSets() {
@@ -631,14 +679,25 @@ final class PhotoLibraryViewModel: ObservableObject {
         tagTask = Task { [xmpTagging, tagStore] in
             for photo in sets {
                 try? Task.checkCancellation()
-                let names = await xmpTagging.readTagNames(from: photo)
-                guard !names.isEmpty else { continue }
-                let tagIDs = Set(tagStore.tags
-                    .filter { names.contains($0.name) }
-                    .map(\.id))
-                if !tagIDs.isEmpty {
+                let data = await xmpTagging.readSidecarData(from: photo)
+                
+                if !data.tags.isEmpty {
+                    let tagIDs = Set(tagStore.tags
+                        .filter { data.tags.contains($0.name) }
+                        .map(\.id))
+                    if !tagIDs.isEmpty {
+                        await MainActor.run {
+                            tagStore.setTags(tagIDs, for: photo.id)
+                        }
+                    }
+                }
+                
+                if data.rating != nil || data.pick != nil {
                     await MainActor.run {
-                        tagStore.setTags(tagIDs, for: photo.id)
+                        if let index = self.photoSets.firstIndex(where: { $0.id == photo.id }) {
+                            if let r = data.rating { self.photoSets[index].rating = r }
+                            if let p = data.pick { self.photoSets[index].pick = p }
+                        }
                     }
                 }
             }

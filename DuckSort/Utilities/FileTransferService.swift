@@ -116,8 +116,9 @@ actor FileTransferService {
                         tagNames: tagNames,
                         capture: setMetadata
                     )
+                    let sourceSidecarURL = XMPTaggingService.exportSidecarURL(for: sourceURL)
                     do {
-                        try await sidecarService.writeExportSidecar(payload, besideDestinationFile: destinationURL)
+                        try await sidecarService.writeExportSidecar(payload, besideDestinationFile: destinationURL, mergingSourceSidecar: sourceSidecarURL)
                     } catch {
                         sidecarFailures += 1
                     }

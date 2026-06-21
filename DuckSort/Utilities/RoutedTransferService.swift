@@ -123,10 +123,12 @@ actor RoutedTransferService {
                         try fm.copyItem(at: sourceURL, to: dest)
                         if routed.photoSet.mediaFiles.map(\.standardizedFileURL)
                             .contains(sourceURL.standardizedFileURL) {
+                            let sourceSidecar = XMPTaggingService.exportSidecarURL(for: sourceURL)
                             await writeSidecar(
                                 tagNames: Set(routed.tags.map(\.name)),
                                 capture: routed.metadata,
                                 besideDestination: dest,
+                                mergingSourceSidecar: sourceSidecar,
                                 failures: &sidecarFailures
                             )
                         }
@@ -173,14 +175,14 @@ actor RoutedTransferService {
                         try fm.copyItem(at: sourceURL, to: dest)
                         if routed.photoSet.mediaFiles.map(\.standardizedFileURL)
                             .contains(sourceURL.standardizedFileURL) {
+                            let sourceSidecar = XMPTaggingService.exportSidecarURL(for: sourceURL)
                             await writeSidecar(
                                 tagNames: Set(routed.tags.map(\.name)),
                                 capture: routed.metadata,
                                 besideDestination: dest,
+                                mergingSourceSidecar: sourceSidecar,
                                 failures: &sidecarFailures
                             )
-                            let orphan = XMPTaggingService.exportSidecarURL(for: sourceURL)
-                            if fm.fileExists(atPath: orphan.path) { try? fm.removeItem(at: orphan) }
                         }
                         processed += 1
                         completedBytes += fileSize
@@ -197,10 +199,17 @@ actor RoutedTransferService {
                     }
                 }
 
-                // Now clean up original source files since they have been copied to all destinations
+                // Now clean up original source files and sidecars since they have been copied to all destinations
                 for sourceURL in routed.photoSet.allFiles {
                     if fm.fileExists(atPath: sourceURL.path) {
                         try fm.removeItem(at: sourceURL)
+                    }
+                    if routed.photoSet.mediaFiles.map(\.standardizedFileURL)
+                        .contains(sourceURL.standardizedFileURL) {
+                        let orphan = XMPTaggingService.exportSidecarURL(for: sourceURL)
+                        if fm.fileExists(atPath: orphan.path) {
+                            try? fm.removeItem(at: orphan)
+                        }
                     }
                 }
                 
@@ -221,10 +230,12 @@ actor RoutedTransferService {
                     )
                     let tagNames = Set(routed.tags.map(\.name))
                     try writeJPEG(from: sourceURL, to: dest, quality: plan.jpegQuality, tagNames: tagNames)
+                    let sourceSidecar = XMPTaggingService.exportSidecarURL(for: sourceURL)
                     await writeSidecar(
                         tagNames: tagNames,
                         capture: metadata,
                         besideDestination: dest,
+                        mergingSourceSidecar: sourceSidecar,
                         failures: &sidecarFailures
                     )
 
@@ -261,11 +272,16 @@ actor RoutedTransferService {
         tagNames: Set<String>,
         capture: MetadataSnapshot,
         besideDestination dest: URL,
+        mergingSourceSidecar sourceSidecarURL: URL? = nil,
         failures: inout Int
     ) async {
         let payload = SidecarPayload(tagNames: tagNames, capture: capture)
         do {
-            try await sidecarService.writeExportSidecar(payload, besideDestinationFile: dest)
+            try await sidecarService.writeExportSidecar(
+                payload,
+                besideDestinationFile: dest,
+                mergingSourceSidecar: sourceSidecarURL
+            )
         } catch {
             failures += 1
         }

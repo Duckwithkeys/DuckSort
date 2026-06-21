@@ -47,6 +47,8 @@ struct MetadataSnapshot: Sendable {
     var aperture: Double?
     var shutterSpeed: Double?
     var iso: Int?
+    var rating: Int?
+    var pick: Int?
 }
 
 /// Everything an export sidecar records for one destination file:
