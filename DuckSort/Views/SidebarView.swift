@@ -7,7 +7,6 @@ import SwiftUI
 
 struct SidebarView: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
-    @AppStorage("isDarkMode") private var isDarkMode = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,15 +40,6 @@ struct SidebarView: View {
                     .font(.headline.weight(.semibold))
                     .foregroundStyle(PhotomatorTheme.textPrimary)
                 Spacer()
-                Button {
-                    isDarkMode.toggle()
-                } label: {
-                    Image(systemName: isDarkMode ? "moon.fill" : "sun.max.fill")
-                        .font(.system(size: 13))
-                        .foregroundStyle(PhotomatorTheme.textSecondary)
-                }
-                .buttonStyle(.plain)
-                .help("Toggle Light/Dark Mode")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
@@ -65,7 +55,7 @@ struct SidebarView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 10)
 
-            // Search Bar
+            // Search Bar (colored the same as the sidebar background with a border outline)
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11))
@@ -87,7 +77,11 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(PhotomatorTheme.cellBackground, in: RoundedRectangle(cornerRadius: 6))
+            .background(PhotomatorTheme.sidebarBackground, in: RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(PhotomatorTheme.separator, lineWidth: 1)
+            )
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
 
@@ -99,9 +93,17 @@ struct SidebarView: View {
             }
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)
+            .onTapGesture {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
         }
         .frame(minWidth: 160, idealWidth: 180, maxWidth: 240)
         .background(PhotomatorTheme.sidebarBackground)
+        .onAppear {
+            DispatchQueue.main.async {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+        }
     }
 }
 
@@ -115,6 +117,7 @@ struct LibrarySectionView: View {
             ForEach(PhotoFilterRule.allCases) { rule in
                 Button {
                     viewModel.filterRule = rule
+                    NSApp.keyWindow?.makeFirstResponder(nil)
                 } label: {
                     HStack {
                         Image(systemName: rule.systemImage)
@@ -132,11 +135,6 @@ struct LibrarySectionView: View {
                         }
                     }
                     .padding(.vertical, 4)
-                    .padding(.horizontal, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill((hoveredRule == rule) ? Color.white.opacity(0.06) : Color.clear)
-                    )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -147,7 +145,11 @@ struct LibrarySectionView: View {
                 }
                 .listRowBackground(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(viewModel.filterRule == rule ? PhotomatorTheme.selectedBlue.opacity(0.15) : Color.clear)
+                        .fill(
+                            viewModel.filterRule == rule
+                            ? PhotomatorTheme.selectedBlue.opacity(0.15)
+                            : (hoveredRule == rule ? Color.primary.opacity(0.05) : Color.clear)
+                        )
                         .padding(.horizontal, 8)
                 )
             }
@@ -200,7 +202,10 @@ struct SourcesSectionView: View {
                 )
             }
 
-            Button(action: { viewModel.addSourceDirectory() }) {
+            Button(action: {
+                viewModel.addSourceDirectory()
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }) {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle")
                         .foregroundStyle(PhotomatorTheme.selectedBlue)
@@ -282,6 +287,7 @@ struct TagsSectionView: View {
                                     } else {
                                         viewModel.selectedTagFilters.insert(tag.id)
                                     }
+                                    NSApp.keyWindow?.makeFirstResponder(nil)
                                 } label: {
                                     HStack {
                                         Circle()
@@ -298,11 +304,6 @@ struct TagsSectionView: View {
                                         }
                                     }
                                     .padding(.vertical, 4)
-                                    .padding(.horizontal, 6)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill((hoveredTagID == tag.id) ? Color.white.opacity(0.06) : Color.clear)
-                                    )
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
@@ -313,7 +314,11 @@ struct TagsSectionView: View {
                                 }
                                 .listRowBackground(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .fill(viewModel.selectedTagFilters.contains(tag.id) ? PhotomatorTheme.selectedBlue.opacity(0.15) : Color.clear)
+                                        .fill(
+                                            viewModel.selectedTagFilters.contains(tag.id)
+                                            ? PhotomatorTheme.selectedBlue.opacity(0.15)
+                                            : (hoveredTagID == tag.id ? Color.primary.opacity(0.05) : Color.clear)
+                                        )
                                         .padding(.horizontal, 8)
                                 )
                             }
@@ -379,11 +384,6 @@ struct SourceRow: View {
             }
         }
         .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 4)
-                .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
-        )
         .contentShape(Rectangle())
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) {
@@ -398,7 +398,11 @@ struct SourceRow: View {
                 onRemove()
             }
         }
-        .listRowBackground(Color.clear)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isHovered ? Color.primary.opacity(0.05) : Color.clear)
+                .padding(.horizontal, 8)
+        )
     }
 }
 
@@ -427,11 +431,6 @@ struct SystemFilterRow: View {
                 }
             }
             .padding(.vertical, 4)
-            .padding(.horizontal, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isHovered ? Color.white.opacity(0.06) : Color.clear)
-            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -442,7 +441,11 @@ struct SystemFilterRow: View {
         }
         .listRowBackground(
             RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? PhotomatorTheme.selectedBlue.opacity(0.15) : Color.clear)
+                .fill(
+                    isSelected
+                    ? PhotomatorTheme.selectedBlue.opacity(0.15)
+                    : (isHovered ? Color.primary.opacity(0.05) : Color.clear)
+                )
                 .padding(.horizontal, 8)
         )
     }

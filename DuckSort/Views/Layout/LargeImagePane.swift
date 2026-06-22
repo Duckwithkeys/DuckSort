@@ -25,7 +25,7 @@ struct LargeImagePane: View {
 
     var body: some View {
         ZStack {
-            PhotomatorTheme.background
+            Color.clear
                 .ignoresSafeArea()
 
             let highResImage = (imageLoader.loadedURL == photoSet.preferredPreviewURL ? imageLoader.image : nil) ?? LargeImageLoader.cachedImage(for: photoSet.preferredPreviewURL)
@@ -288,6 +288,8 @@ final class LargeImageLoader: ObservableObject {
             loadedURL = url
             return
         }
+
+        if Task.isCancelled { return }
 
         // 2. Try QuickLook as a backup
         let request = QLThumbnailGenerator.Request(

@@ -149,6 +149,19 @@ final class TagStore: ObservableObject {
         save()
     }
 
+    func setTagsBatch(_ batch: [UUID: Set<UUID>]) {
+        let valid = Set(tags.map(\.id))
+        for (photoSetID, tagIDs) in batch {
+            let filtered = tagIDs.intersection(valid)
+            if filtered.isEmpty {
+                assignments.removeValue(forKey: photoSetID)
+            } else {
+                assignments[photoSetID] = PhotoTagAssignment(photoSetID: photoSetID, tagIDs: filtered)
+            }
+        }
+        save()
+    }
+
     func toggleTag(_ tagID: UUID, for photoSetID: UUID) {
         var current = assignments[photoSetID]?.tagIDs ?? []
         if current.contains(tagID) {

@@ -32,6 +32,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var destinationDirectory: URL?
     @Published private(set) var photoSets: [PhotoSet] = [] {
         didSet {
+            updateGlobalCounts()
             updateDerivedState()
         }
     }
@@ -113,7 +114,6 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
     @Published var nearFocusedIds: Set<UUID> = []
-    @Published var isPlaybackActive = false
 
     // Memoized sidebar counts
     var cachedAllPhotosCount: Int = 0
@@ -153,6 +153,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         self.tagStore.objectWillChange
             .sink { [weak self] _ in
+                self?.updateGlobalCounts()
                 self?.updateDerivedState()
                 self?.objectWillChange.send()
             }
@@ -179,6 +180,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         self.isInitializing = false
         
+        updateGlobalCounts()
         updateDerivedState()
         
         if !sourceDirectories.isEmpty || !looseFiles.isEmpty {
@@ -193,7 +195,6 @@ final class PhotoLibraryViewModel: ObservableObject {
         transferTask?.cancel()
         tagTask?.cancel()
         metadataTask?.cancel()
-        playbackTimer?.invalidate()
         
         // Clean up keyboard monitor if registered
         if let keyboardMonitor = keyboardMonitor {
@@ -203,26 +204,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     
     // MARK: - Derived state
     
-    var filteredPhotoSets: [PhotoSet] {
-        var list = photoSets.filter { filterRule.matches($0) }
-        if !selectedTagFilters.isEmpty {
-            list = list.filter { !selectedTagFilters.isDisjoint(with: tagStore.assignedTagIDs(for: $0.id)) }
-        }
-        if !selectedFlags.isEmpty {
-            list = list.filter { selectedFlags.contains($0.pick ?? 0) }
-        }
-        if !selectedRatings.isEmpty {
-            list = list.filter {
-                let ratingVal = $0.rating ?? 0
-                return selectedRatings.contains(ratingVal)
-            }
-        }
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if !query.isEmpty {
-            list = list.filter { $0.baseName.lowercased().contains(query) }
-        }
-        return list
-    }
+    @Published private(set) var filteredPhotoSets: [PhotoSet] = []
     
     var selectedPhotoSets: [PhotoSet] {
         photoSets.filter(\.isSelected)
@@ -386,7 +368,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             ? "Scanning \(looseFiles.count) imported files..."
             : "Scanning \(foldersText) and subfolders..."
 
-        scanTask = Task { [scanner, isJpegOnlyMode] in
+        scanTask = Task { @MainActor [scanner, isJpegOnlyMode] in
             var photoSets: [PhotoSet] = []
             var scannedFileCount = 0
             var failed: Set<URL> = []
@@ -430,7 +412,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     private func loadMetadata(for photoSets: [PhotoSet]) {
         metadataTask?.cancel()
         let sets = photoSets
-        metadataTask = Task { [metadataReader] in
+        metadataTask = Task { @MainActor [metadataReader] in
             var cache: [UUID: MetadataSnapshot] = [:]
             
             await withTaskGroup(of: (UUID, MetadataSnapshot)?.self) { group in
@@ -483,16 +465,18 @@ final class PhotoLibraryViewModel: ObservableObject {
             
             if !Task.isCancelled {
                 self.photoMetadata = cache
+                var updatedSets = self.photoSets
                 for (id, snapshot) in cache {
-                    if let idx = self.photoSets.firstIndex(where: { $0.id == id }) {
-                        if self.photoSets[idx].rating == nil {
-                            self.photoSets[idx].rating = snapshot.rating
+                    if let idx = updatedSets.firstIndex(where: { $0.id == id }) {
+                        if updatedSets[idx].rating == nil {
+                            updatedSets[idx].rating = snapshot.rating
                         }
-                        if self.photoSets[idx].pick == nil {
-                            self.photoSets[idx].pick = snapshot.pick
+                        if updatedSets[idx].pick == nil {
+                            updatedSets[idx].pick = snapshot.pick
                         }
                     }
                 }
+                self.photoSets = updatedSets
             }
         }
     }
@@ -662,7 +646,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         let names = tagIDs.compactMap { tagStore.tag(id: $0)?.name }
         let nameSet = Set(names)
         let previousTask = tagTask
-        tagTask = Task { [xmpTagging] in
+        tagTask = Task { @MainActor [xmpTagging] in
             _ = await previousTask?.result
             do {
                 if remove {
@@ -671,9 +655,7 @@ final class PhotoLibraryViewModel: ObservableObject {
                     try await xmpTagging.applyTagNames(nameSet, to: photo)
                 }
             } catch {
-                await MainActor.run {
-                    self.errorMessage = error.localizedDescription
-                }
+                self.errorMessage = error.localizedDescription
             }
         }
     }
@@ -686,7 +668,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
         tagTask?.cancel()
         statusMessage = "Clearing tags for \(selected.count) selected photo sets..."
-        tagTask = Task { [xmpTagging] in
+        tagTask = Task { @MainActor [xmpTagging] in
             do {
                 for photo in selected {
                     try Task.checkCancellation()
@@ -731,10 +713,10 @@ final class PhotoLibraryViewModel: ObservableObject {
             tagNames: tagNameMap
         )
         let currentSources = sourceDirectories
-        transferTask = Task { [transferService, currentSources] in
+        transferTask = Task { @MainActor [transferService, currentSources] in
             do {
                 let summary = try await transferService.execute(plan) { progress in
-                    await MainActor.run {
+                    Task { @MainActor in
                         self.operationProgress = progress
                         self.statusMessage = "\(operation.progressTitle) \(progress.displayText)"
                     }
@@ -806,13 +788,13 @@ final class PhotoLibraryViewModel: ObservableObject {
         statusMessage = "\(operation.progressTitle) \(selected.count) photo sets into routed folders..."
         
         let currentSources = sourceDirectories
-        transferTask = Task { [routedTransfer, currentSources] in
+        transferTask = Task { @MainActor [routedTransfer, currentSources] in
             do {
                 let summary = try await routedTransfer.execute(
                     plan,
                     categoryNameProvider: categoryNameProvider
                 ) { progress in
-                    await MainActor.run {
+                    Task { @MainActor in
                         self.operationProgress = progress
                         self.statusMessage = "\(operation.progressTitle) \(progress.displayText)"
                     }
@@ -842,30 +824,68 @@ final class PhotoLibraryViewModel: ObservableObject {
     private func loadExistingTags(for photoSets: [PhotoSet]) {
         tagTask?.cancel()
         let sets = photoSets
-        tagTask = Task { [xmpTagging, tagStore] in
-            for photo in sets {
-                try? Task.checkCancellation()
-                let data = await xmpTagging.readSidecarData(from: photo)
+        let allTags = tagStore.tags
+        tagTask = Task { @MainActor [xmpTagging, tagStore] in
+            var batchTags: [UUID: Set<UUID>] = [:]
+            var updatedSets = sets
+            
+            await withTaskGroup(of: (UUID, (tags: Set<String>, rating: Int?, pick: Int?))?.self) { group in
+                var index = 0
+                var activeTasks = 0
                 
-                if !data.tags.isEmpty {
-                    let tagIDs = Set(tagStore.tags
-                        .filter { data.tags.contains($0.name) }
-                        .map(\.id))
-                    if !tagIDs.isEmpty {
-                        await MainActor.run {
-                            tagStore.setTags(tagIDs, for: photo.id)
-                        }
+                while index < sets.count && activeTasks < 16 {
+                    let photo = sets[index]
+                    group.addTask {
+                        if Task.isCancelled { return nil }
+                        let data = await xmpTagging.readSidecarData(from: photo)
+                        return (photo.id, data)
                     }
+                    index += 1
+                    activeTasks += 1
                 }
                 
-                if data.rating != nil || data.pick != nil {
-                    await MainActor.run {
-                        if let index = self.photoSets.firstIndex(where: { $0.id == photo.id }) {
-                            if let r = data.rating { self.photoSets[index].rating = r }
-                            if let p = data.pick { self.photoSets[index].pick = p }
+                while activeTasks > 0 {
+                    guard let result = await group.next() else { break }
+                    activeTasks -= 1
+                    
+                    if Task.isCancelled { break }
+                    
+                    if let (id, data) = result {
+                        if !data.tags.isEmpty {
+                            let tagIDs = Set(allTags
+                                .filter { data.tags.contains($0.name) }
+                                .map(\.id))
+                            if !tagIDs.isEmpty {
+                                batchTags[id] = tagIDs
+                            }
+                        }
+                        
+                        if data.rating != nil || data.pick != nil {
+                            if let idx = updatedSets.firstIndex(where: { $0.id == id }) {
+                                if let r = data.rating { updatedSets[idx].rating = r }
+                                if let p = data.pick { updatedSets[idx].pick = p }
+                            }
                         }
                     }
+                    
+                    while index < sets.count && activeTasks < 16 {
+                        let photo = sets[index]
+                        activeTasks += 1
+                        group.addTask {
+                            if Task.isCancelled { return nil }
+                            let data = await xmpTagging.readSidecarData(from: photo)
+                            return (photo.id, data)
+                        }
+                        index += 1
+                    }
                 }
+            }
+            
+            if !Task.isCancelled {
+                if !batchTags.isEmpty {
+                    tagStore.setTagsBatch(batchTags)
+                }
+                self.photoSets = updatedSets
             }
         }
     }
@@ -937,49 +957,54 @@ final class PhotoLibraryViewModel: ObservableObject {
         return KeyboardShortcutInfo.parse(hotkey)
     }
 
-    // MARK: - Auto-Scroll Playback & Count Memoization
+    // MARK: - Count Memoization & Index Clamping
     
-    private var playbackTimer: Timer? = nil
-
-    func startPlayback() {
-        guard !isPlaybackActive else { return }
-        isPlaybackActive = true
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor in
-                let count = self.filteredPhotoSets.count
-                guard count > 0 else { return }
-                if self.focusedPhotoIndex >= count - 1 {
-                    self.focusedPhotoIndex = 0
-                } else {
-                    self.focusedPhotoIndex += 1
-                }
+    func updateDerivedState() {
+        var list = photoSets.filter { filterRule.matches($0) }
+        if !selectedTagFilters.isEmpty {
+            list = list.filter { !selectedTagFilters.isDisjoint(with: tagStore.assignedTagIDs(for: $0.id)) }
+        }
+        if !selectedFlags.isEmpty {
+            list = list.filter { selectedFlags.contains($0.pick ?? 0) }
+        }
+        if !selectedRatings.isEmpty {
+            list = list.filter {
+                let ratingVal = $0.rating ?? 0
+                return selectedRatings.contains(ratingVal)
             }
         }
-    }
-
-    func stopPlayback() {
-        isPlaybackActive = false
-        playbackTimer?.invalidate()
-        playbackTimer = nil
-    }
-
-    func updateDerivedState() {
-        let sets = filteredPhotoSets
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            list = list.filter { $0.baseName.lowercased().contains(query) }
+        }
         
-        // 1. Update near-focus IDs
-        let index = focusedPhotoIndex
+        self.filteredPhotoSets = list
+        
+        // Clamp focusedPhotoIndex first to valid range of filteredPhotoSets
+        let clamped: Int
+        if !list.isEmpty {
+            clamped = max(0, min(focusedPhotoIndex, list.count - 1))
+        } else {
+            clamped = 0
+        }
+        
+        if focusedPhotoIndex != clamped {
+            focusedPhotoIndex = clamped
+        }
+        
+        let index = clamped
         let start = max(0, index - 10)
-        let end = min(sets.count - 1, index + 10)
+        let end = min(list.count - 1, index + 10)
         var newSet = Set<UUID>()
-        if !sets.isEmpty {
+        if !list.isEmpty && start <= end {
             for i in start...end {
-                newSet.insert(sets[i].id)
+                newSet.insert(list[i].id)
             }
         }
         self.nearFocusedIds = newSet
-        
-        // 2. Memoize category and filter counts
+    }
+
+    func updateGlobalCounts() {
         self.cachedAllPhotosCount = photoSets.count
         self.cachedEditedCount = photoSets.filter(\.hasEdit).count
         self.cachedUneditedCount = photoSets.count - cachedEditedCount

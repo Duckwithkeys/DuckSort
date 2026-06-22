@@ -142,7 +142,11 @@ struct LargeImageViewerSidebar: View {
                             }
                             .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(PhotomatorTheme.cellBackground, in: RoundedRectangle(cornerRadius: 6))
+                            .background(PhotomatorTheme.background, in: RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(PhotomatorTheme.separator, lineWidth: 1)
+                            )
                         }
                     }
                 }
@@ -150,7 +154,7 @@ struct LargeImageViewerSidebar: View {
             }
         }
         .frame(width: 260)
-        .background(PhotomatorTheme.sidebarBackground)
+        .background(PhotomatorTheme.background)
         .border(width: 1, edges: [.leading], color: PhotomatorTheme.separator)
     }
 

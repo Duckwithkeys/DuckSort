@@ -52,6 +52,8 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
 EOF
 
 echo "=== Codesigning App Bundle ==="
+xattr -cr build/Release || true
+xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"
 
 echo "=== Package Complete: DuckSort.app ==="

@@ -1,3 +1,26 @@
+# DuckSort v1.2.2 (System Theme Integration & Performance Fixes)
+
+Welcome to version 1.2.2 of **DuckSort**! This release introduces native macOS system appearance integration, fixes critical layout-related main thread hangs (beach balls) when filtering and resizing, improves keyboard focus control, and optimizes startup performance.
+
+## ✨ What's New in v1.2.2
+* **Native System Theme Integration**:
+  - Removed the physical Moon/Sun toggle button and `@AppStorage("isDarkMode")` overrides. The application window, buttons, menus, and sidebars now natively and automatically transition between Light and Dark mode according to macOS system preferences.
+* **Instant Startup Loading (Batching & Parallelization)**:
+  - Parallelized XMP sidecar reads using a concurrent `TaskGroup` to fetch up to 16 files simultaneously on background threads.
+  - Batched tag assignments to database files using a new `setTagsBatch(_:)` method, reducing multiple synchronous disk writes to a single pass.
+  - Batched metadata-based updates to `photoSets` and `photoMetadata` arrays, eliminating hundreds of individual Main Actor redraws during folder scans.
+* **Fixed Layout Loops & Beach Balls**:
+  - Wrapped `scrollProxy.scrollTo` operations in `DispatchQueue.main.async` in both the grid and filmstrip views. This defers scrolling until SwiftUI layout passes finish, resolving the main thread freeze (beach ball) that occurred when changing library filters.
+  - Added safety checks in `columnCount(forWidth:)` to ignore infinite or NaN width dimensions during window resizing, preventing fatal conversion crashes.
+  - Added cancellation checks in the high-resolution image loader (`LargeImagePane.swift`) to abort pending background file reads immediately when dismissing the large image viewer.
+* **Dismissible Search Bar Focus**:
+  - Configured the search bar to start unfocused on launch, ensuring hotkeys like the Space bar and Return key are active for culling immediately.
+  - Automatically resigns keyboard focus from the search bar when the user clicks empty space in the grid, empty library workspace, or selects a photo cell.
+* **Clean Application Shutdown**:
+  - Implemented a custom `AppDelegate` that terminates the background application process completely when the last window is closed, releasing system resources.
+
+---
+
 # DuckSort v1.2.1 (Performance, Grid Refinements & Format Support)
 
 Welcome to version 1.2.1 of **DuckSort**! This release introduces critical performance optimizations in the large image viewer, robust format support for standard HEIF/HEIC files and additional raw manufacturer formats, precise alignment and layout refinements in the photo grid cells, and improved resilience when loading multiple sources.

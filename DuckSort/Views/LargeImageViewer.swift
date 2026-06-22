@@ -170,7 +170,7 @@ struct LargeImageViewer: View {
         .padding(.bottom, 8)
         .background(
             Rectangle()
-                .fill(PhotomatorTheme.sidebarBackground)
+                .fill(PhotomatorTheme.background)
                 .ignoresSafeArea()
         )
         .overlay(

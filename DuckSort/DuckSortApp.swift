@@ -6,8 +6,16 @@
 import SwiftUI
 import AppKit
 
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+}
+
 @main
 struct DuckSortApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
     // Observe shared state so menu commands reflect customizable hotkeys and
     // enable/disable as the active library appears.
     @ObservedObject private var windowManager = FloatingWindowManager.shared

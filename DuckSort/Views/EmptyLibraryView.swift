@@ -63,5 +63,9 @@ struct EmptyLibraryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PhotomatorTheme.background)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            NSApp.keyWindow?.makeFirstResponder(nil)
+        }
     }
 }

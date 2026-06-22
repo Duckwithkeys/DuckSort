@@ -8,7 +8,6 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var viewModel = PhotoLibraryViewModel()
-    @AppStorage("isDarkMode") private var isDarkMode = true
 
     var body: some View {
         MainLayout(viewModel: viewModel)
@@ -36,7 +35,13 @@ struct ContentView: View {
                 }
             }
             .ignoresSafeArea(.container, edges: .top)
-            .preferredColorScheme(isDarkMode ? .dark : .light)
+            .onChange(of: viewModel.isLargeImageViewerOpen) { _, isOpen in
+                if isOpen {
+                    DispatchQueue.main.async {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
+                }
+            }
     }
 
     private var errorBinding: Binding<Bool> {

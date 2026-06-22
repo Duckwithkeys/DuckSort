@@ -19,9 +19,14 @@ struct PhotoGridView: View {
     }
 
     private static func columnCount(forWidth width: CGFloat) -> Int {
+        guard width.isFinite else { return 1 }
         let available = width - horizontalPadding * 2
-        guard available > 0 else { return 1 }
-        let count = Int(floor((available + gridSpacing) / (minItemWidth + gridSpacing)))
+        guard available > 0 && available.isFinite else { return 1 }
+        let divisor = minItemWidth + gridSpacing
+        guard divisor > 0 else { return 1 }
+        let val = (available + gridSpacing) / divisor
+        guard val.isFinite else { return 1 }
+        let count = Int(floor(val))
         return max(1, count)
     }
 
@@ -60,18 +65,21 @@ struct PhotoGridView: View {
                                     toggleSelection: {
                                         viewModel.focusedPhotoIndex = index
                                         viewModel.toggleSelection(for: photoSet.id)
+                                        NSApp.keyWindow?.makeFirstResponder(nil)
                                     }
                                 )
                                 .id(photoSet.id)
                                 .simultaneousGesture(
                                     TapGesture().onEnded {
                                         viewModel.focusedPhotoIndex = index
+                                        NSApp.keyWindow?.makeFirstResponder(nil)
                                     }
                                 )
                                 .simultaneousGesture(
                                     TapGesture(count: 2).onEnded {
                                         viewModel.focusedPhotoIndex = index
                                         viewModel.openLargeImageViewer()
+                                        NSApp.keyWindow?.makeFirstResponder(nil)
                                     }
                                 )
                             }
@@ -79,12 +87,18 @@ struct PhotoGridView: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 16)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
                 }
                 .onChange(of: viewModel.focusedPhotoIndex) { _, newIndex in
-                    if newIndex >= 0 && newIndex < viewModel.filteredPhotoSets.count {
-                        let targetID = viewModel.filteredPhotoSets[newIndex].id
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            scrollProxy.scrollTo(targetID)
+                    DispatchQueue.main.async {
+                        if newIndex >= 0 && newIndex < viewModel.filteredPhotoSets.count {
+                            let targetID = viewModel.filteredPhotoSets[newIndex].id
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                scrollProxy.scrollTo(targetID)
+                            }
                         }
                     }
                 }

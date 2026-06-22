@@ -10,24 +10,6 @@ struct FilmstripView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Playback controls on the left
-            Button {
-                if viewModel.isPlaybackActive {
-                    viewModel.stopPlayback()
-                } else {
-                    viewModel.startPlayback()
-                }
-            } label: {
-                Image(systemName: viewModel.isPlaybackActive ? "pause.fill" : "play.fill")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(viewModel.isPlaybackActive ? Color.orange : PhotomatorTheme.selectedBlue)
-                    .frame(width: 26, height: 26)
-                    .background(Color.white.opacity(0.08), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .help(viewModel.isPlaybackActive ? "Pause Auto-scroll Playback" : "Start Auto-scroll Playback")
-            .padding(.leading, 12)
-
             ScrollViewReader { scrollProxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 8) {
@@ -53,17 +35,21 @@ struct FilmstripView: View {
                     .padding(.vertical, 8)
                 }
                 .onChange(of: viewModel.focusedPhotoIndex) { _, newIndex in
-                    if newIndex >= 0 && newIndex < viewModel.filteredPhotoSets.count {
-                        let targetID = viewModel.filteredPhotoSets[newIndex].id
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            scrollProxy.scrollTo(targetID, anchor: .center)
+                    DispatchQueue.main.async {
+                        if newIndex >= 0 && newIndex < viewModel.filteredPhotoSets.count {
+                            let targetID = viewModel.filteredPhotoSets[newIndex].id
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                scrollProxy.scrollTo(targetID, anchor: .center)
+                            }
                         }
                     }
                 }
                 .onAppear {
-                    if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < viewModel.filteredPhotoSets.count {
-                        let targetID = viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id
-                        scrollProxy.scrollTo(targetID, anchor: .center)
+                    DispatchQueue.main.async {
+                        if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < viewModel.filteredPhotoSets.count {
+                            let targetID = viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id
+                            scrollProxy.scrollTo(targetID, anchor: .center)
+                        }
                     }
                 }
             }
