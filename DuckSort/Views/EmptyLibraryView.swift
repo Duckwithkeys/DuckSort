@@ -40,7 +40,7 @@ struct EmptyLibraryView: View {
                     .background(PhotomatorTheme.cellBackground, in: RoundedRectangle(cornerRadius: 8))
                     
                     VStack(spacing: 12) {
-                        Image(systemName: "filemenu.and.selection")
+                        Image(systemName: "folder.badge.gearshape")
                             .font(.system(size: 36))
                             .foregroundStyle(PhotomatorTheme.textSecondary)
                         Text("Choose Import from the File\nmenu.")

@@ -13,7 +13,10 @@ struct LargeImageViewer: View {
 
     var body: some View {
         ZStack {
-            PhotomatorTheme.background
+            Rectangle()
+                .fill(.ultraThinMaterial)
+                .ignoresSafeArea()
+            Color.black.opacity(0.4)
                 .ignoresSafeArea()
 
             HStack(spacing: 0) {

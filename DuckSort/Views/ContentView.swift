@@ -8,71 +8,35 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var viewModel = PhotoLibraryViewModel()
-
-    @State private var isDropTargeted = false
+    @AppStorage("isDarkMode") private var isDarkMode = true
 
     var body: some View {
-        GeometryReader { _ in
-            HStack(spacing: 0) {
-                SidebarView(viewModel: viewModel)
-                
-                VStack(spacing: 0) {
-                    if viewModel.photoSets.isEmpty {
-                        EmptyLibraryView(isScanning: viewModel.isScanning) {
-                            viewModel.importItems()
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else {
-                        PhotoGridView(viewModel: viewModel)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-
-                    TransferFooter(viewModel: viewModel)
+        MainLayout(viewModel: viewModel)
+            .frame(minWidth: 920, minHeight: 640)
+            .navigationTitle("")
+            .overlay {
+                // Full-canvas large image viewer overlay
+                if viewModel.isLargeImageViewerOpen {
+                    LargeImageViewer(viewModel: viewModel)
+                        .transition(.opacity)
                 }
-                .background(PhotomatorTheme.background)
-                .dropDestination(for: URL.self) { urls, _ in
-                    viewModel.importURLs(urls)
-                    return !urls.isEmpty
-                } isTargeted: { targeted in
-                    isDropTargeted = targeted
+            }
+            .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
+            .alert("DuckSort", isPresented: errorBinding) {
+                Button("OK", role: .cancel) {
+                    viewModel.errorMessage = nil
                 }
-                .overlay {
-                    if isDropTargeted {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(PhotomatorTheme.selectedBlue, style: StrokeStyle(lineWidth: 3, dash: [8]))
-                            .padding(6)
-                            .allowsHitTesting(false)
-                            .transition(.opacity)
-                    }
+            } message: {
+                Text(viewModel.errorMessage ?? "")
+            }
+            .onAppear {
+                FloatingWindowManager.shared.activeViewModel = viewModel
+                viewModel.registerKeyboardMonitor { event in
+                    return handleGlobalKeyPress(event)
                 }
-                .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
             }
-        }
-        .frame(minWidth: 920, minHeight: 640)
-        .navigationTitle("")
-        .overlay {
-            // Full-canvas large image viewer overlay
-            if viewModel.isLargeImageViewerOpen {
-                LargeImageViewer(viewModel: viewModel)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
-        .alert("DuckSort", isPresented: errorBinding) {
-            Button("OK", role: .cancel) {
-                viewModel.errorMessage = nil
-            }
-        } message: {
-            Text(viewModel.errorMessage ?? "")
-        }
-        .onAppear {
-            FloatingWindowManager.shared.activeViewModel = viewModel
-            viewModel.registerKeyboardMonitor { event in
-                return handleGlobalKeyPress(event)
-            }
-        }
-        .ignoresSafeArea(.container, edges: .top)
+            .ignoresSafeArea(.container, edges: .top)
+            .preferredColorScheme(isDarkMode ? .dark : .light)
     }
 
     private var errorBinding: Binding<Bool> {
@@ -459,5 +423,75 @@ struct ShortcutsPopoverView: View {
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+// MARK: - Main Layout
+struct MainLayout: View {
+    @ObservedObject var viewModel: PhotoLibraryViewModel
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            SidebarView(viewModel: viewModel)
+            
+            VStack(spacing: 0) {
+                if viewModel.photoSets.isEmpty {
+                    EmptyLibraryView(isScanning: viewModel.isScanning) {
+                        viewModel.importItems()
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    PhotoGridView(viewModel: viewModel)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                TransferFooter(viewModel: viewModel)
+            }
+            .background(PhotomatorTheme.background)
+            .dropDestination(for: URL.self) { urls, _ in
+                viewModel.importURLs(urls)
+                return !urls.isEmpty
+            } isTargeted: { targeted in
+                isDropTargeted = targeted
+            }
+            .overlay {
+                if isDropTargeted {
+                    PulsingDropTargetOverlay()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+        }
+    }
+}
+
+// MARK: - Pulsing Drop Target Overlay
+struct PulsingDropTargetOverlay: View {
+    @State private var pulseScale = 1.0
+    @State private var phase = 0.0
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [PhotomatorTheme.selectedBlue, Color.green, PhotomatorTheme.selectedBlue],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                style: StrokeStyle(lineWidth: 3.5, dash: [10, 5], dashPhase: phase)
+            )
+            .scaleEffect(pulseScale)
+            .padding(8)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    phase = 30.0
+                }
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    pulseScale = 0.98
+                }
+            }
     }
 }

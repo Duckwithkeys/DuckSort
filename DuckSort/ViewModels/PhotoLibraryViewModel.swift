@@ -30,18 +30,35 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var looseFiles: [URL] = []
     @Published private(set) var failedSources: Set<URL> = []
     @Published private(set) var destinationDirectory: URL?
-    @Published private(set) var photoSets: [PhotoSet] = []
+    @Published private(set) var photoSets: [PhotoSet] = [] {
+        didSet {
+            updateDerivedState()
+        }
+    }
     @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:]
     @Published var filterRule: PhotoFilterRule = .allPhotos {
         didSet {
             guard !isInitializing else { return }
             UserPreferences.shared.lastFilterRule = filterRule
             UserPreferences.shared.save()
+            updateDerivedState()
         }
     }
-    @Published var selectedTagFilters: Set<UUID> = []
-    @Published var selectedFlags: Set<Int> = []
-    @Published var selectedRatings: Set<Int> = []
+    @Published var selectedTagFilters: Set<UUID> = [] {
+        didSet {
+            updateDerivedState()
+        }
+    }
+    @Published var selectedFlags: Set<Int> = [] {
+        didSet {
+            updateDerivedState()
+        }
+    }
+    @Published var selectedRatings: Set<Int> = [] {
+        didSet {
+            updateDerivedState()
+        }
+    }
     @Published var namingPreset: ExportNamingPreset = .dateOriginalSequence {
         didSet {
             guard !isInitializing else { return }
@@ -83,10 +100,28 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published var focusedPhotoIndex: Int = 0 {
         didSet {
             preloadNeighbors(around: focusedPhotoIndex)
+            updateDerivedState()
         }
     }
     @Published var isLargeImageViewerOpen: Bool = false
     @Published var currentTagCategoryID: UUID? = nil
+
+    /// Memoized counts & UI state
+    @Published var searchText = "" {
+        didSet {
+            updateDerivedState()
+        }
+    }
+    @Published var nearFocusedIds: Set<UUID> = []
+    @Published var isPlaybackActive = false
+
+    // Memoized sidebar counts
+    var cachedAllPhotosCount: Int = 0
+    var cachedEditedCount: Int = 0
+    var cachedUneditedCount: Int = 0
+    var cachedTagCounts: [UUID: Int] = [:]
+    var cachedFlagCounts: [Int: Int] = [:]
+    var cachedRatingCounts: [Int: Int] = [:]
 
     /// Number of columns the photo grid is currently rendering. Kept in sync by
     /// PhotoGridView so arrow-key navigation matches the visible layout.
@@ -118,6 +153,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         self.tagStore.objectWillChange
             .sink { [weak self] _ in
+                self?.updateDerivedState()
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
@@ -143,6 +179,8 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         self.isInitializing = false
         
+        updateDerivedState()
+        
         if !sourceDirectories.isEmpty || !looseFiles.isEmpty {
             Task { [weak self] in
                 self?.scanSourceDirectories(urls)
@@ -155,6 +193,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         transferTask?.cancel()
         tagTask?.cancel()
         metadataTask?.cancel()
+        playbackTimer?.invalidate()
         
         // Clean up keyboard monitor if registered
         if let keyboardMonitor = keyboardMonitor {
@@ -177,6 +216,10 @@ final class PhotoLibraryViewModel: ObservableObject {
                 let ratingVal = $0.rating ?? 0
                 return selectedRatings.contains(ratingVal)
             }
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if !query.isEmpty {
+            list = list.filter { $0.baseName.lowercased().contains(query) }
         }
         return list
     }
@@ -892,6 +935,72 @@ final class PhotoLibraryViewModel: ObservableObject {
     var jpegOnlyShortcutInfo: KeyboardShortcutInfo? {
         guard let hotkey = jpegOnlyHotkey, !hotkey.isEmpty else { return nil }
         return KeyboardShortcutInfo.parse(hotkey)
+    }
+
+    // MARK: - Auto-Scroll Playback & Count Memoization
+    
+    private var playbackTimer: Timer? = nil
+
+    func startPlayback() {
+        guard !isPlaybackActive else { return }
+        isPlaybackActive = true
+        playbackTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            Task { @MainActor in
+                let count = self.filteredPhotoSets.count
+                guard count > 0 else { return }
+                if self.focusedPhotoIndex >= count - 1 {
+                    self.focusedPhotoIndex = 0
+                } else {
+                    self.focusedPhotoIndex += 1
+                }
+            }
+        }
+    }
+
+    func stopPlayback() {
+        isPlaybackActive = false
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+    }
+
+    func updateDerivedState() {
+        let sets = filteredPhotoSets
+        
+        // 1. Update near-focus IDs
+        let index = focusedPhotoIndex
+        let start = max(0, index - 10)
+        let end = min(sets.count - 1, index + 10)
+        var newSet = Set<UUID>()
+        if !sets.isEmpty {
+            for i in start...end {
+                newSet.insert(sets[i].id)
+            }
+        }
+        self.nearFocusedIds = newSet
+        
+        // 2. Memoize category and filter counts
+        self.cachedAllPhotosCount = photoSets.count
+        self.cachedEditedCount = photoSets.filter(\.hasEdit).count
+        self.cachedUneditedCount = photoSets.count - cachedEditedCount
+        
+        var tagCounts: [UUID: Int] = [:]
+        for tag in tagStore.tags {
+            tagCounts[tag.id] = photoSets.filter { tagStore.assignedTagIDs(for: $0.id).contains(tag.id) }.count
+        }
+        self.cachedTagCounts = tagCounts
+        
+        var flagCounts: [Int: Int] = [:]
+        flagCounts[1] = photoSets.filter { $0.pick == 1 }.count
+        flagCounts[-1] = photoSets.filter { $0.pick == -1 }.count
+        flagCounts[0] = photoSets.filter { ($0.pick ?? 0) == 0 }.count
+        self.cachedFlagCounts = flagCounts
+        
+        var ratingCounts: [Int: Int] = [:]
+        for rating in 0...5 {
+            ratingCounts[rating] = photoSets.filter { ($0.rating ?? 0) == rating }.count
+        }
+        self.cachedRatingCounts = ratingCounts
     }
     
 } // <---------- THIS BRACE CLOSES THE CLASS.
