@@ -33,9 +33,11 @@ struct TransferFooter: View {
                             .foregroundStyle(PhotomatorTheme.selectedBlue)
                         if let dest = viewModel.destinationDirectory {
                             Text("Destination: \(Text(dest.lastPathComponent).foregroundStyle(PhotomatorTheme.textPrimary))")
+                                .font(.callout)
                                 .foregroundStyle(PhotomatorTheme.textSecondary)
                         } else {
                             Text("Choose Destination...")
+                                .font(.callout)
                                 .foregroundStyle(PhotomatorTheme.textPrimary)
                         }
                     }
@@ -63,8 +65,10 @@ struct TransferFooter: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: op.systemImage)
+                                .font(.callout)
                                 .foregroundStyle(PhotomatorTheme.selectedBlue)
                             Text(op.displayName)
+                                .font(.callout)
                                 .foregroundStyle(PhotomatorTheme.textPrimary)
                         }
                         .padding(.horizontal, 10)
