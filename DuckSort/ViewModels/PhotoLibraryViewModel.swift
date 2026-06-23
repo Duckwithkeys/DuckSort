@@ -60,20 +60,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             updateDerivedState()
         }
     }
-    @Published var namingPreset: ExportNamingPreset = .dateOriginalSequence {
-        didSet {
-            guard !isInitializing else { return }
-            UserPreferences.shared.lastNamingPreset = namingPreset
-            UserPreferences.shared.save()
-        }
-    }
-    @Published var jpegQuality: Double = 0.92 {
-        didSet {
-            guard !isInitializing else { return }
-            UserPreferences.shared.lastJpegQuality = jpegQuality
-            UserPreferences.shared.save()
-        }
-    }
+
     @Published var isJpegOnlyMode: Bool = false {
         didSet {
             guard !isInitializing else { return }
@@ -136,7 +123,6 @@ final class PhotoLibraryViewModel: ObservableObject {
     private let scanner = FileScanner()
     private let xmpTagging = XMPTaggingService()         // new custom tag keywords
     private let transferService = FileTransferService()
-    private let jpegExportService = JPEGExportService()
     private let routedTransfer = RoutedTransferService()
     private let metadataReader = MetadataReader()
     private var scanTask: Task<Void, Never>?
@@ -173,8 +159,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             .store(in: &cancellables)
         
         self.filterRule = UserPreferences.shared.lastFilterRule
-        self.namingPreset = UserPreferences.shared.lastNamingPreset
-        self.jpegQuality = UserPreferences.shared.lastJpegQuality
+
         self.isJpegOnlyMode = UserPreferences.shared.isJpegOnlyMode
         self.isInspectorOpen = UserPreferences.shared.isInspectorOpen
         
@@ -756,9 +741,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             operation: operation,
             baseDestination: destinationDirectory,
             rule: rule.components,
-            photos: routedPhotos,
-            jpegQuality: jpegQuality,
-            namingPreset: namingPreset
+            photos: routedPhotos
         )
         
         let categoryNames = Dictionary(
@@ -814,7 +797,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         let allTags = tagStore.tags
         
         tagTask = Task { @MainActor [xmpTagging, tagStore] in
-            let nameToID: [String: UUID] = Dictionary(uniqueKeysWithValues: allTags.map { ($0.name, $0.id) })
+            let nameToID: [String: UUID] = Dictionary(
+                allTags.map { ($0.name.lowercased(), $0.id) },
+                uniquingKeysWith: { first, _ in first }
+            )
             
             let results: [(UUID, (tags: Set<String>, rating: Int?, pick: Int?))] = await withTaskGroup(of: (UUID, (tags: Set<String>, rating: Int?, pick: Int?)).self) { group in
                 for photo in sets {
@@ -836,7 +822,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             
             for (id, data) in results {
                 if !data.tags.isEmpty {
-                    let tagIDs = Set(data.tags.compactMap { nameToID[$0] })
+                    let tagIDs = Set(data.tags.compactMap { nameToID[$0.lowercased()] })
                     if !tagIDs.isEmpty {
                         batchTags[id] = tagIDs
                     }

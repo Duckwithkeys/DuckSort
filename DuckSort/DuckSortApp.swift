@@ -59,31 +59,13 @@ struct DuckSortApp: App {
                 .disabled(!windowManager.isReady)
             }
 
-            CommandMenu("Tools") {
-                Button("Tag Manager...") {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
                     if let vm = FloatingWindowManager.shared.activeViewModel {
-                        FloatingWindowManager.shared.showTagManager(viewModel: vm)
+                        FloatingWindowManager.shared.showSettings(viewModel: vm)
                     }
                 }
-                .optionalKeyboardShortcut(KeyboardShortcutInfo.parse(preferences.tagManagerHotkey).keyboardShortcut)
-                .disabled(!windowManager.isReady)
-
-                Button("Export Routing Rules...") {
-                    if let vm = FloatingWindowManager.shared.activeViewModel {
-                        FloatingWindowManager.shared.showRuleEditor(viewModel: vm)
-                    }
-                }
-                .optionalKeyboardShortcut(KeyboardShortcutInfo.parse(preferences.ruleEditorHotkey).keyboardShortcut)
-                .disabled(!windowManager.isReady)
-
-                Divider()
-
-                Button("Keyboard Shortcuts...") {
-                    if let vm = FloatingWindowManager.shared.activeViewModel {
-                        FloatingWindowManager.shared.showShortcutsViewer(viewModel: vm)
-                    }
-                }
-                .keyboardShortcut("/", modifiers: .command)
+                .keyboardShortcut(",", modifiers: .command)
                 .disabled(!windowManager.isReady)
             }
         }

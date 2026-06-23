@@ -9,37 +9,38 @@ import SwiftUI
 import AppKit
 
 final class FloatingPanel<Content: View>: NSPanel {
-    init(title: String, content: Content, width: CGFloat, height: CGFloat, isResizable: Bool = true) {
-        var style: NSWindow.StyleMask = [.titled, .utilityWindow]
+    init(title: String, content: Content, width: CGFloat, height: CGFloat, isResizable: Bool = true, hideTrafficLights: Bool = false) {
+        var style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
         if isResizable {
             style.insert(.resizable)
         }
-        
+
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: style,
             backing: .buffered,
             defer: false
         )
-        
+
         self.title = title
         self.level = .floating
-        self.isFloatingPanel = true
+        self.isFloatingPanel = false
         self.hidesOnDeactivate = false
         self.titlebarAppearsTransparent = false
-        
-        // Host the SwiftUI view
+        self.titleVisibility = .visible
+
         let hostingView = NSHostingView(rootView: content)
         self.contentView = hostingView
-        
+
         self.center()
 
-        // Remove the traffic light buttons entirely
-        self.standardWindowButton(.closeButton)?.isHidden = true
-        self.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        self.standardWindowButton(.zoomButton)?.isHidden = true
+        if hideTrafficLights {
+            self.standardWindowButton(.closeButton)?.isHidden = true
+            self.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            self.standardWindowButton(.zoomButton)?.isHidden = true
+        }
     }
-    
+
     override var canBecomeKey: Bool {
         return true
     }
@@ -56,106 +57,65 @@ final class FloatingWindowManager: ObservableObject {
     /// Drives `.disabled` state for menu commands that require an active library.
     @Published private(set) var isReady = false
 
-    private var tagManagerPanel: NSPanel?
-    private var ruleEditorPanel: NSPanel?
-    private var shortcutsPanel: NSPanel?
-    
+    private var settingsController: NSWindowController?
+
     private init() {}
-    
-    func showTagManager(viewModel: PhotoLibraryViewModel) {
-        if let panel = tagManagerPanel {
-            panel.close()
+
+    func showSettings(viewModel: PhotoLibraryViewModel, initialTab: SettingsTab = .rules) {
+        if let controller = settingsController {
+            if let win = controller.window,
+               let hosting = win.contentView as? NSHostingView<AnyView> {
+                hosting.rootView = AnyView(
+                    SettingsPaneView(
+                        viewModel: viewModel,
+                        initialTab: initialTab,
+                        onClose: { [weak controller] in controller?.close() }
+                    )
+                )
+            }
+            controller.showWindow(nil)
+            NSApp.activate(ignoringOtherApps: true)
             return
         }
-        
-        let view = TagManagerView(viewModel: viewModel, tagStore: viewModel.tagStore) { [weak self] in
-            self?.tagManagerPanel?.close()
-        }
-        let panel = FloatingPanel(
-            title: "Tag Manager",
-            content: view,
-            width: 680,
-            height: 580
+
+        let view = SettingsPaneView(
+            viewModel: viewModel,
+            initialTab: initialTab,
+            onClose: { [weak self] in self?.settingsController?.close() }
         )
-        
-        panel.minSize = NSSize(width: 640, height: 520)
-        
-        let delegate = PanelDelegate { [weak self] in
-            self?.tagManagerPanel = nil
-        }
-        panel.delegate = delegate
-        panel.setAssociatedDelegate(delegate)
-        
-        self.tagManagerPanel = panel
-        panel.makeKeyAndOrderFront(nil)
-    }
-    
-    func showRuleEditor(viewModel: PhotoLibraryViewModel) {
-        if let panel = ruleEditorPanel {
-            panel.close()
-            return
-        }
-        
-        let view = ExportRuleEditorView(viewModel: viewModel, ruleStore: viewModel.ruleStore, tagStore: viewModel.tagStore) { [weak self] in
-            self?.ruleEditorPanel?.close()
-        }
-        let panel = FloatingPanel(
-            title: "Export Routing Rules",
-            content: view,
-            width: 860,
-            height: 600
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
         )
-        
-        panel.minSize = NSSize(width: 820, height: 540)
-        
+        window.title = ""
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isMovableByWindowBackground = true
+        window.backgroundColor = NSColor(red: 0x1E/255, green: 0x1E/255, blue: 0x1E/255, alpha: 1)
+        window.center()
+
+        let hosting = NSHostingView(rootView: AnyView(view))
+        hosting.frame = NSRect(x: 0, y: 0, width: 720, height: 480 + 28)
+        hosting.autoresizingMask = [.width, .height]
+        window.contentView = hosting
+
         let delegate = PanelDelegate { [weak self] in
-            self?.ruleEditorPanel = nil
+            self?.settingsController = nil
         }
-        panel.delegate = delegate
-        panel.setAssociatedDelegate(delegate)
-        
-        self.ruleEditorPanel = panel
-        panel.makeKeyAndOrderFront(nil)
+        window.delegate = delegate
+        window.setAssociatedDelegate(delegate)
+
+        let controller = NSWindowController(window: window)
+        self.settingsController = controller
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
-    
-    func showShortcutsViewer(viewModel: PhotoLibraryViewModel) {
-        if let panel = shortcutsPanel {
-            panel.close()
-            return
-        }
-        
-        let view = ShortcutsPopoverView(viewModel: viewModel) { [weak self] in
-            self?.shortcutsPanel?.close()
-        }
-        
-        let panel = FloatingPanel(
-            title: "Keyboard Shortcuts",
-            content: view,
-            width: 340,
-            height: 10,
-            isResizable: false
-        )
-        
-        if let cv = panel.contentView {
-            panel.setContentSize(NSSize(width: 340, height: min(cv.fittingSize.height, 600)))
-        }
-        
-        panel.minSize = NSSize(width: 320, height: 360)
-        
-        let delegate = PanelDelegate { [weak self] in
-            self?.shortcutsPanel = nil
-        }
-        panel.delegate = delegate
-        panel.setAssociatedDelegate(delegate)
-        
-        self.shortcutsPanel = panel
-        panel.makeKeyAndOrderFront(nil)
-    }
-    
+
     func closeAll() {
-        tagManagerPanel?.close()
-        ruleEditorPanel?.close()
-        shortcutsPanel?.close()
+        settingsController?.close()
     }
 }
 
