@@ -84,7 +84,7 @@ struct FileScanner: Sendable {
     }
 
     /// Scan a directory recursively, suitable for choosing an SD card root.
-    func scanDirectory(_ url: URL, jpegOnly: Bool = false) async throws -> ScanResult {
+    func scanDirectory(_ url: URL) async throws -> ScanResult {
         try await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
             guard fm.isReadableFile(atPath: url.path),
@@ -128,18 +128,10 @@ struct FileScanner: Sendable {
                 if FileExtension.imageExtensions.contains(extensionKind),
                    values.isRegularFile == true,
                    !baseName.isEmpty {
-                    if jpegOnly && extensionKind != .jpeg && extensionKind != .jpegExtended {
-                        ignoredFileCount += 1
-                        continue
-                    }
                     mediaURLsByBaseName[groupingKey, default: []].append(itemURL)
                 } else if extensionKind == .photoEdit,
                           (values.isRegularFile == true || values.isDirectory == true || values.isPackage == true),
                           !baseName.isEmpty {
-                    if jpegOnly {
-                        ignoredFileCount += 1
-                        continue
-                    }
                     sidecars[groupingKey] = itemURL
 
                     if values.isDirectory == true || values.isPackage == true {
@@ -165,7 +157,7 @@ struct FileScanner: Sendable {
     /// Group a flat list of individual files (e.g. dropped or imported via the
     /// open panel) into PhotoSets using the same base-name + sidecar logic as a
     /// recursive directory scan.
-    func scanFiles(_ urls: [URL], jpegOnly: Bool = false) async -> ScanResult {
+    func scanFiles(_ urls: [URL]) async -> ScanResult {
         await Task.detached(priority: .userInitiated) {
             let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isRegularFileKey]
 
@@ -191,18 +183,10 @@ struct FileScanner: Sendable {
                     if FileExtension.imageExtensions.contains(extensionKind),
                        values.isRegularFile == true,
                        !baseName.isEmpty {
-                        if jpegOnly && extensionKind != .jpeg && extensionKind != .jpegExtended {
-                            ignoredFileCount += 1
-                            continue
-                        }
                         mediaURLsByBaseName[groupingKey, default: []].append(itemURL)
                     } else if extensionKind == .photoEdit,
                               (values.isRegularFile == true || values.isDirectory == true || values.isPackage == true),
                               !baseName.isEmpty {
-                        if jpegOnly {
-                            ignoredFileCount += 1
-                            continue
-                        }
                         sidecars[groupingKey] = itemURL
                     } else {
                         ignoredFileCount += 1
@@ -256,7 +240,7 @@ struct FileScanner: Sendable {
     }
 
     /// Scan multiple directories recursively and concurrently, combining the results.
-    func scanDirectories(_ urls: [URL], jpegOnly: Bool = false) async -> ScanResult {
+    func scanDirectories(_ urls: [URL]) async -> ScanResult {
         if urls.isEmpty {
             return ScanResult(sourceDirectories: [], photoSets: [], scannedFileCount: 0, ignoredFileCount: 0, failedDirectories: [])
         }
@@ -265,7 +249,7 @@ struct FileScanner: Sendable {
             for url in urls {
                 group.addTask {
                     do {
-                        return try await self.scanDirectory(url, jpegOnly: jpegOnly)
+                        return try await self.scanDirectory(url)
                     } catch {
                         return ScanResult(
                             sourceDirectories: [url],
