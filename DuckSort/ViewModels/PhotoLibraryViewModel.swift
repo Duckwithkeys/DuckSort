@@ -120,6 +120,20 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published var cachedSubfolders: [URL: [URL]] = [:]
     @Published var cachedSubfolderCounts: [URL: Int] = [:]
 
+    // Folder tree index for the recursive sidebar. Built once when
+    // photoSets changes (not on every read), so the sidebar can render
+    // any node in O(1). Both maps are keyed by the standardized URL
+    // path string so lookups don't allocate.
+    //
+    //   childSubfoldersIndex[parentPath]  -> sorted immediate children paths
+    //   recursivePhotoCountIndex[folderPath] -> photo set count anywhere at or below folder
+    //
+    // Invalidated by `rebuildFolderIndex()`, which is called from the
+    // photoSets didSet (after updateGlobalCounts + updateDerivedState).
+    @Published private(set) var childSubfoldersIndex: [String: [String]] = [:]
+    @Published private(set) var recursivePhotoCountIndex: [String: Int] = [:]
+    @Published private(set) var childFolderURLs: [String: [URL]] = [:]
+
     // Memoized sidebar counts
     var cachedAllPhotosCount: Int = 0
     var cachedEditedCount: Int = 0
@@ -1575,11 +1589,21 @@ final class PhotoLibraryViewModel: ObservableObject {
                 if !selectedRatings.contains(photoSet.rating ?? 0) { continue }
             }
 
-            // Subfolder filter — compare .path strings to avoid URL resolution
-            // on every file on every filter pass.
+            // Subfolder filter — match any photo set whose media files
+            // live at or below the selected folder. The sidebar's tree
+            // view lets the user filter by an arbitrary depth in the
+            // hierarchy, so the filter must accept descendant matches too.
             if let subfolderPath {
-                let matches = photoSet.mediaFiles.contains { fileURL in
-                    fileURL.deletingLastPathComponent().path == subfolderPath
+                var matches = false
+                for fileURL in photoSet.mediaFiles {
+                    let filePath = fileURL.standardizedFileURL.path
+                    if filePath == subfolderPath
+                        || (filePath.count > subfolderPath.count
+                            && filePath.hasPrefix(subfolderPath)
+                            && filePath[subfolderPath.endIndex] == "/") {
+                        matches = true
+                        break
+                    }
                 }
                 if !matches { continue }
             }
@@ -1688,31 +1712,90 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         var subfoldersMap: [URL: [URL]] = [:]
         var subfolderPhotoCounts: [URL: Int] = [:]
-        
+
         let allSubfolders = Array(photoSetsBySubfolder.keys)
-        
+
         for sourceURL in sourceDirectories {
             let standardizedSource = sourceURL.standardizedFileURL.path
             var subfoldersSet = Set<URL>()
-            
+
             for parentDir in allSubfolders {
                 let parentPath = parentDir.path
                 if parentPath.hasPrefix(standardizedSource) && parentPath != standardizedSource {
                     subfoldersSet.insert(parentDir)
                 }
             }
-            
+
             let sorted = subfoldersSet.sorted { $0.path < $1.path }
             subfoldersMap[sourceURL] = sorted
         }
         self.cachedSubfolders = subfoldersMap
-        
+
         for subfolders in subfoldersMap.values {
             for subfolder in subfolders {
                 subfolderPhotoCounts[subfolder] = photoSetsBySubfolder[subfolder]?.count ?? 0
             }
         }
         self.cachedSubfolderCounts = subfolderPhotoCounts
+
+        // Build the recursive folder tree index in the same pass. The
+        // sidebar reads this on every render, so keeping it as a
+        // pre-computed dictionary turns an O(n × m) per-render scan
+        // into an O(1) lookup.
+        rebuildFolderIndex(from: photoSetsBySubfolder)
+    }
+
+    /// Builds the full folder tree index for the recursive sidebar in a
+    /// single O(n × m) pass over `photoSetsBySubfolder`. After this runs,
+    /// every `childSubfolders(of:)` / `recursivePhotoCount(in:)` query is
+    /// O(1). Keyed by `URL.standardizedFileURL.path` so lookups don't
+    /// have to reconstruct URL objects every time the sidebar re-renders.
+    private func rebuildFolderIndex(from photoSetsBySubfolder: [URL: Set<UUID>]) {
+        // Map: parent path -> set of child folder paths observed via
+        // `photoSets`. Walking each set's parent dir and comparing to
+        // every ancestor gives us the full tree in one pass.
+        var childAccum: [String: Set<String>] = [:]
+        var photoCountByPath: [String: Int] = [:]
+        childAccum.reserveCapacity(photoSetsBySubfolder.count * 2)
+        photoCountByPath.reserveCapacity(photoSetsBySubfolder.count)
+
+        for (folder, sets) in photoSetsBySubfolder {
+            let folderPath = folder.path
+            photoCountByPath[folderPath, default: 0] += sets.count
+
+            // For each ancestor path (folder itself + every parent
+            // up to "/"), register this folder as a child. Bail when we
+            // hit the root.
+            var ancestor = folder.deletingLastPathComponent()
+            let rootURL = URL(fileURLWithPath: "/")
+            while ancestor.path != "/" && ancestor.path != rootURL.path {
+                let ancestorPath = ancestor.path
+                var bucket = childAccum[ancestorPath, default: Set()]
+                if bucket.insert(folderPath).inserted {
+                    childAccum[ancestorPath] = bucket
+                }
+                // Count this folder's sets under each ancestor too — that's
+                // what makes `recursivePhotoCount(in:)` work in O(1).
+                photoCountByPath[ancestorPath, default: 0] += sets.count
+                ancestor = ancestor.deletingLastPathComponent()
+            }
+        }
+
+        // Materialise the sorted child paths and the URL array. Sorting
+        // upfront means the sidebar never re-sorts on render.
+        var childPaths: [String: [String]] = [:]
+        var childURLs: [String: [URL]] = [:]
+        childPaths.reserveCapacity(childAccum.count)
+        childURLs.reserveCapacity(childAccum.count)
+        for (parentPath, kids) in childAccum {
+            let sortedPaths = kids.sorted()
+            childPaths[parentPath] = sortedPaths
+            childURLs[parentPath] = sortedPaths.map { URL(fileURLWithPath: $0) }
+        }
+
+        self.childSubfoldersIndex = childPaths
+        self.recursivePhotoCountIndex = photoCountByPath
+        self.childFolderURLs = childURLs
     }
     
     func relativePath(of subfolderURL: URL, relativeTo sourceURL: URL) -> String {
@@ -1728,5 +1811,68 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
         return subfolderURL.lastPathComponent
     }
-    
+
+    // MARK: - Recursive folder tree (O(1) lookups against the index)
+
+    /// Returns the immediate child subfolders of `folder` that contain
+    /// at least one photo set in the loaded library. Returns `[]` for
+    /// folders with no photo-bearing children or for the library root.
+    ///
+    /// Backed by `childFolderURLs`, populated inside `rebuildFolderIndex`
+    /// every time `photoSets` changes. O(1) per call.
+    func childSubfolders(of folder: URL) -> [URL] {
+        let path = folder.standardizedFileURL.path
+        guard path != "/" else { return [] }
+        return childFolderURLs[path] ?? []
+    }
+
+    /// Total photo sets that live anywhere at or below `folder`. Includes
+    /// the folder itself, its direct children, and all deeper
+    /// descendants. O(1) per call.
+    func recursivePhotoCount(in folder: URL) -> Int {
+        let path = folder.standardizedFileURL.path
+        guard path != "/" else { return photoSets.count }
+        return recursivePhotoCountIndex[path] ?? 0
+    }
+
+    /// True if `folder` is known to contain any photo sets anywhere in
+    /// its subtree. Used by the tree row to decide whether to show the
+    /// expand chevron. O(1) per call.
+    func hasAnyPhotos(in folder: URL) -> Bool {
+        let path = folder.standardizedFileURL.path
+        return (recursivePhotoCountIndex[path] ?? 0) > 0
+    }
+
+    /// True if `folder` contains any photo set directly (the photo set's
+    /// parent directory equals `folder`). O(n) but typically only called
+    /// once per row when first expanding; cheap because the typical
+    /// sub-tree size is small.
+    func hasPhotosDirectly(in folder: URL) -> Bool {
+        let folderPath = folder.standardizedFileURL.path
+        for set in photoSets {
+            for file in set.mediaFiles {
+                if file.deletingLastPathComponent().standardizedFileURL.path == folderPath {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Returns photo sets whose media files are directly inside `folder`
+    /// (not inside a subfolder of `folder`). Used by the file-level tree
+    /// leaf nodes so users can drill down to individual photos.
+    ///
+    /// When a folder is expanded in the sidebar, this method is called once
+    /// and the result is cached in `@State` so expanding/collapsing doesn't
+    /// re-scan on every render.
+    func photoSetsDirectlyIn(folder: URL) -> [PhotoSet] {
+        let folderPath = folder.standardizedFileURL.path
+        return photoSets.filter { set in
+            set.mediaFiles.contains { file in
+                file.deletingLastPathComponent().standardizedFileURL.path == folderPath
+            }
+        }
+    }
+
 } 

@@ -56,10 +56,12 @@ final class TagPackLibrary: ObservableObject {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         self.storeURL = folder.appendingPathComponent("tag-packs.json")
         load()
+        rebuildIndexes()
         if packs.isEmpty {
             // First launch — seed every built-in template with its factory
             // state so the user has something to switch into immediately.
             packs = TagPackTemplate.allTemplates.map(TagPackState.from(template:))
+            rebuildIndexes()
             save()
         }
     }
@@ -76,6 +78,37 @@ final class TagPackLibrary: ObservableObject {
         TagPackTemplate.template(id: id) != nil
     }
 
+    /// O(1) lookup of a pack id by its parsed keyboard shortcut. Rebuilt
+    /// inside `rebuildIndexes()` so the global key monitor in ContentView
+    /// doesn't have to iterate every pack + re-parse its hotkey string on
+    /// every key event. Packs with no hotkey are simply omitted from the
+    /// index, so the default state is "no binding claimed".
+    private var packHotkeyIndex: [KeyboardShortcutInfo: String] = [:]
+
+    private func rebuildIndexes() {
+        packHotkeyIndex = [:]
+        for pack in packs {
+            guard let raw = pack.hotkey, !raw.isEmpty,
+                  let info = KeyboardShortcutInfo.parse(raw) as KeyboardShortcutInfo?,
+                  !info.key.isEmpty
+            else { continue }
+            packHotkeyIndex[info] = pack.id
+        }
+    }
+
+    /// Resolve a key event to a pack id (or nil if no pack claims it).
+    /// Used by ContentView's global key monitor.
+    func packID(for shortcut: KeyboardShortcutInfo) -> String? {
+        packHotkeyIndex[shortcut]
+    }
+
+    /// Returns the human-readable hotkey string for a pack, or nil if
+    /// none is set. Used by the Settings UI to display the current
+    /// binding in the ellipsis menu.
+    func hotkey(forPackID id: String) -> String? {
+        packs.first(where: { $0.id == id })?.hotkey
+    }
+
     // MARK: - Mutation
 
     /// Persist the supplied pack state under its id.
@@ -85,6 +118,7 @@ final class TagPackLibrary: ObservableObject {
         } else {
             packs.append(state)
         }
+        rebuildIndexes()
         save()
     }
 
@@ -99,6 +133,7 @@ final class TagPackLibrary: ObservableObject {
             packs[index].categories = []
             packs[index].tags = []
         }
+        rebuildIndexes()
         save()
     }
 
@@ -114,9 +149,11 @@ final class TagPackLibrary: ObservableObject {
             accentColor: original.accentColor,
             isBuiltIn: false,
             categories: original.categories,
-            tags: original.tags
+            tags: original.tags,
+            hotkey: nil // Duplicate starts with no binding — the user assigns one if they want.
         )
         packs.append(copy)
+        rebuildIndexes()
         save()
         return copy
     }
@@ -126,6 +163,7 @@ final class TagPackLibrary: ObservableObject {
         guard !isBuiltIn(id) else { return }
         guard let index = packs.firstIndex(where: { $0.id == id }) else { return }
         packs.remove(at: index)
+        rebuildIndexes()
         save()
     }
 
@@ -138,6 +176,7 @@ final class TagPackLibrary: ObservableObject {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         packs[index].name = trimmed
+        rebuildIndexes()
         save()
     }
 
@@ -146,6 +185,43 @@ final class TagPackLibrary: ObservableObject {
         guard !isBuiltIn(id) else { return }
         packs[index].systemImage = systemImage
         packs[index].accentColor = accentColor
+        rebuildIndexes()
+        save()
+    }
+
+    /// Assign or change the activation hotkey for a pack. Pass an empty
+    /// string or call `clearHotkey(id:)` to remove the binding. The hotkey
+    /// is freed from any other pack that previously held it so two packs
+    /// can never share the same binding.
+    ///
+    /// Note: built-in packs CAN have a hotkey set — the model just
+    /// doesn't let the user rename, restyle, or delete them. Hotkey is a
+    /// pure binding, not pack content, so it's fine to assign one.
+    func setHotkey(_ raw: String, forPackID id: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            clearHotkey(forPackID: id)
+            return
+        }
+        guard let index = packs.firstIndex(where: { $0.id == id }) else { return }
+
+        // Clear the binding from any other pack that previously held it so
+        // two packs never claim the same key.
+        for i in packs.indices where packs[i].hotkey == trimmed && packs[i].id != id {
+            packs[i].hotkey = nil
+        }
+        packs[index].hotkey = trimmed
+        rebuildIndexes()
+        save()
+    }
+
+    /// Remove the activation hotkey from a pack (sets `hotkey` to nil).
+    /// Safe to call on packs that have no hotkey set.
+    func clearHotkey(forPackID id: String) {
+        guard let index = packs.firstIndex(where: { $0.id == id }) else { return }
+        guard packs[index].hotkey != nil else { return }
+        packs[index].hotkey = nil
+        rebuildIndexes()
         save()
     }
 

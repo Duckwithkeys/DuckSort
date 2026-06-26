@@ -78,33 +78,10 @@ struct DuckSortApp: App {
                 .disabled(!windowManager.isReady)
             }
 
-            // Tag pack quick-switcher. ⌘1–⌘9 jump between packs, mirroring
-            // the order shown in Settings → Tags and Help → Show Welcome Guide.
-            // Built-in packs first, then user-created packs by name.
-            CommandMenu("Tag Packs") {
-                let packs = FloatingWindowManager.shared.activeViewModel?.packLibrary.packs ?? []
-                let firstNine = Array(packs.prefix(9))
-                ForEach(Array(firstNine.enumerated()), id: \.element.id) { index, pack in
-                    Button("Switch to \(pack.name)") {
-                        FloatingWindowManager.shared.activeViewModel?.switchTagPack(id: pack.id)
-                    }
-                    .keyboardShortcut(
-                        KeyEquivalent(Character(String(index + 1))),
-                        modifiers: [.command]
-                    )
-                    .disabled(!windowManager.isReady)
-                }
-                if firstNine.isEmpty {
-                    Text("No packs yet")
-                }
-                Divider()
-                Button("Show Welcome Guide…") {
-                    NotificationCenter.default.post(
-                        name: .ducksortShowOnboarding,
-                        object: nil
-                    )
-                }
-            }
+            // Tag-pack switching is intentionally menu-less. The user
+            // sets an optional activation hotkey per pack through the
+            // ellipsis (•••) menu in Settings → Tags. By default, packs
+            // have no hotkey, so the menu bar stays uncluttered.
 
             CommandGroup(replacing: .appSettings) {
                 Button("Settings…") {

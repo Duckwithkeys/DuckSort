@@ -46,6 +46,7 @@ private struct TagPacksHeader: View {
     @State private var renameTarget: TagPackState? = nil
     @State private var renameText: String = ""
     @State private var styleTarget: TagPackState? = nil
+    @State private var hotkeyTarget: TagPackState? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s8) {
@@ -121,6 +122,12 @@ private struct TagPacksHeader: View {
                             },
                             onRestyle: {
                                 styleTarget = state
+                            },
+                            onSetHotkey: {
+                                hotkeyTarget = state
+                            },
+                            onClearHotkey: {
+                                viewModel.packLibrary.clearHotkey(forPackID: state.id)
                             }
                         )
                     }
@@ -129,17 +136,6 @@ private struct TagPacksHeader: View {
                 .padding(.vertical, 3)
                 .padding(.bottom, Theme.Space.s14)
             }
-
-            HStack(spacing: 6) {
-                Image(systemName: "info.circle")
-                    .foregroundStyle(Theme.Color.textTertiary)
-                    .font(Theme.Font.caption2)
-                Text("Tip: ⌘1–⌘9 from the Tag Packs menu (or here) swaps the active pack. Your edits to a pack are remembered next time you switch back.")
-                    .font(Theme.Font.caption2)
-                    .foregroundStyle(Theme.Color.textTertiary)
-            }
-            .padding(.horizontal, Theme.Space.s16)
-            .padding(.bottom, Theme.Space.s10)
         }
         .background(Theme.Color.surfaceBase)
         .sheet(isPresented: $showingNewPack) {
@@ -170,6 +166,20 @@ private struct TagPacksHeader: View {
                                           systemImage: systemImage,
                                           accentColor: accentColor)
                     styleTarget = nil
+                }
+            )
+        }
+        .sheet(item: $hotkeyTarget) { target in
+            PackHotkeySheet(
+                state: target,
+                currentHotkey: viewModel.packLibrary.hotkey(forPackID: target.id),
+                isPresented: Binding(
+                    get: { hotkeyTarget != nil },
+                    set: { if !$0 { hotkeyTarget = nil } }
+                ),
+                onCommit: { raw in
+                    viewModel.packLibrary.setHotkey(raw ?? "", forPackID: target.id)
+                    hotkeyTarget = nil
                 }
             )
         }
@@ -252,6 +262,8 @@ private struct TagPackMiniCard: View {
     let onDelete: () -> Void
     let onExport: () -> Void
     let onRestyle: () -> Void
+    let onSetHotkey: () -> Void
+    let onClearHotkey: () -> Void
 
     var body: some View {
         Button(action: onActivate) {
@@ -308,6 +320,18 @@ private struct TagPackMiniCard: View {
                     Button("Activate", action: onActivate)
                     Button("Export…", action: onExport)
                     Divider()
+                    // Hotkey activation — opt-in per pack. By default no
+                    // pack claims any binding; the user can assign one here
+                    // through the recorder sheet (or clear it).
+                    if let raw = state.hotkey, !raw.isEmpty {
+                        Button("Hotkey: \(displayableShortcut(raw))") { onSetHotkey() }
+                            .disabled(true) // The label is informational; use the next item to change.
+                        Button("Change Hotkey…", action: onSetHotkey)
+                        Button("Clear Hotkey", role: .destructive, action: onClearHotkey)
+                    } else {
+                        Button("Set Hotkey…", action: onSetHotkey)
+                    }
+                    Divider()
                     Button("Reset to Factory", action: onReset)
                     Button("Duplicate", action: onDuplicate)
                     if !state.isBuiltIn {
@@ -349,6 +373,20 @@ private struct TagPackMiniCard: View {
         }
         .buttonStyle(.plain)
     }
+}
+
+/// Render a hotkey string like "shift+cmd+k" as something the user can
+/// read in a menu ("⇧⌘K"). Falls back to the raw string if parsing fails.
+private func displayableShortcut(_ raw: String) -> String {
+    guard let info = KeyboardShortcutInfo.parse(raw) as KeyboardShortcutInfo?,
+          !info.key.isEmpty else { return raw }
+    var parts: [String] = []
+    if info.control { parts.append("⌃") }
+    if info.option  { parts.append("⌥") }
+    if info.shift   { parts.append("⇧") }
+    if info.command { parts.append("⌘") }
+    parts.append(info.key.count == 1 ? info.key.uppercased() : info.key.capitalized)
+    return parts.joined()
 }
 
 // MARK: - Tags detail panel (full-width)
@@ -478,9 +516,11 @@ private struct TagChip: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: Theme.Space.s12) {
+        HStack(spacing: Theme.Space.s8) {
             TagColorPicker(tag: tag, tagStore: tagStore)
-                .frame(width: 26, height: 26)
+                .padding(.leading, Theme.Space.s4)
+                .padding(.trailing, Theme.Space.s2)
+                .padding(.vertical, Theme.Space.s4)
 
             TextField("", text: Binding(
                 get: { tag.name },
@@ -493,32 +533,37 @@ private struct TagChip: View {
             .textFieldStyle(.plain)
             .font(Theme.Font.caption)
             .foregroundStyle(Theme.Color.textInverse)
-            .padding(.leading, 2)
-            .frame(maxWidth: 140)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            ShortcutRecorderView(
-                hotkey: Binding(
-                    get: { tag.hotkey },
-                    set: { newValue in
-                        var updated = tag
-                        updated.hotkey = newValue
-                        tagStore.updateTag(updated)
-                    }
-                ),
-                validationMessage: { proposed in tagHotkeyConflict(proposed, for: tag, in: tagStore) }
-            )
-            .controlSize(.mini)
-            .frame(width: 64)
+            Spacer()
+
+            HStack(spacing: Theme.Space.s4) {
+                ShortcutRecorderView(
+                    hotkey: Binding(
+                        get: { tag.hotkey },
+                        set: { newValue in
+                            var updated = tag
+                            updated.hotkey = newValue
+                            tagStore.updateTag(updated)
+                        }
+                    ),
+                    validationMessage: { proposed in tagHotkeyConflict(proposed, for: tag, in: tagStore) }
+                )
+                .controlSize(.mini)
+             
+            }
 
             if isHovered {
-                Button(role: .destructive) {
+                Button {
                     tagStore.deleteTag(id: tag.id)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Theme.Color.textSecondary)
-                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Color.danger)
+                        .font(.system(size: 15))
                 }
                 .buttonStyle(.borderless)
+                .padding(.trailing, Theme.Space.s4)
             }
         }
         .padding(.horizontal, Theme.Space.s12)
@@ -552,44 +597,24 @@ private struct TagChip: View {
 private struct TagColorPicker: View {
     let tag: CustomTag
     @ObservedObject var tagStore: TagStore
-    @State private var isShowingPicker = false
 
+    /// Inline color picker. The `ColorPicker` IS the swatch — tapping it
+    /// opens the system color panel directly with no popover or button
+    /// layer in between. Opacity is disabled so hex strings stay
+    /// portable across the sidecar/JSON persistence path.
     var body: some View {
-        Button {
-            isShowingPicker = true
-        } label: {
-            RoundedRectangle(cornerRadius: Theme.Radius.s)
-                .fill(tag.color)
-                .frame(width: 20, height: 20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.s)
-                        .stroke(.white.opacity(0.22), lineWidth: 1)
-                )
-                .shadow(color: tag.color.opacity(0.35), radius: 2, y: 1)
-        }
-        .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
-        .help("Change color")
-        .popover(isPresented: $isShowingPicker, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: Theme.Space.s8) {
-                Text(tag.name)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .lineLimit(1)
-                ColorPicker("Color", selection: Binding(
-                    get: { tag.color },
-                    set: { newColor in
-                        var updated = tag
-                        updated.colorHex = newColor.toHex() ?? tag.colorHex
-                        tagStore.updateTag(updated)
-                    }
-                ), supportsOpacity: false)
-                .labelsHidden()
+        ColorPicker("", selection: Binding(
+            get: { tag.color },
+            set: { newColor in
+                var updated = tag
+                updated.colorHex = newColor.toHex() ?? tag.colorHex
+                tagStore.updateTag(updated)
             }
-            .padding(Theme.Space.s12)
-            .frame(width: 160)
-            .background(Theme.Color.surfaceBase)
-        }
+        ), supportsOpacity: false)
+        .labelsHidden()
+        .frame(width: 15, height: 15)
+        .clipShape(Circle())
+        .help("Change color")
     }
 }
 
@@ -1031,5 +1056,105 @@ private struct PackStyleSheet: View {
         guard !trimmed.isEmpty else { return }
         let hex = draftAccent.toHex() ?? state.accentColor
         onCommit(trimmed, hex)
+    }
+}
+
+// MARK: - Pack hotkey sheet
+//
+// Lets the user assign (or clear) the activation hotkey for a tag pack.
+// Reuses `ShortcutRecorderView` so the keyboard-capture + collision-
+// detection logic is shared with the per-tag shortcut recorders. The
+// `onCommit` closure receives `nil` if the user wants to clear the
+// binding, or the raw hotkey string otherwise.
+
+private struct PackHotkeySheet: View {
+    let state: TagPackState
+    let currentHotkey: String?
+    @Binding var isPresented: Bool
+    /// Called with the new hotkey string (or nil to clear). Empty
+    /// string is treated as nil.
+    let onCommit: (String?) -> Void
+
+    @State private var draft: String?
+    @State private var collisionMessage: String?
+
+    init(state: TagPackState,
+         currentHotkey: String?,
+         isPresented: Binding<Bool>,
+         onCommit: @escaping (String?) -> Void) {
+        self.state = state
+        self.currentHotkey = currentHotkey
+        self._isPresented = isPresented
+        self.onCommit = onCommit
+        _draft = State(initialValue: currentHotkey)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pack Hotkey")
+                        .font(Theme.Font.headline)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Text("Press any key combo to assign it to “\(state.name)”. Leave blank for no hotkey.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+
+            Divider().overlay(Theme.Color.surfaceDivider)
+
+            HStack(spacing: Theme.Space.s12) {
+                Text("Hotkey")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .frame(width: 64, alignment: .leading)
+                ShortcutRecorderView(
+                    hotkey: $draft,
+                    validationMessage: { raw in
+                        // Reject empty bindings as the recorder can leave
+                        // the field blank after a backspace. Collision
+                        // detection against other packs is the library's
+                        // job (it re-assigns cleanly when we commit).
+                        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return nil }
+                        return nil
+                    }
+                )
+                Spacer()
+            }
+
+            if let collisionMessage {
+                Text(collisionMessage)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.warning)
+            }
+
+            HStack {
+                Button("Cancel") { isPresented = false }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                if currentHotkey != nil {
+                    Button("Clear Hotkey", role: .destructive) {
+                        onCommit(nil)
+                        isPresented = false
+                    }
+                }
+                Button(currentHotkey == nil ? "Set Hotkey" : "Save") {
+                    let raw = draft?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    onCommit(raw.isEmpty ? nil : raw)
+                    isPresented = false
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .tint(Theme.Color.accent)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(Theme.Space.s20)
+        .frame(width: 460)
+        .background(Theme.Color.surfaceBase)
     }
 }

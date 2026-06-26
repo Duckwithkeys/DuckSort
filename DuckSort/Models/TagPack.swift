@@ -295,6 +295,20 @@ struct TagPackState: Codable, Identifiable, Hashable, Sendable {
     var categories: [CategoryEntry]
     var tags: [TagEntry]
 
+    /// Optional user-assigned hotkey that activates this pack from
+    /// anywhere in the app (via the global key monitor). Defaults to nil
+    /// so newly-created and built-in packs don't claim any binding until
+    /// the user explicitly sets one through the ellipsis menu.
+    ///
+    /// Stored in the same string format as `TagEntry.hotkey` (e.g. "a",
+    /// "shift+cmd+k") so the existing `KeyboardShortcutInfo.parse` helper
+    /// can interpret it without a new code path.
+    ///
+    /// Backwards-compatible with previously-persisted `TagPackState`
+    /// JSON: a missing key decodes as `nil` via Swift's default Codable
+    /// behaviour for `Optional`.
+    var hotkey: String? = nil
+
     /// Lightweight serializable category (no need for a fresh UUID here;
     /// we generate UUIDs when the state is materialized into TagStore).
     struct CategoryEntry: Codable, Hashable, Sendable {
@@ -316,7 +330,8 @@ struct TagPackState: Codable, Identifiable, Hashable, Sendable {
         accentColor: String = "#4A90E2",
         isBuiltIn: Bool,
         categories: [CategoryEntry],
-        tags: [TagEntry]
+        tags: [TagEntry],
+        hotkey: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -326,6 +341,7 @@ struct TagPackState: Codable, Identifiable, Hashable, Sendable {
         self.isBuiltIn = isBuiltIn
         self.categories = categories
         self.tags = tags
+        self.hotkey = hotkey
     }
 
     /// Construct a state from a template (factory-fresh state).

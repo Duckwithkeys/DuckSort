@@ -133,9 +133,39 @@ struct ContentView: View {
             return true
         }
 
+        // Pack hotkey activation runs before any other keypress handling
+        // so a user-assigned pack swap works from the grid, the large
+        // viewer, or anywhere else the global monitor is active. If no
+        // pack claims this combo we fall through to the normal handler.
+        if handlePackHotkey(event) {
+            return true
+        }
+
         return viewModel.isLargeImageViewerOpen
             ? handleViewerKeyPress(event)
             : handleGridKeyPress(event)
+    }
+
+    /// Look up the user's pressed combo in the pack library's hotkey
+    /// index. If a pack claims this combo, activate it and return true.
+    /// Returns false (so the caller falls through) when no pack matches.
+    private func handlePackHotkey(_ event: NSEvent) -> Bool {
+        guard let chars = event.charactersIgnoringModifiers, chars.count == 1,
+              let char = chars.first else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let info = KeyboardShortcutInfo(
+            key: String(char).lowercased(),
+            shift: flags.contains(.shift),
+            control: flags.contains(.control),
+            option: flags.contains(.option),
+            command: flags.contains(.command)
+        )
+        guard info.key.count == 1 else { return false }
+        if let packID = viewModel.packLibrary.packID(for: info) {
+            viewModel.switchTagPack(id: packID)
+            return true
+        }
+        return false
     }
 
     private func handleViewerKeyPress(_ event: NSEvent) -> Bool {
