@@ -75,16 +75,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
-    @Published var isJpegOnlyMode: Bool = false {
-        didSet {
-            guard !isInitializing else { return }
-            UserPreferences.shared.isJpegOnlyMode = isJpegOnlyMode
-            UserPreferences.shared.save()
-            if !sourceDirectories.isEmpty {
-                scanSourceDirectories(sourceDirectories)
-            }
-        }
-    }
+
     @Published var isInspectorOpen: Bool = false {
         didSet {
             guard !isInitializing else { return }
@@ -98,9 +89,16 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var statusMessage = "Choose a photoshoot folder to begin."
     @Published var errorMessage: String?
     
+    /// Dismissed auto-tag suggestions: (photoSetID, tagName) pairs.
+    /// Ephemeral — cleared when the photo changes.
+    private var dismissedSuggestions: Set<DismissedSuggestionKey> = []
+    
     /// Large image viewer state
     @Published var focusedPhotoIndex: Int = 0 {
         didSet {
+            // Clear dismissed suggestions when the photo changes
+            // (ephemeral per-session, per-photo).
+            dismissedSuggestions.removeAll()
             preloadNeighbors(around: focusedPhotoIndex)
             updateDerivedState()
         }
@@ -217,7 +215,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         self.filterRule = UserPreferences.shared.lastFilterRule
 
-        self.isJpegOnlyMode = UserPreferences.shared.isJpegOnlyMode
+
         self.isInspectorOpen = UserPreferences.shared.isInspectorOpen
         
         let urls = UserPreferences.shared.lastSourceDirectoryIDs.map { URL(fileURLWithPath: $0) }
@@ -231,7 +229,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.tagManagerHotkey = UserPreferences.shared.tagManagerHotkey
         self.ruleEditorHotkey = UserPreferences.shared.ruleEditorHotkey
         self.openSourceHotkey = UserPreferences.shared.openSourceHotkey
-        self.jpegOnlyHotkey = UserPreferences.shared.jpegOnlyHotkey
+
         
         self.isInitializing = false
         
@@ -463,20 +461,20 @@ final class PhotoLibraryViewModel: ObservableObject {
             ? "Scanning \(looseFiles.count) imported files..."
             : "Scanning \(foldersText) and subfolders..."
 
-        scanTask = Task { @MainActor [scanner, isJpegOnlyMode] in
+        scanTask = Task { @MainActor [scanner] in
             var photoSets: [PhotoSet] = []
             var scannedFileCount = 0
             var failed: Set<URL> = []
 
             if !urls.isEmpty {
-                let dirResult = await scanner.scanDirectories(urls, jpegOnly: isJpegOnlyMode)
+                let dirResult = await scanner.scanDirectories(urls)
                 photoSets.append(contentsOf: dirResult.photoSets)
                 scannedFileCount += dirResult.scannedFileCount
                 failed.formUnion(dirResult.failedDirectories)
             }
 
             if !looseFiles.isEmpty {
-                let fileResult = await scanner.scanFiles(looseFiles, jpegOnly: isJpegOnlyMode)
+                let fileResult = await scanner.scanFiles(looseFiles)
                 photoSets.append(contentsOf: fileResult.photoSets)
                 scannedFileCount += fileResult.scannedFileCount
                 failed.formUnion(fileResult.failedDirectories)
@@ -1284,6 +1282,74 @@ final class PhotoLibraryViewModel: ObservableObject {
         commitTagChange(current, for: photo, remove: current.isEmpty)
     }
     
+    // MARK: - Auto-tagging
+    
+    /// Returns auto-tag suggestions for the given photo set, based on
+    /// the user's enabled rules and the photo's EXIF metadata.
+    func suggestedTags(for photoSet: PhotoSet) -> [AutoTagSuggestion] {
+        guard UserPreferences.shared.autoTaggingEnabled else { return [] }
+        guard let metadata = photoMetadata[photoSet.id] else { return [] }
+        let rules = UserPreferences.shared.autoTaggingRules.filter(\.enabled)
+        // Resolve category names → IDs on the main actor (tagStore is
+        // @MainActor-isolated), then pass the resolved map to the engine.
+        let catMap: [String: UUID?] = Dictionary(
+            uniqueKeysWithValues: tagStore.categories.map { ($0.name, $0.id) }
+        )
+        let suggestions = AutoTagEngine.shared.suggestions(
+            from: metadata,
+            rules: rules,
+            resolvedCategories: catMap
+        )
+        // Filter out dismissed suggestions.
+        return suggestions.filter { suggestion in
+            !dismissedSuggestions.contains(DismissedSuggestionKey(photoSetID: photoSet.id, tagName: suggestion.tagName))
+        }
+    }
+    
+    /// Accepts a suggestion: applies the tag to the photo (or creates it
+    /// if it doesn't exist) and writes to the XMP sidecar.
+    func acceptSuggestion(_ suggestion: AutoTagSuggestion) {
+        guard let photo = currentFocusedPhotoSet else { return }
+        let tagName = suggestion.tagName
+        
+        // 1. Check if a tag with that name already exists (case-insensitive).
+        if let existingTag = tagStore.tags.first(where: {
+            $0.name.lowercased() == tagName.lowercased()
+        }) {
+            applyTag(existingTag, toPhotoSets: [photo])
+            statusMessage = "Applied \(tagName) to \(photo.baseName)."
+        } else {
+            // 2. Tag doesn't exist — create it.
+            let newTag: CustomTag
+            if let categoryID = suggestion.categoryID {
+                // Create in existing category.
+                newTag = tagStore.addTag(name: tagName, categoryID: categoryID)
+            } else {
+                // Create a new "Auto-Tagged" category.
+                let autoCategory: TagCategory
+                if let existingCategory = tagStore.categories.first(where: {
+                    $0.name.lowercased() == "auto-tagged"
+                }) {
+                    autoCategory = existingCategory
+                } else {
+                    autoCategory = tagStore.addCategory(name: "Auto-Tagged")
+                }
+                newTag = tagStore.addTag(name: tagName, categoryID: autoCategory.id)
+            }
+            applyTag(newTag, toPhotoSets: [photo])
+            statusMessage = "Created and applied \(tagName) to \(photo.baseName)."
+        }
+        
+        // Clear from dismissed set so it won't reappear.
+        dismissedSuggestions.remove(DismissedSuggestionKey(photoSetID: photo.id, tagName: tagName))
+    }
+    
+    /// Dismisses a suggestion. Ephemeral — not persisted.
+    func dismissSuggestion(_ suggestion: AutoTagSuggestion) {
+        guard let photo = currentFocusedPhotoSet else { return }
+        dismissedSuggestions.insert(DismissedSuggestionKey(photoSetID: photo.id, tagName: suggestion.tagName))
+    }
+    
     func clearTags(for photoSetID: UUID) {
         clearTags(forIDs: [photoSetID])
     }
@@ -1518,13 +1584,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
-    @Published var jpegOnlyHotkey: String? = "shift+cmd+q" {
-        didSet {
-            guard !isInitializing else { return }
-            UserPreferences.shared.jpegOnlyHotkey = jpegOnlyHotkey ?? ""
-            UserPreferences.shared.save()
-        }
-    }
+
 
     var tagManagerShortcutInfo: KeyboardShortcutInfo? {
         guard let hotkey = tagManagerHotkey, !hotkey.isEmpty else { return nil }
@@ -1541,10 +1601,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         return KeyboardShortcutInfo.parse(hotkey)
     }
 
-    var jpegOnlyShortcutInfo: KeyboardShortcutInfo? {
-        guard let hotkey = jpegOnlyHotkey, !hotkey.isEmpty else { return nil }
-        return KeyboardShortcutInfo.parse(hotkey)
-    }
+
 
     // MARK: - Count Memoization & Index Clamping
     
@@ -1875,4 +1932,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
-} 
+}
+
+/// Key for tracking dismissed auto-tag suggestions.
+private struct DismissedSuggestionKey: Hashable {
+    let photoSetID: UUID
+    let tagName: String
+}
