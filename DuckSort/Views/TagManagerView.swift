@@ -140,14 +140,17 @@ struct TagManagerView: View {
                     Text("Hotkey")
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.Color.textSecondary)
-                    ShortcutRecorderView(hotkey: Binding(
-                        get: { tag.hotkey },
-                        set: { newValue in
-                            var updated = tag
-                            updated.hotkey = newValue
-                            tagStore.updateTag(updated)
-                        }
-                    ))
+                    ShortcutRecorderView(
+                        hotkey: Binding(
+                            get: { tag.hotkey },
+                            set: { newValue in
+                                var updated = tag
+                                updated.hotkey = newValue
+                                tagStore.updateTag(updated)
+                            }
+                        ),
+                        validationMessage: { proposed in tagConflict(for: tag, hotkey: proposed) }
+                    )
                 }
 
                 ColorPicker("", selection: Binding(
@@ -189,27 +192,13 @@ struct TagManagerView: View {
     /// Returns nil if the hotkey is empty or has no conflict.
     private func tagConflict(for tag: CustomTag) -> String? {
         guard let hotkey = tag.hotkey, !hotkey.isEmpty else { return nil }
-        let info = KeyboardShortcutInfo.parse(hotkey)
+        return tagConflict(for: tag, hotkey: hotkey)
+    }
 
-        // Built-in single-character shortcuts on no modifiers.
-        if info.command == false, info.control == false, info.option == false {
-            let key = info.key.lowercased()
-            let reserved: [String: String] = [
-                "s": "Toggle Selection (S)",
-                "i": "Toggle Inspector (I)",
-                "u": "Unflag pick (U)",
-                "z": "Flag pick (Z)",
-                "x": "Reject pick (X)"
-            ]
-            for rating in 0...5 where String(rating) == key {
-                return "Reserved for rating (\(rating)). Use a modifier."
-            }
-            if let builtin = reserved[key] {
-                return "Conflicts with \(builtin). Add a modifier (e.g. ⌘\(key.uppercased()))."
-            }
+    private func tagConflict(for tag: CustomTag, hotkey: String) -> String? {
+        if let reason = TagHotkeyRules.reservedReason(for: hotkey) {
+            return "Used by \(reason)."
         }
-
-        // Other tags using the same hotkey.
         let duplicates = tagStore.tags.filter { other in
             other.id != tag.id && other.hotkey == hotkey
         }

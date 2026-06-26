@@ -264,14 +264,25 @@ private struct TagHotkeyRow: View {
             }
             .padding(.leading, Theme.Space.s16)
             Spacer()
-            ShortcutRecorderView(hotkey: Binding(
-                get: { tag.hotkey },
-                set: { newValue in
-                    var updated = tag
-                    updated.hotkey = newValue
-                    tagStore.updateTag(updated)
+            ShortcutRecorderView(
+                hotkey: Binding(
+                    get: { tag.hotkey },
+                    set: { newValue in
+                        var updated = tag
+                        updated.hotkey = newValue
+                        tagStore.updateTag(updated)
+                    }
+                ),
+                validationMessage: { proposed in
+                    if let reason = TagHotkeyRules.reservedReason(for: proposed) {
+                        return "Used by \(reason)"
+                    }
+                    if let other = tagStore.tags.first(where: { $0.id != tag.id && $0.hotkey == proposed }) {
+                        return "Used by \(other.name)"
+                    }
+                    return nil
                 }
-            ))
+            )
             .padding(.trailing, Theme.Space.s16)
         }
         .frame(height: 40)

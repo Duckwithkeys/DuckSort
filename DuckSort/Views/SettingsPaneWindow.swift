@@ -14,12 +14,14 @@ import AppKit
 enum SettingsTab: String, CaseIterable {
     case rules      = "Rules"
     case tags       = "Tags"
+    case copyright  = "Copyright"
     case shortcuts  = "Shortcuts"
 
     var systemImage: String {
         switch self {
         case .rules:     return "folder.badge.gearshape"
         case .tags:      return "tag"
+        case .copyright: return "c.circle"
         case .shortcuts: return "keyboard.badge.ellipsis"
         }
     }
@@ -54,6 +56,8 @@ struct SettingsPaneView: View {
                         viewModel: viewModel,
                         tagStore: viewModel.tagStore
                     )
+                case .copyright:
+                    SettingsIPTCPaneView(preferences: UserPreferences.shared)
                 case .shortcuts:
                     SettingsShortcutsPaneView(viewModel: viewModel)
                 }
@@ -67,7 +71,7 @@ struct SettingsPaneView: View {
                 SettingsFooter(tagStore: viewModel.tagStore)
             }
         }
-        .frame(minWidth: 720, idealWidth: 820, minHeight: 480, idealHeight: 560)
+        .frame(minWidth: 820, idealWidth: 960, minHeight: 560, idealHeight: 720)
         .background(Theme.Color.surfaceBase)
         .onAppear { selectedTab = initialTab }
     }

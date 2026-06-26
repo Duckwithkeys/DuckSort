@@ -8,6 +8,7 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var viewModel = PhotoLibraryViewModel()
+    @State private var showOnboarding: Bool = false
 
     var body: some View {
         MainLayout(viewModel: viewModel)
@@ -20,6 +21,16 @@ struct ContentView: View {
                         .transition(.opacity)
                 }
             }
+            .overlay {
+                if showOnboarding {
+                    OnboardingFlow(viewModel: viewModel) {
+                        showOnboarding = false
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    .zIndex(100)
+                }
+            }
+            .animation(.easeInOut(duration: 0.22), value: showOnboarding)
             .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
             .alert("DuckSort", isPresented: errorBinding) {
                 Button("OK", role: .cancel) { viewModel.errorMessage = nil }
@@ -31,6 +42,14 @@ struct ContentView: View {
                 viewModel.registerKeyboardMonitor { event in
                     handleGlobalKeyPress(event)
                 }
+                // Show the first-launch wizard unless the user has already
+                // completed it (or dismissed it) in a previous session.
+                if !UserPreferences.shared.hasCompletedOnboarding {
+                    showOnboarding = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ducksortShowOnboarding)) { _ in
+                showOnboarding = true
             }
     }
 
@@ -166,13 +185,14 @@ struct ContentView: View {
         }
 
         if let rating = Int(String(char)), (0...5).contains(rating) {
-            if let photo = viewModel.currentFocusedPhotoSet {
+            let ids = viewModel.batchTargetPhotoSets.map(\.id)
+            if !ids.isEmpty {
                 if rating == 0 {
-                    viewModel.clearTags(for: photo.id)
-                    viewModel.setRating(nil, for: photo.id)
-                    viewModel.setPick(0, for: photo.id)
+                    viewModel.clearTags(forIDs: ids)
+                    viewModel.setRating(nil, forIDs: ids)
+                    viewModel.setPick(0, forIDs: ids)
                 } else {
-                    viewModel.setRating(rating, for: photo.id)
+                    viewModel.setRating(rating, forIDs: ids)
                 }
             }
             return true
@@ -180,13 +200,14 @@ struct ContentView: View {
 
         switch char.lowercased() {
         case "z":
+            // Pick-flag is a culling workflow; stays single-photo.
             if let photo = viewModel.currentFocusedPhotoSet { viewModel.setPick(1, for: photo.id) }
             return true
         case "x":
-            if let photo = viewModel.currentFocusedPhotoSet { viewModel.setPick(-1, for: photo.id) }
+            if let photo = viewModel.currentFocusedPhotoSet { viewModel.rejectAndAdvance(for: photo.id) }
             return true
         case "u":
-            if let photo = viewModel.currentFocusedPhotoSet { viewModel.setPick(0, for: photo.id) }
+            viewModel.clearPickFlagOnSelection()
             return true
         default:
             break
@@ -194,7 +215,7 @@ struct ContentView: View {
 
         for tag in viewModel.tagStore.tags {
             if let shortcut = tag.shortcutInfo, eventMatchesShortcut(event, shortcut: shortcut) {
-                viewModel.applyTagToFocusedPhoto(tag)
+                viewModel.applyTagToSelection(tag)
                 return true
             }
         }
@@ -260,39 +281,43 @@ struct ContentView: View {
         }
 
         if isPlainKey, char == "i" || char == "I" {
-            viewModel.isInspectorOpen.toggle()
+            // Open the large image viewer for the focused photo. Matches the
+            // double-click / Return / Space behavior so the user has one
+            // muscle-memory key for "inspect the photo at full size".
+            viewModel.openLargeImageViewer()
             return true
         }
 
         if let rating = Int(String(char)), (0...5).contains(rating) {
-            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
-                let photo = viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex]
-                if rating == 0 {
-                    viewModel.clearTags(for: photo.id)
-                    viewModel.setRating(nil, for: photo.id)
-                    viewModel.setPick(0, for: photo.id)
-                } else {
-                    viewModel.setRating(rating, for: photo.id)
-                }
+            let targets = viewModel.batchTargetPhotoSets
+            guard !targets.isEmpty else { return true }
+            let ids = targets.map(\.id)
+            if rating == 0 {
+                viewModel.clearTags(forIDs: ids)
+                viewModel.setRating(nil, forIDs: ids)
+                viewModel.setPick(0, forIDs: ids)
+            } else {
+                viewModel.setRating(rating, forIDs: ids)
             }
             return true
         }
 
         switch char.lowercased() {
         case "z":
+            // Pick-flag is culling workflow: always on focused photo only,
+            // even if a multi-selection exists. Rejecting N photos at once
+            // would surprise users mid-cull.
             if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
                 viewModel.setPick(1, for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
             }
             return true
         case "x":
             if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
-                viewModel.setPick(-1, for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
+                viewModel.rejectAndAdvance(for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
             }
             return true
         case "u":
-            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
-                viewModel.setPick(0, for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
-            }
+            viewModel.clearPickFlagOnSelection()
             return true
         default:
             break
@@ -300,9 +325,7 @@ struct ContentView: View {
 
         for tag in viewModel.tagStore.tags {
             if let shortcut = tag.shortcutInfo, eventMatchesShortcut(event, shortcut: shortcut) {
-                if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
-                    viewModel.applyTagToFocusedPhoto(tag)
-                }
+                viewModel.applyTagToSelection(tag)
                 return true
             }
         }
@@ -462,13 +485,11 @@ struct MainLayout: View {
             EmptyLibraryView(isScanning: false) {
                 viewModel.importItems()
             }
-            .padding(Theme.Space.s12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case (true, true):
             EmptyLibraryView(isScanning: true) {
                 viewModel.importItems()
             }
-            .padding(Theme.Space.s12)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case (false, _):
             PhotoGridView(viewModel: viewModel)

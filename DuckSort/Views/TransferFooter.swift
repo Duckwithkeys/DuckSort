@@ -36,9 +36,41 @@ struct TransferFooter: View {
                 .font(Theme.Font.callout)
                 .lineLimit(1)
 
-            Text("^[\(viewModel.selectedCount) photo set](inflect: true) selected · \(viewModel.selectedFileCount) files")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.Color.textSecondary)
+            HStack(spacing: Theme.Space.s6) {
+                if let focused = viewModel.currentFocusedPhotoSet {
+                    HStack(spacing: 4) {
+                        Image(systemName: "scope")
+                            .font(Theme.Font.caption2)
+                        Text("Focus: \(focused.baseName)")
+                            .font(Theme.Font.caption)
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Theme.Color.accent)
+                }
+
+                if viewModel.selectedCount > 0 {
+                    Text("·")
+                        .foregroundStyle(Theme.Color.textSecondary)
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.success)
+                        Text("^[\(viewModel.selectedCount) photo set](inflect: true) selected · \(viewModel.selectedFileCount) files")
+                            .font(Theme.Font.caption)
+                    }
+                    .foregroundStyle(Theme.Color.textSecondary)
+
+                    Button {
+                        viewModel.clearSelection()
+                    } label: {
+                        Text("Clear")
+                            .font(Theme.Font.caption2)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                }
+            }
         }
     }
 

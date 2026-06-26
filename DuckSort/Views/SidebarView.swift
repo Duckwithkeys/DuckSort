@@ -42,13 +42,16 @@ struct SidebarView: View {
             .padding(.horizontal, Theme.Space.s16)
             .padding(.bottom, Theme.Space.s8)
 
-            if viewModel.activeFilterCount > 0 {
-                ActiveFiltersBar(count: viewModel.activeFilterCount) {
-                    viewModel.clearAllFilters()
-                }
-                .padding(.horizontal, Theme.Space.s16)
-                .padding(.bottom, Theme.Space.s8)
-            }
+            // Permanent filter bar — stays put so it doesn't shift the
+            // rest of the sidebar when the user picks or clears filters.
+            // Greys out when no filters are active.
+            ActiveFiltersBar(
+                count: viewModel.activeFilterCount,
+                isEmpty: viewModel.activeFilterCount == 0,
+                onClear: viewModel.clearAllFilters
+            )
+            .padding(.horizontal, Theme.Space.s16)
+            .padding(.bottom, Theme.Space.s8)
 
             List {
                 LibrarySectionView(viewModel: viewModel)
@@ -60,7 +63,6 @@ struct SidebarView: View {
         }
         .frame(minWidth: 220, idealWidth: 240, maxWidth: 280)
         .background(Theme.Color.sidebarBackground)
-        .overlay(Divider(), alignment: .trailing)
         .onAppear {
             // Don't let the first responder auto-grab the search field;
             // keyboard shortcuts in the grid should work without the user
@@ -561,18 +563,23 @@ struct SubfolderRow: View {
 
 struct ActiveFiltersBar: View {
     let count: Int
+    let isEmpty: Bool
     let onClear: () -> Void
     @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: Theme.Space.s6) {
-            Image(systemName: "line.3.horizontal.decrease.circle.fill")
-                .foregroundStyle(Theme.Color.accent)
+            Image(systemName: isEmpty
+                  ? "line.3.horizontal.decrease.circle"
+                  : "line.3.horizontal.decrease.circle.fill")
+                .foregroundStyle(isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                 .font(Theme.Font.subheadline)
 
-            Text("^[\(count) active filter](inflect: true)")
+            Text(isEmpty
+                 ? "No active filters"
+                 : "^[\(count) active filter](inflect: true)")
                 .font(Theme.Font.caption)
-                .foregroundStyle(Theme.Color.textPrimary)
+                .foregroundStyle(isEmpty ? Theme.Color.textTertiary : Theme.Color.textPrimary)
                 .lineLimit(1)
 
             Spacer(minLength: Theme.Space.s4)
@@ -580,23 +587,38 @@ struct ActiveFiltersBar: View {
             Button(action: onClear) {
                 Text("Clear")
                     .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.accent)
+                    .foregroundStyle(isEmpty ? Theme.Color.textTertiary : Theme.Color.accent)
                     .padding(.horizontal, Theme.Space.s8)
                     .padding(.vertical, Theme.Space.s2)
                     .background(
-                        isHovered ? Theme.Color.rowSelectedFill : Color.clear,
+                        isHovered && !isEmpty
+                            ? Theme.Color.rowSelectedFill
+                            : Color.clear,
                         in: RoundedRectangle(cornerRadius: Theme.Radius.s)
                     )
             }
             .buttonStyle(.plain)
-            .help("Clear all filters and search")
+            .disabled(isEmpty)
+            .help(isEmpty
+                  ? "Pick a tag, rating, or flag in the list below to filter the grid."
+                  : "Clear all filters and search")
         }
         .padding(.horizontal, Theme.Space.s8)
         .padding(.vertical, Theme.Space.s4)
-        .background(Theme.Color.rowSelectedFill, in: RoundedRectangle(cornerRadius: Theme.Radius.m))
+        .background(
+            isEmpty
+                ? Theme.Color.surfaceRaised.opacity(0.4)
+                : Theme.Color.rowSelectedFill,
+            in: RoundedRectangle(cornerRadius: Theme.Radius.m)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.m)
-                .stroke(Theme.Color.accent.opacity(0.3), lineWidth: Theme.Stroke.hairline)
+                .stroke(
+                    isEmpty
+                        ? Theme.Color.surfaceDivider
+                        : Theme.Color.accent.opacity(0.3),
+                    lineWidth: Theme.Stroke.hairline
+                )
         )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }

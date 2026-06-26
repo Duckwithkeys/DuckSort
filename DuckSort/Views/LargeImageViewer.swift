@@ -28,16 +28,19 @@ struct LargeImageViewer: View {
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
 
-                    imagePane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(Theme.Space.s12)
+                    VStack(spacing: 0) {
+                        imagePane
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(Theme.Space.s12)
+
+                        FilmstripView(viewModel: viewModel)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     LargeImageViewerSidebar(viewModel: viewModel)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.Color.background)
-
-                FilmstripView(viewModel: viewModel)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

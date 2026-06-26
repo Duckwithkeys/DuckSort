@@ -8,54 +8,65 @@ import AppKit
 
 struct ShortcutRecorderView: View {
     @Binding var hotkey: String?
+    var validationMessage: (String) -> String? = { _ in nil }
     @State private var isRecording = false
     @State private var localMonitor: Any? = nil
+    @State private var rejectionMessage: String? = nil
 
     var body: some View {
-        HStack(spacing: Theme.Space.s4) {
-            Button {
-                if isRecording {
-                    stopRecording()
-                } else {
-                    startRecording()
-                }
-            } label: {
-                Text(buttonLabel)
-                    .font(Theme.Font.monoBody)
-                    .foregroundStyle(
-                        isRecording
-                            ? Theme.Color.textInverse
-                            : (hotkey == nil ? Theme.Color.textSecondary : Theme.Color.textPrimary)
-                    )
-                    .padding(.horizontal, Theme.Space.s8)
-                    .padding(.vertical, Theme.Space.s4)
-                    .frame(minWidth: 70, minHeight: 22)
-                    .background(
-                        isRecording ? Theme.Color.accent : Theme.Color.overlaySoft,
-                        in: RoundedRectangle(cornerRadius: Theme.Radius.m)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.m)
-                            .stroke(
-                                isRecording ? Theme.Color.accent : Theme.Color.overlaySofter,
-                                lineWidth: Theme.Stroke.hairline
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
-            .help(isRecording ? "Press any key combination to record, or Esc to cancel" : "Click to record shortcut")
-
-            if hotkey != nil && !isRecording {
+        VStack(alignment: .trailing, spacing: 2) {
+            HStack(spacing: Theme.Space.s4) {
                 Button {
-                    hotkey = nil
+                    if isRecording {
+                        stopRecording()
+                    } else {
+                        startRecording()
+                    }
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.Color.textSecondary)
-                        .padding(Theme.Space.s4)
+                    Text(buttonLabel)
+                        .font(Theme.Font.monoBody)
+                        .foregroundStyle(
+                            isRecording
+                                ? Theme.Color.textInverse
+                                : (hotkey == nil ? Theme.Color.textSecondary : Theme.Color.textPrimary)
+                        )
+                        .padding(.horizontal, Theme.Space.s8)
+                        .padding(.vertical, Theme.Space.s4)
+                        .frame(minWidth: 70, minHeight: 22)
+                        .background(
+                            isRecording ? Theme.Color.accent : Theme.Color.overlaySoft,
+                            in: RoundedRectangle(cornerRadius: Theme.Radius.m)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Radius.m)
+                                .stroke(
+                                    isRecording ? Theme.Color.accent : Theme.Color.overlaySofter,
+                                    lineWidth: Theme.Stroke.hairline
+                                )
+                            )
                 }
                 .buttonStyle(.plain)
-                .help("Clear shortcut")
+                .help(isRecording ? "Press any key combination to record, or Esc to cancel" : "Click to record shortcut")
+
+                if hotkey != nil && !isRecording {
+                    Button {
+                        hotkey = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .padding(Theme.Space.s4)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear shortcut")
+                }
+            }
+
+            if let rejectionMessage {
+                Text(rejectionMessage)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.warning)
+                    .lineLimit(1)
             }
         }
         .onDisappear {
@@ -76,6 +87,7 @@ struct ShortcutRecorderView: View {
 
     private func startRecording() {
         isRecording = true
+        rejectionMessage = nil
         
         // Remove any old monitor
         if let existing = localMonitor {
@@ -110,8 +122,15 @@ struct ShortcutRecorderView: View {
             info.option = activeModifiers.contains(.option)
             info.command = activeModifiers.contains(.command)
 
-            // Save hotkey string
-            self.hotkey = info.serializedString
+            let proposed = info.serializedString
+            if let message = validationMessage(proposed) {
+                NSSound.beep()
+                rejectionMessage = message
+                stopRecording()
+                return nil
+            }
+
+            hotkey = proposed
             
             stopRecording()
             return nil // Consumes event so it doesn't trigger actions elsewhere

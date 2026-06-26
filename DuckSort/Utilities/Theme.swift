@@ -106,6 +106,19 @@ enum Theme {
         static let overlayScrim      = SwiftUI.Color.black.opacity(0.30)
         static let overlaySoft       = SwiftUI.Color.white.opacity(0.06)
         static let overlaySofter     = SwiftUI.Color.white.opacity(0.04)
+
+        // File-role chip colors. Shared between the grid cell's format pill
+        // and the large viewer's "Files in Set" panel so both surfaces
+        // agree on what colour means "RAW", "JPEG", "HEIF". The edit
+        // wand uses `Theme.Color.warning` (yellow) for consistency with
+        // the filmstrip's existing edit indicator. Hard-coded high-
+        // contrast tones keep the chips readable on any system accent.
+        enum FileColor {
+            static let raw   = SwiftUI.Color(red: 0.85, green: 0.20, blue: 0.20) // red
+            static let jpeg  = SwiftUI.Color(red: 0.18, green: 0.55, blue: 0.30) // green
+            static let heif  = SwiftUI.Color(red: 0.20, green: 0.35, blue: 0.85) // indigo
+            static let other = SwiftUI.Color.black.opacity(0.78)
+        }
     }
 
     // MARK: - Spacing (4pt grid)
