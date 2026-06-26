@@ -74,13 +74,6 @@ struct ContentView: View {
         }
 
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: Binding(
-                get: { viewModel.isJpegOnlyMode },
-                set: { viewModel.isJpegOnlyMode = $0 }
-            )) {
-                Label("JPEG Only", systemImage: "photo")
-            }
-            .help("Show only JPEG derivatives")
         }
     }
 
@@ -389,11 +382,6 @@ struct ShortcutsPopoverView: View {
                         Text("Open Routing Rules")
                         Spacer()
                         ShortcutRecorderView(hotkey: $viewModel.ruleEditorHotkey)
-                    }
-                    HStack {
-                        Text("Toggle JPEG Only Mode")
-                        Spacer()
-                        ShortcutRecorderView(hotkey: $viewModel.jpegOnlyHotkey)
                     }
                 }
 
