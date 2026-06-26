@@ -9,7 +9,6 @@ Auto-tagging analyzes a photo's EXIF metadata **only when focused in the large v
 ### Components
 
 - **AutoTagEngine** (utility, `Sendable`) — pure function: `MetadataSnapshot` → `[AutoTagSuggestion]`. No I/O, fast, called on-demand when a photo is focused.
-- **AutoTagStore** (main actor, `ObservableObject`) — owns per-photo dismissed suggestions, persisted to JSON alongside `tags.json`.
 - **AutoTagSuggestionsView** — SwiftUI view rendered in:
   - Large viewer sidebar (above "ACTIVE TAGS")
   - Grid sidebar's Tags section (above categories)
@@ -21,7 +20,6 @@ Auto-tagging analyzes a photo's EXIF metadata **only when focused in the large v
 Photo focused in large viewer
   → get MetadataSnapshot (already loaded)
   → AutoTagEngine(snapshot) → [AutoTagSuggestion]
-  → AutoTagStore (dismissed tracking)
   → UI renders suggestions
 ```
 
@@ -225,9 +223,9 @@ For each enabled rule:
    - `.medium`: ranges (ISO, aperture, focal length thresholds)
    - `.low`: approximations (aspect ratio matching)
 
-### Dismissed Suggestions
+### Dismissed Suggestions (ephemeral)
 
-`AutoTagStore` tracks dismissed suggestions per photo using a `Set<UUID>` keyed by suggestion ID. Dismissed suggestions are hidden but suggestions reappear if the photo's metadata changes (e.g., a different EXIF extraction).
+Dismissed suggestions are **ephemeral** — they are not persisted. Dismissing a suggestion hides it for the current photo view only. Navigating away and back will re-show the suggestion. This avoids unnecessary file I/O and keeps the feature lightweight.
 
 ## 6. Tag Creation on Accept
 
@@ -265,7 +263,7 @@ Add `.autoTagging` to `SettingsTab` enum in `SettingsPaneWindow.swift`.
 |---|---|
 | `DuckSort/Models/AutoTagRule.swift` | Rule, Condition, SuggestedTag models |
 | `DuckSort/Utilities/AutoTagEngine.swift` | EXIF analysis engine |
-| `DuckSort/Models/AutoTagStore.swift` | Dismissed suggestions persistence |
+| `DuckSort/Utilities/AutoTagEngine.swift` | EXIF analysis engine |
 | `DuckSort/Views/AutoTagSuggestionsView.swift` | Large viewer sidebar suggestions |
 | `DuckSort/Views/SettingsAutoTaggingPaneView.swift` | Settings tab |
 | `DuckSort/Models/UserPreferences.swift` | Add autoTaggingEnabled + autoTaggingRules |
