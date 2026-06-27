@@ -1,3 +1,25 @@
+# DuckSort v1.3.5 Release Notes
+
+Welcome to version **1.3.5** of **DuckSort**! This release unifies the window header with comprehensive routing & transfer controls, streamlines the main photo grid by removing redundant footers and headers, introduces inline category editing in settings, and brings polished visual selection indicators.
+
+## ✨ What's New in v1.3.5
+
+* **Unified Window Header & Top Bar Navigation**:
+  * Moved Destination Selection (`tray.and.arrow.down`), Export Routing Rule Menu (`folder.badge.gearshape`), and Copy (`doc.on.doc`) / Move (`folder`) action buttons directly into the top window header toolbar alongside Add Source and Filters.
+  * Added a real-time photo count and active selection status item in the top toolbar with a vibrant green checkmark icon (`checkmark.circle.fill` in brand green) showing active selected photo counts.
+* **Streamlined Edge-to-Edge Grid View**:
+  * Completely removed the bottom `TransferFooter` panel for a clean, edge-to-edge photo grid experience.
+  * Removed redundant internal text headers from inside the grid view, granting photo thumbnails maximum vertical space right below the top window bar.
+* **Large Viewer & Window Edge Polishing**:
+  * Configured full-window `.ignoresSafeArea()` on `LargeImageViewer` so the overlay extends seamlessly across the entire window container without exposing underlying layout steps or titlebar color misalignments.
+  * Synchronized window background color (`window.backgroundColor = NSColor(Theme.Color.background)`), eliminating titlebar tab artifacts.
+  * Applied 54pt top clearance on the large viewer photo container so images sit comfortably below native macOS titlebar pills.
+* **Settings & Category Editing**:
+  * Introduced inline editing for categories in Tag Packs settings — click and rename category section headers directly on the page.
+  * Refined highlight sizing on Rules and Rebinds settings panes for clean alignment with the dark design system.
+
+---
+
 # DuckSort v1.3 (Tag Packs Redesign, Files-in-Set Inspector, HEIF Previews, Major Performance Pass)
 
 Welcome to version 1.3 of **DuckSort**! This release overhauls the Tag Packs settings UI, introduces a "Files in Set" inspector in the large viewer, brings full HEIF/HEIC preview support, adds an XMP tag inspector overlay, and ships a sweeping performance pass that retunes 25 hot paths across the codebase for O(1) lookups, single-pass filters, and pre-compiled regexes.

@@ -58,43 +58,147 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var mainToolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button {
-                viewModel.isSidebarHidden.toggle()
-            } label: {
-                Label("Toggle Sidebar", systemImage: "sidebar.leading")
+        if viewModel.isLargeImageViewerOpen {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    viewModel.closeLargeImageViewer()
+                } label: {
+                    Label("Close Viewer", systemImage: "xmark")
+                }
+                .help("Close viewer (Esc)")
             }
-            .help("Show or hide the sidebar")
-        }
+        } else {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    viewModel.isSidebarHidden.toggle()
+                } label: {
+                    Label("Toggle Sidebar", systemImage: "sidebar.leading")
+                }
+                .help("Show or hide the sidebar")
+            }
 
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                viewModel.addSourceDirectory()
-            } label: {
-                Label {
-                    Text("Add Source")
-                } icon: {
-                    Image(systemName: "plus.rectangle.on.folder")
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.addSourceDirectory()
+                } label: {
+                    Label {
+                        Text("Add Source")
+                    } icon: {
+                        Image(systemName: "plus.rectangle.on.folder")
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                }
+                .help("Add a source folder (⇧⌘O)")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showFilterPopover.toggle()
+                } label: {
+                    Label {
+                        Text("Filters")
+                    } icon: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(viewModel.activeFilterCount > 0 && viewModel.isFilterPopoverEnabled ? Theme.Color.accent : Theme.Color.textSecondary)
+                    }
+                }
+                .help("Filter Options")
+                .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
+                    FilterPopoverContent(viewModel: viewModel)
+                }
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    ForEach(viewModel.ruleStore.rules) { rule in
+                        Button {
+                            viewModel.ruleStore.selectRule(id: rule.id)
+                        } label: {
+                            if viewModel.ruleStore.selectedRuleID == rule.id {
+                                Label(rule.name, systemImage: "checkmark")
+                            } else {
+                                Text(rule.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Label {
+                        Text(viewModel.ruleStore.selectedRule?.name ?? "No Rule")
+                    } icon: {
+                        Image(systemName: "folder.badge.gearshape")
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                }
+                .help("Select Export Routing Rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.chooseDestinationDirectory()
+                } label: {
+                    Label {
+                        if let dest = viewModel.destinationDirectory {
+                            Text(dest.lastPathComponent)
+                        } else {
+                            Text("Destination…")
+                        }
+                    } icon: {
+                        Image(systemName: "tray.and.arrow.down")
+                            .foregroundStyle(viewModel.destinationDirectory != nil ? Theme.Color.accent : Theme.Color.textSecondary)
+                    }
+                }
+                .help(viewModel.destinationDirectory?.path ?? "Choose Destination Directory")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.performRoutedOperation(.copyOriginals)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .disabled(!viewModel.canTransfer)
+                .help("Copy originals to destination using selected rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.performRoutedOperation(.moveOriginals)
+                } label: {
+                    Label("Move", systemImage: "folder")
+                }
+                .disabled(!viewModel.canTransfer)
+                .help("Move originals to destination using selected rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: Theme.Space.s6) {
+                    Image(systemName: "photo.stack")
                         .foregroundStyle(Theme.Color.textSecondary)
-                }
-            }
-            .help("Add a source folder (⇧⌘O)")
-        }
 
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                showFilterPopover.toggle()
-            } label: {
-                Label {
-                    Text("Filters")
-                } icon: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                        .foregroundStyle(viewModel.activeFilterCount > 0 && viewModel.isFilterPopoverEnabled ? Theme.Color.accent : Theme.Color.textSecondary)
+                    let total = viewModel.filteredPhotoSets.count
+                    let selected = viewModel.selectedCount
+
+                    Text("\(total)")
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(Theme.Color.textSecondary)
+
+                    if selected > 0 {
+                        Text("•")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Theme.Color.success)
+                            Text("\(selected)")
+                                .font(Theme.Font.callout)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                        }
+                    }
                 }
-            }
-            .help("Filter Options")
-            .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
-                FilterPopoverContent(viewModel: viewModel)
+                .padding(.trailing, 4)
+                .help("Library status (\(viewModel.filterRule.rawValue))")
             }
         }
     }
@@ -496,11 +600,8 @@ struct MainLayout: View {
                 SidebarView(viewModel: viewModel)
             }
 
-            VStack(spacing: 0) {
-                mainCenter
-                TransferFooter(viewModel: viewModel)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            mainCenter
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.Color.background)
             .dropDestination(for: URL.self) { urls, _ in
                 viewModel.importURLs(urls)
@@ -573,14 +674,22 @@ struct WindowConfigurator: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
-            if let window = view.window {
-                window.titlebarAppearsTransparent = true
-                window.titleVisibility = .hidden
-                window.styleMask.insert(.fullSizeContentView)
-            }
+            configure(view.window)
         }
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {}
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(nsView.window)
+        }
+    }
+
+    private func configure(_ window: NSWindow?) {
+        guard let window else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.backgroundColor = NSColor(Theme.Color.background)
+    }
 }

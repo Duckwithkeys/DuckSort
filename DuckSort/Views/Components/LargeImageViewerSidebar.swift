@@ -13,7 +13,6 @@ struct LargeImageViewerSidebar: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.s20) {
-
                     // Section 1: Tags
                     VStack(alignment: .leading, spacing: Theme.Space.s10) {
                         sectionHeader("ACTIVE TAGS")
@@ -73,7 +72,10 @@ struct LargeImageViewerSidebar: View {
                                 filesInSet(photo)
                                 metadataField(label: "Captured", value: meta.captureDate.map(formatDate) ?? "—", systemImage: "calendar")
                                 metadataField(label: "Camera",   value: meta.cameraModel ?? "—", systemImage: "camera")
-                                metadataField(label: "Lens",     value: meta.lensModel ?? "—", systemImage: "camera.macro")
+                                metadataField(label: "Lens",     value: meta.lensModel ?? "—", systemImage: "magnifyingglass.circle")
+                                metadataField(label: "Aperture", value: formatAperture(meta.aperture), systemImage: "camera.aperture")
+                                metadataField(label: "Shutter",  value: formatShutter(meta.shutterSpeed), systemImage: "timer")
+                                metadataField(label: "ISO",      value: formatISO(meta.iso), systemImage: "sensor.fill")
                             }
                         } else {
                             Text("No photo selected")
@@ -304,6 +306,25 @@ struct LargeImageViewerSidebar: View {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         return formatter.string(from: date)
+    }
+
+    private func formatAperture(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        return String(format: "f/%.1f", value)
+    }
+
+    private func formatShutter(_ value: Double?) -> String {
+        guard let value = value, value > 0 else { return "—" }
+        if value >= 1 {
+            return String(format: "%.1fs", value)
+        } else {
+            return String(format: "1/%d", Int(round(1.0 / value)))
+        }
+    }
+
+    private func formatISO(_ value: Int?) -> String {
+        guard let value else { return "—" }
+        return "\(value)"
     }
 
     private func formatFocalLength(_ value: Double?, equivalent35mm: Double?) -> String {

@@ -3,22 +3,23 @@
 //  DuckSort
 //
 //  The "Shortcuts" tab of the unified Settings window.
+//  Overhauled to match the premium dark macOS design system.
 //
 
 import SwiftUI
 
 private enum ShortcutsSection: String, CaseIterable, Identifiable {
-    case appActions    = "App Actions"
-    case culling       = "Culling Control"
+    case appActions    = "App & Windows"
+    case culling       = "Culling & Navigation"
     case tagHotkeys    = "Tag Hotkeys"
 
     var id: String { rawValue }
 
     var systemImage: String {
         switch self {
-        case .appActions: return "gearshape"
+        case .appActions: return "gearshape.fill"
         case .culling:    return "arrow.left.arrow.right"
-        case .tagHotkeys: return "tag"
+        case .tagHotkeys: return "tag.fill"
         }
     }
 }
@@ -49,16 +50,16 @@ private struct ShortcutsSidebarIndex: View {
     let tagHotkeysAvailable: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: Theme.Space.s4) {
             HStack {
-                Text("SECTIONS")
+                Text("SHORTCUT CATEGORIES")
                     .font(Theme.Font.caption2)
-                    .tracking(0.3)
-                    .foregroundStyle(Theme.Color.textSecondary)
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 Spacer()
             }
             .padding(.horizontal, Theme.Space.s12)
-            .padding(.top, Theme.Space.s10)
+            .padding(.top, Theme.Space.s12)
             .padding(.bottom, Theme.Space.s6)
 
             ForEach(ShortcutsSection.allCases) { section in
@@ -70,7 +71,7 @@ private struct ShortcutsSidebarIndex: View {
                     isDisabled: isDisabled
                 ) {
                     guard !isDisabled else { return }
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    withAnimation(.smooth(duration: 0.15)) {
                         selectedSection = section
                     }
                 }
@@ -80,7 +81,6 @@ private struct ShortcutsSidebarIndex: View {
         }
     }
 
-    @ViewBuilder
     private func shortcutIndexRow(
         icon: String,
         label: String,
@@ -89,24 +89,27 @@ private struct ShortcutsSidebarIndex: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: Theme.Space.s8) {
+            HStack(spacing: Theme.Space.s10) {
                 Image(systemName: icon)
-                    .font(.system(size: Theme.Space.s10))
-                    .foregroundStyle(isSelected ? Theme.Color.textInverse : Theme.Color.textSecondary)
-                    .frame(width: 14)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(isSelected ? .white : Theme.Color.textSecondary)
+                    .frame(width: 18)
+
                 Text(label)
-                    .font(.system(size: 13, weight: isSelected ? .bold : .regular))
+                    .font(isSelected ? Theme.Font.bodyBold : Theme.Font.body)
                     .foregroundStyle(isSelected ? Theme.Color.textInverse : Theme.Color.textPrimary)
                 Spacer()
             }
             .padding(.horizontal, Theme.Space.s10)
             .padding(.vertical, Theme.Space.s8)
             .background(
-                isSelected ? Theme.Color.accent : Color.clear
+                RoundedRectangle(cornerRadius: Theme.Radius.m)
+                    .fill(isSelected ? Theme.Color.accent : Color.clear)
             )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, Theme.Space.s8)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.4 : 1.0)
     }
@@ -120,82 +123,161 @@ private struct ShortcutsDetailContent: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: Theme.Space.s16) {
                 switch section {
                 case .appActions:
-                    ShortcutsSectionHeader(title: "APP ACTIONS")
+                    headerView(
+                        title: "App & Window Shortcuts",
+                        subtitle: "Configure customizable window hotkeys and review system commands."
+                    )
+
+                    cardSection(title: "Customizable Hotkeys") {
+                        VStack(spacing: 0) {
+                            ShortcutEditableRow(label: "Tag Manager Modal", hotkey: $viewModel.tagManagerHotkey)
+                            ShortcutDividerRow()
+                            ShortcutEditableRow(label: "Rule Editor Modal", hotkey: $viewModel.ruleEditorHotkey)
+                            ShortcutDividerRow()
+                            ShortcutEditableRow(label: "Add Source Folder", hotkey: $viewModel.openSourceHotkey)
+                        }
+                    }
+
+                    cardSection(title: "System Commands") {
+                        VStack(spacing: 0) {
+                            ShortcutStaticRow(label: "Open Settings Window", shortcut: "⌘ ,")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Import Media Files", shortcut: "⇧ ⌘ I")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Toggle Advanced EXIF Inspector", shortcut: "⇧ ⌘ E")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Unmapped XMP Tags Inspector", shortcut: "⇧ ⌘ X")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Show Welcome Guide", shortcut: "⌘ /")
+                        }
+                    }
 
                 case .culling:
-                    ShortcutsSectionHeader(title: "CULLING CONTROL")
+                    headerView(
+                        title: "Culling & Navigation",
+                        subtitle: "Keyboard controls for browsing, selecting, flagging, and rating photos."
+                    )
 
-                    ShortcutStaticRow(label: "Toggle Selection",       shortcut: "S")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Clear All Tags",         shortcut: "0")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Open / Close Viewer",    shortcut: "Space / Return")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Close Viewer",           shortcut: "Esc")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Navigate Photos",        shortcut: "← → ↑ ↓")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Next / Prev Category",   shortcut: "[ / ]")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Select Visible (Grid)",  shortcut: "⌘A")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Flag / Reject / Unflag", shortcut: "Z / X / U")
-                    ShortcutDividerRow()
-                    ShortcutStaticRow(label: "Set Rating",             shortcut: "1 – 5")
+                    cardSection(title: "Navigation & Viewer") {
+                        VStack(spacing: 0) {
+                            ShortcutStaticRow(label: "Navigate Grid / Viewer", shortcut: "←  →  ↑  ↓")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Open Large Image Viewer", shortcut: "Space / Return / I")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Close Large Image Viewer", shortcut: "Esc / Space / Return")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Cycle Active Tag Category", shortcut: "[ / ]")
+                        }
+                    }
+
+                    cardSection(title: "Selection Controls") {
+                        VStack(spacing: 0) {
+                            ShortcutStaticRow(label: "Toggle Selection (Focused Photo)", shortcut: "S")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Select All Visible Photos", shortcut: "⌘ A")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Clear Active Selection", shortcut: "Esc / Backspace / Delete")
+                        }
+                    }
+
+                    cardSection(title: "Flagging & Star Ratings") {
+                        VStack(spacing: 0) {
+                            ShortcutStaticRow(label: "Flag Pick (Favorite)", shortcut: "Z")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Flag Reject & Advance", shortcut: "X")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Unflag Photo", shortcut: "U")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Set Star Rating (1 to 5 Stars)", shortcut: "1 – 5")
+                            ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Clear Rating, Pick & Tags", shortcut: "0")
+                        }
+                    }
 
                 case .tagHotkeys:
-                    ShortcutsSectionHeader(title: "TAG HOTKEYS")
+                    headerView(
+                        title: "Tag Hotkeys",
+                        subtitle: "Assign custom single-key or modifier hotkeys for one-touch tag application."
+                    )
+
                     let allTags = viewModel.tagStore.tags
                     if allTags.isEmpty {
-                        Text("No tags yet. Create tags in the Tags tab to assign hotkeys.")
-                            .font(Theme.Font.body)
-                            .foregroundStyle(Theme.Color.textTertiary)
-                            .padding(.horizontal, Theme.Space.s16)
-                            .padding(.vertical, Theme.Space.s12)
+                        VStack(spacing: Theme.Space.s12) {
+                            Image(systemName: "tag.slash")
+                                .font(.system(size: 32))
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Text("No Tags Created Yet")
+                                .font(Theme.Font.headline)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                            Text("Create tags in the Tags tab to assign custom application hotkeys.")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, Theme.Space.s32)
                     } else {
                         let groups = ShortcutsDetailContent.groupedByCategory(
                             allTags,
                             categoryName: { viewModel.tagStore.categoryName(id: $0) ?? "Uncategorized" }
                         )
-                        ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
-                            if groupIndex > 0 { ShortcutDividerRow() }
-                            ShortcutsSectionHeader(title: group.categoryName.uppercased())
-
-                            ForEach(Array(group.tags.enumerated()), id: \.element.id) { tagIndex, tag in
-                                if tagIndex > 0 { ShortcutDividerRow() }
-                                TagHotkeyRow(tag: tag, tagStore: viewModel.tagStore)
+                        ForEach(groups, id: \.categoryName) { group in
+                            cardSection(title: group.categoryName.uppercased()) {
+                                VStack(spacing: 0) {
+                                    ForEach(Array(group.tags.enumerated()), id: \.element.id) { index, tag in
+                                        if index > 0 { ShortcutDividerRow() }
+                                        TagHotkeyRow(tag: tag, tagStore: viewModel.tagStore)
+                                    }
+                                }
                             }
                         }
                     }
                 }
-
-                Spacer().frame(height: 20)
             }
+            .padding(Theme.Space.s20)
         }
         .background(Theme.Color.surfaceBase)
+    }
+
+    private func headerView(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s4) {
+            Text(title)
+                .font(Theme.Font.title)
+                .foregroundStyle(Theme.Color.textPrimary)
+            Text(subtitle)
+                .font(Theme.Font.body)
+                .foregroundStyle(Theme.Color.textSecondary)
+        }
+        .padding(.bottom, Theme.Space.s4)
+    }
+
+    private func cardSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s6) {
+            Text(title)
+                .font(Theme.Font.caption2)
+                .tracking(0.5)
+                .foregroundStyle(Theme.Color.textTertiary)
+                .padding(.leading, Theme.Space.s4)
+
+            VStack(spacing: 0) {
+                content()
+            }
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.l)
+                    .fill(Theme.Color.cellBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.l)
+                    .stroke(Theme.Color.separator, lineWidth: Theme.Stroke.hairline)
+            )
+        }
     }
 }
 
 // MARK: - Reusable row components
-
-private struct ShortcutsSectionHeader: View {
-    let title: String
-    var body: some View {
-        HStack {
-            Text(title)
-                .font(Theme.Font.caption2)
-                .tracking(0.3)
-                .foregroundStyle(Theme.Color.textTertiary)
-                .padding(.leading, Theme.Space.s16)
-            Spacer()
-        }
-        .padding(.vertical, Theme.Space.s8)
-        .background(Theme.Color.surfaceSidebarList)
-    }
-}
 
 private struct ShortcutEditableRow: View {
     let label: String
@@ -205,13 +287,13 @@ private struct ShortcutEditableRow: View {
         HStack {
             Text(label)
                 .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textInverse)
+                .foregroundStyle(Theme.Color.textPrimary)
                 .padding(.leading, Theme.Space.s16)
             Spacer()
             ShortcutRecorderView(hotkey: $hotkey)
                 .padding(.trailing, Theme.Space.s16)
         }
-        .frame(height: 40)
+        .frame(height: 44)
     }
 }
 
@@ -223,22 +305,29 @@ private struct ShortcutStaticRow: View {
         HStack {
             Text(label)
                 .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textInverse)
+                .foregroundStyle(Theme.Color.textPrimary)
                 .padding(.leading, Theme.Space.s16)
             Spacer()
             Text(shortcut)
-                .font(Theme.Font.monoBody)
-                .foregroundStyle(Theme.Color.textTertiary)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Theme.Color.textSecondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Theme.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.Radius.s))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.s)
+                        .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
+                )
                 .padding(.trailing, Theme.Space.s16)
         }
-        .frame(height: 36)
+        .frame(height: 44)
     }
 }
 
 private struct ShortcutDividerRow: View {
     var body: some View {
         Rectangle()
-            .fill(Theme.Color.surfaceRaised)
+            .fill(Theme.Color.separator)
             .frame(height: Theme.Stroke.hairline)
             .padding(.horizontal, Theme.Space.s16)
     }
@@ -258,7 +347,7 @@ private struct TagHotkeyRow: View {
                     .frame(width: 8, height: 8)
                 Text(tag.name)
                     .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.textInverse)
+                    .foregroundStyle(Theme.Color.textPrimary)
             }
             .padding(.leading, Theme.Space.s16)
             Spacer()
@@ -283,7 +372,7 @@ private struct TagHotkeyRow: View {
             )
             .padding(.trailing, Theme.Space.s16)
         }
-        .frame(height: 40)
+        .frame(height: 44)
     }
 }
 

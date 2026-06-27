@@ -3,6 +3,7 @@
 //  DuckSort
 //
 //  The "Rules" tab of the unified Settings window.
+//  Overhauled to match the premium dark macOS design system.
 //
 
 import SwiftUI
@@ -29,26 +30,30 @@ private struct RulesSidebar: View {
     @FocusState private var isAddFieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: Theme.Space.s4) {
             HStack {
-                Text("MY RULE SETS")
+                Text("EXPORT RULE SETS")
                     .font(Theme.Font.caption2)
-                    .tracking(0.3)
-                    .foregroundStyle(Theme.Color.textSecondary)
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 Spacer()
             }
             .padding(.horizontal, Theme.Space.s12)
-            .padding(.top, Theme.Space.s10)
+            .padding(.top, Theme.Space.s12)
             .padding(.bottom, Theme.Space.s6)
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: Theme.Space.s4) {
                     ForEach(ruleStore.rules) { rule in
                         RuleSidebarRow(
                             rule: rule,
                             isSelected: ruleStore.selectedRuleID == rule.id,
                             tagStore: tagStore,
-                            onSelect: { ruleStore.selectRule(id: rule.id) },
+                            onSelect: {
+                                withAnimation(.smooth(duration: 0.15)) {
+                                    ruleStore.selectRule(id: rule.id)
+                                }
+                            },
                             onDelete: { ruleStore.deleteRule(id: rule.id) }
                         )
                     }
@@ -57,32 +62,42 @@ private struct RulesSidebar: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             Rectangle()
-                .fill(Theme.Color.surfaceDivider)
+                .fill(Theme.Color.separator)
                 .frame(height: Theme.Stroke.hairline)
-                .padding(.horizontal, Theme.Space.s16)
+                .padding(.horizontal, Theme.Space.s12)
 
-            HStack(spacing: Theme.Space.s4) {
+            HStack(spacing: Theme.Space.s8) {
                 TextField("New rule set", text: $newRuleName)
                     .textFieldStyle(.plain)
                     .font(Theme.Font.subheadline)
-                    .foregroundStyle(Theme.Color.textInverse)
+                    .foregroundStyle(Theme.Color.textPrimary)
                     .focused($isAddFieldFocused)
                     .onSubmit(commitNewRule)
 
                 Button(action: commitNewRule) {
-                    Image(systemName: "plus")
-                        .font(.system(size: Theme.Space.s12, weight: .medium))
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 16))
                         .foregroundStyle(
                             newRuleName.trimmingCharacters(in: .whitespaces).isEmpty
-                                ? Theme.Color.surfaceStroke
-                                : Theme.Color.textSecondary
+                                ? Theme.Color.textTertiary
+                                : Theme.Color.accent
                         )
                 }
                 .buttonStyle(.plain)
                 .disabled(newRuleName.trimmingCharacters(in: .whitespaces).isEmpty)
             }
-            .padding(.horizontal, Theme.Space.s16)
+            .padding(.horizontal, Theme.Space.s12)
             .padding(.vertical, Theme.Space.s10)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.m)
+                    .fill(Theme.Color.cellBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.m)
+                    .stroke(Theme.Color.separator, lineWidth: Theme.Stroke.hairline)
+            )
+            .padding(.horizontal, Theme.Space.s8)
+            .padding(.bottom, Theme.Space.s8)
         }
     }
 
@@ -105,15 +120,15 @@ private struct RuleSidebarRow: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: Theme.Space.s8) {
-                Image(systemName: "circle")
-                    .font(.system(size: Theme.Space.s10))
-                    .foregroundStyle(isSelected ? Theme.Color.textInverse : Theme.Color.textSecondary)
-                    .frame(width: 14)
+            HStack(spacing: Theme.Space.s10) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(isSelected ? .white : Theme.Color.accent)
+                    .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                VStack(alignment: .leading, spacing: 2) {
                     Text(rule.name)
-                        .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                        .font(isSelected ? Theme.Font.bodyBold : Theme.Font.body)
                         .foregroundStyle(isSelected ? Theme.Color.textInverse : Theme.Color.textPrimary)
                         .lineLimit(1)
                     if !rule.components.isEmpty {
@@ -121,7 +136,7 @@ private struct RuleSidebarRow: View {
                             tagStore.categoryName(id: $0)
                         })
                         .font(Theme.Font.badge)
-                        .foregroundStyle(isSelected ? Theme.Color.textInverse.opacity(0.65) : Theme.Color.textTertiary)
+                        .foregroundStyle(isSelected ? Theme.Color.textInverse.opacity(0.75) : Theme.Color.textSecondary)
                         .lineLimit(1)
                     }
                 }
@@ -129,19 +144,20 @@ private struct RuleSidebarRow: View {
                 Spacer()
             }
             .padding(.horizontal, Theme.Space.s10)
-            .padding(.vertical, Theme.Space.s6)
+            .padding(.vertical, Theme.Space.s8)
             .background(
-                isSelected
-                    ? Theme.Color.accent
-                    : (isHovered ? Theme.Color.overlaySofter : Color.clear)
+                RoundedRectangle(cornerRadius: Theme.Radius.m)
+                    .fill(isSelected ? Theme.Color.accent : (isHovered ? Theme.Color.overlaySofter : Color.clear))
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, Theme.Space.s8)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
         }
         .contextMenu {
-            Button("Delete", role: .destructive, action: onDelete)
+            Button("Delete Rule Set", role: .destructive, action: onDelete)
         }
     }
 }
@@ -156,18 +172,21 @@ private struct RulesDetailPanel: View {
         if let rule = ruleStore.selectedRule {
             RuleEditorDetail(rule: rule, ruleStore: ruleStore, tagStore: tagStore)
         } else {
-            VStack {
+            VStack(spacing: Theme.Space.s12) {
                 Spacer()
-                Image(systemName: "arrow.triangle.branch")
-                    .font(Theme.Font.iconLarge)
-                    .foregroundStyle(Theme.Color.surfaceStroke)
-                Text("Select a rule set to edit")
-                    .font(Theme.Font.body)
+                Image(systemName: "folder.badge.gearshape")
+                    .font(.system(size: 44))
                     .foregroundStyle(Theme.Color.textTertiary)
-                    .padding(.top, Theme.Space.s6)
+                Text("Select an Export Rule Set")
+                    .font(Theme.Font.headline)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                Text("Choose a rule set from the left sidebar to configure its directory layout rules.")
+                    .font(Theme.Font.caption)
+                    .foregroundStyle(Theme.Color.textTertiary)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.Color.surfaceBase)
         }
     }
 }
@@ -178,119 +197,126 @@ private struct RuleEditorDetail: View {
     @ObservedObject var tagStore: TagStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Theme.Space.s12) {
-                Text("Rule Name:")
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .frame(width: 80, alignment: .trailing)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.s16) {
+                // Title Header
+                VStack(alignment: .leading, spacing: Theme.Space.s4) {
+                    Text("Export Directory Rules")
+                        .font(Theme.Font.title)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Text("Configure automated subfolder structures generated when exporting media.")
+                        .font(Theme.Font.body)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .padding(.bottom, Theme.Space.s4)
 
-                TextField("Rule name", text: Binding(
-                    get: { rule.name },
-                    set: { newName in
-                        var updated = rule
-                        updated.name = newName
-                        ruleStore.updateRule(updated)
+                // Rule Configuration Card
+                VStack(alignment: .leading, spacing: Theme.Space.s12) {
+                    HStack(spacing: Theme.Space.s12) {
+                        Text("Rule Name")
+                            .font(Theme.Font.bodyBold)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                            .frame(width: 90, alignment: .leading)
+
+                        TextField("Rule set name", text: Binding(
+                            get: { rule.name },
+                            set: { newName in
+                                var updated = rule
+                                updated.name = newName
+                                ruleStore.updateRule(updated)
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .font(Theme.Font.body)
+
+                        Spacer()
+
+                        Text("\(rule.components.count) folder level\(rule.components.count == 1 ? "" : "s")")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .padding(.horizontal, Theme.Space.s8)
+                            .padding(.vertical, Theme.Space.s4)
+                            .background(Theme.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.Radius.s))
                     }
-                ))
-                .textFieldStyle(.plain)
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textInverse)
-                .padding(.horizontal, Theme.Space.s8)
-                .padding(.vertical, Theme.Space.s4)
-                .background(
-                    RoundedRectangle(cornerRadius: Theme.Radius.m)
-                        .fill(Theme.Color.overlaySoft)
-                        .overlay(
+
+                    Rectangle()
+                        .fill(Theme.Color.separator)
+                        .frame(height: Theme.Stroke.hairline)
+
+                    // Components list header
+                    HStack {
+                        Text("SUBFOLDER HIERARCHY")
+                            .font(Theme.Font.caption2)
+                            .tracking(0.5)
+                            .foregroundStyle(Theme.Color.textTertiary)
+
+                        Spacer()
+
+                        Menu {
+                            Button("Camera Model") { addComponent(.cameraModel, to: rule) }
+                            Button("Lens Model")   { addComponent(.lensModel, to: rule) }
+                            Button("Capture Date") { addComponent(.captureDate, to: rule) }
+                            Divider()
+                            ForEach(tagStore.categories) { category in
+                                Button(category.name) {
+                                    addComponent(.tagCategory(category.id), to: rule)
+                                }
+                            }
+                            Divider()
+                            Button("Custom Text…") { addComponent(.customText("Custom"), to: rule) }
+                        } label: {
+                            Label("Add Folder Level", systemImage: "plus")
+                                .font(Theme.Font.subheadline)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+
+                    if rule.components.isEmpty {
+                        VStack(spacing: Theme.Space.s8) {
+                            Image(systemName: "square.dashed")
+                                .font(.system(size: 28))
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            Text("No Subfolder Levels Defined")
+                                .font(Theme.Font.subheadline)
+                                .foregroundStyle(Theme.Color.textSecondary)
+                            Text("Click '+ Add Folder Level' to build a custom export path.")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, Theme.Space.s24)
+                        .background(
                             RoundedRectangle(cornerRadius: Theme.Radius.m)
-                                .stroke(Theme.Color.surfaceStroke, lineWidth: Theme.Stroke.hairline)
+                                .fill(Theme.Color.surfaceBase)
                         )
-                )
-
-                Spacer()
-
-                Text("\(rule.components.count) folder level\(rule.components.count == 1 ? "" : "s")")
-                    .font(Theme.Font.footnote)
-                    .foregroundStyle(Theme.Color.textTertiary)
-            }
-            .padding(.horizontal, Theme.Space.s16)
-            .padding(.vertical, Theme.Space.s12)
-
-            Rectangle()
-                .fill(Theme.Color.surfaceRaised)
-                .frame(height: Theme.Stroke.hairline)
-                .padding(.horizontal, Theme.Space.s16)
-
-            if rule.components.isEmpty {
-                VStack {
-                    Spacer()
-                    Text("No folder levels yet. Add one below.")
-                        .font(Theme.Font.subheadline)
-                        .foregroundStyle(Theme.Color.textTertiary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(Array(rule.components.enumerated()), id: \.offset) { index, component in
-                        RuleComponentRow(
-                            component: component,
-                            index: index,
-                            rule: rule,
-                            ruleStore: ruleStore,
-                            tagStore: tagStore
-                        )
-                        .listRowBackground(Color.clear)
-                        .listRowSeparatorTint(Theme.Color.surfaceRaised)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    }
-                    .onMove { from, to in
-                        var updated = rule
-                        updated.components.move(fromOffsets: from, toOffset: to)
-                        ruleStore.updateRule(updated)
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .background(Color.clear)
-            }
-
-            Rectangle()
-                .fill(Theme.Color.surfaceRaised)
-                .frame(height: Theme.Stroke.hairline)
-                .padding(.horizontal, Theme.Space.s16)
-
-            HStack {
-                Spacer()
-
-                Menu {
-                    Button("Camera Model") { addComponent(.cameraModel, to: rule) }
-                    Button("Lens Model")   { addComponent(.lensModel, to: rule) }
-                    Button("Capture Date") { addComponent(.captureDate, to: rule) }
-                    Divider()
-                    ForEach(tagStore.categories) { category in
-                        Button(category.name) {
-                            addComponent(.tagCategory(category.id), to: rule)
+                    } else {
+                        VStack(spacing: Theme.Space.s8) {
+                            ForEach(Array(rule.components.enumerated()), id: \.offset) { index, component in
+                                RuleComponentRow(
+                                    component: component,
+                                    index: index,
+                                    rule: rule,
+                                    ruleStore: ruleStore,
+                                    tagStore: tagStore
+                                )
+                            }
                         }
                     }
-                    Divider()
-                    Button("Custom Text…") { addComponent(.customText("Custom"), to: rule) }
-                } label: {
-                    HStack(spacing: Theme.Space.s4) {
-                        Text("Add Folder Level")
-                            .font(Theme.Font.subheadline)
-                        Image(systemName: "plus")
-                            .font(.system(size: Theme.Space.s10))
-                    }
-                    .foregroundStyle(Theme.Color.accent)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                .padding(Theme.Space.s16)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.l)
+                        .fill(Theme.Color.cellBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.l)
+                        .stroke(Theme.Color.separator, lineWidth: Theme.Stroke.hairline)
+                )
             }
-            .padding(.horizontal, Theme.Space.s16)
-            .padding(.vertical, Theme.Space.s10)
+            .padding(Theme.Space.s20)
         }
+        .background(Theme.Color.surfaceBase)
     }
 
     private func addComponent(_ component: ExportPathComponent, to rule: ExportPathRule) {
@@ -311,8 +337,16 @@ private struct RuleComponentRow: View {
     var body: some View {
         HStack(spacing: Theme.Space.s10) {
             Image(systemName: "line.3.horizontal")
-                .font(.system(size: Theme.Space.s10))
+                .font(.system(size: 12))
                 .foregroundStyle(Theme.Color.textTertiary)
+
+            Text("Level \(index + 1)")
+                .font(Theme.Font.caption)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.Color.accent)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Theme.Color.accent.opacity(0.15), in: RoundedRectangle(cornerRadius: Theme.Radius.s))
 
             HStack(spacing: Theme.Space.s8) {
                 Image(systemName: component.systemImage)
@@ -325,19 +359,24 @@ private struct RuleComponentRow: View {
 
             Spacer()
 
-            if isHovered {
-                Button(action: removeComponent) {
-                    Image(systemName: "minus.circle")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Theme.Color.danger)
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            Button(action: removeComponent) {
+                Image(systemName: "trash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Color.danger)
             }
+            .buttonStyle(.plain)
+            .opacity(isHovered ? 1.0 : 0.4)
         }
-        .padding(.horizontal, Theme.Space.s16)
-        .padding(.vertical, Theme.Space.s8)
-        .contentShape(Rectangle())
+        .padding(.horizontal, Theme.Space.s12)
+        .padding(.vertical, Theme.Space.s10)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.m)
+                .fill(Theme.Color.surfaceBase)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.m)
+                .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
+        )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
         }
@@ -348,8 +387,8 @@ private struct RuleComponentRow: View {
         switch component {
         case .cameraModel, .lensModel, .captureDate:
             Text(component.displayName)
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textInverse)
+                .font(Theme.Font.bodyBold)
+                .foregroundStyle(Theme.Color.textPrimary)
 
         case .tagCategory(let id):
             Picker("", selection: Binding(
@@ -367,9 +406,10 @@ private struct RuleComponentRow: View {
                     Text(cat.name).tag(cat.id)
                 }
             }
+            .pickerStyle(.menu)
             .labelsHidden()
             .font(Theme.Font.body)
-            .frame(maxWidth: 160, alignment: .leading)
+            .frame(maxWidth: 180, alignment: .leading)
 
         case .customText(let text):
             TextField("Custom text", text: Binding(
@@ -380,20 +420,9 @@ private struct RuleComponentRow: View {
                     ruleStore.updateRule(updated)
                 }
             ))
-            .textFieldStyle(.plain)
+            .textFieldStyle(.roundedBorder)
             .font(Theme.Font.body)
-            .foregroundStyle(Theme.Color.textInverse)
-            .padding(.horizontal, Theme.Space.s6)
-            .padding(.vertical, Theme.Space.s4)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.s)
-                    .fill(Theme.Color.overlaySoft)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.s)
-                            .stroke(Theme.Color.surfaceStroke, lineWidth: Theme.Stroke.hairline)
-                    )
-            )
-            .frame(maxWidth: 160)
+            .frame(maxWidth: 180)
         }
     }
 

@@ -38,17 +38,6 @@ struct PhotoGridView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(viewModel.filterRule.rawValue)
-                .font(Theme.Font.headline)
-                .foregroundStyle(Theme.Color.textPrimary)
-                .padding(.horizontal, Self.horizontalPadding)
-                .padding(.top, Theme.Space.s12)
-                .padding(.bottom, Theme.Space.s10)
-
-            Rectangle()
-                .frame(height: 1)
-                .foregroundStyle(Color.white.opacity(0.12))
-
             ScrollViewReader { scrollProxy in
                 ZStack(alignment: .topLeading) {
                     // Layer 1: Empty-space hit area for marquee drag. Cells (above)

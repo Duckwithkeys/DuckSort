@@ -14,6 +14,8 @@ struct SettingsAutoTaggingPaneView: View {
     @ObservedObject var tagStore: TagStore
 
     @State private var showAddRuleSheet = false
+    @State private var showSampleInspectorSheet = false
+    @State private var sampleFileMetadata: (filename: String, snapshot: MetadataSnapshot)? = nil
     @State private var editingRule: AutoTagRule? = nil
     @State private var hoveredRuleID: UUID? = nil
 
@@ -75,11 +77,21 @@ struct SettingsAutoTaggingPaneView: View {
             HStack {
                 Button {
                     preferences.autoTaggingRules = AutoTagRule.defaultRules
+                    preferences.save()
                 } label: {
                     Label("Reset Defaults", systemImage: "arrow.counterclockwise")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+
+                Button {
+                    selectSampleFileAndInspect()
+                } label: {
+                    Label("Inspect Photo / XMP...", systemImage: "doc.badge.gearshape")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Select a photo or XMP sidecar file to inspect its metadata and generate auto-tag rules")
 
                 Spacer()
 
@@ -102,41 +114,69 @@ struct SettingsAutoTaggingPaneView: View {
                 rule: editingRule,
                 categories: tagStore.categories.map(\.name),
                 onSave: { newRule in
-                    if let existing = editingRule {
-                        // Replace existing rule
-                        if let index = preferences.autoTaggingRules.firstIndex(where: { $0.id == existing.id }) {
-                            preferences.autoTaggingRules[index] = newRule
-                        }
+                    if let index = preferences.autoTaggingRules.firstIndex(where: { $0.id == newRule.id }) {
+                        preferences.autoTaggingRules[index] = newRule
                     } else {
-                        // Add new rule
                         preferences.autoTaggingRules.append(newRule)
                     }
+                    preferences.save()
                     editingRule = nil
                 },
                 onCancel: { editingRule = nil }
             )
-            .frame(width: 480, height: 520)
+            .frame(width: 500, height: 650)
+        }
+        .sheet(isPresented: $showSampleInspectorSheet) {
+            if let sample = sampleFileMetadata {
+                SampleMetadataInspectorSheet(
+                    filename: sample.filename,
+                    snapshot: sample.snapshot,
+                    isPresented: $showSampleInspectorSheet,
+                    onCreateRule: { newRule in
+                        showSampleInspectorSheet = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            editingRule = newRule
+                            showAddRuleSheet = true
+                        }
+                    }
+                )
+            }
+        }
+    }
+
+    private func selectSampleFileAndInspect() {
+        let panel = NSOpenPanel()
+        panel.title = "Select a Photo or XMP File"
+        panel.prompt = "Inspect Metadata"
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        if panel.runModal() == .OK, let url = panel.url {
+            let snapshot = MetadataReader().metadata(for: url)
+            sampleFileMetadata = (url.lastPathComponent, snapshot)
+            showSampleInspectorSheet = true
         }
     }
 
     // MARK: - Views
 
     private var infoCard: some View {
-        HStack(alignment: .top, spacing: Theme.Space.s10) {
-            Image(systemName: "info.circle.fill")
-                .font(.system(size: 14))
+        HStack(alignment: .top, spacing: Theme.Space.s12) {
+            Image(systemName: "lightbulb.fill")
+                .font(.system(size: 16))
                 .foregroundStyle(Theme.Color.accent)
-                .padding(.top, 1)
+                .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("How to configure rules:")
+            VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                Text("How Auto-Tagging Evaluates Your Library")
                     .font(Theme.Font.bodyBold)
                     .foregroundStyle(Theme.Color.textPrimary)
 
-                Text("Click the 'Add Rule' button below to create a new mapping. Choose a metadata condition (such as camera brand, focal length, ISO, aperture, or flash state), enter a matching threshold value, and specify the tags to suggest. When you view a photo in the large image viewer, matching tags will appear at the bottom of the sidebar for quick culling.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .lineLimit(4)
+                HStack(spacing: Theme.Space.s12) {
+                    guideStep(icon: "camera.fill", title: "1. Read EXIF", desc: "Reads camera, lens, ISO, focal length, aperture & flash.")
+                    guideStep(icon: "slider.horizontal.3", title: "2. Evaluate Rules", desc: "Matches active rules against photo metadata.")
+                    guideStep(icon: "tag.fill", title: "3. Suggest Tags", desc: "Presents one-click tag pills in the Large Viewer.")
+                }
             }
         }
         .padding(Theme.Space.s12)
@@ -148,6 +188,25 @@ struct SettingsAutoTaggingPaneView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.m)
                 .stroke(Theme.Color.accent.opacity(0.18), lineWidth: 1)
         )
+    }
+
+    private func guideStep(icon: String, title: String, desc: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.Color.accent)
+                Text(title)
+                    .font(Theme.Font.caption2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(Theme.Color.textPrimary)
+            }
+            Text(desc)
+                .font(.system(size: 10))
+                .foregroundStyle(Theme.Color.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var emptyState: some View {
@@ -181,6 +240,7 @@ struct SettingsAutoTaggingPaneView: View {
                     if let index = preferences.autoTaggingRules.firstIndex(where: { $0.id == rule.id }) {
                         withAnimation(.smooth(duration: 0.15)) {
                             preferences.autoTaggingRules[index].enabled = newValue
+                            preferences.save()
                         }
                     }
                 }
@@ -199,9 +259,13 @@ struct SettingsAutoTaggingPaneView: View {
 
             // Rule Details
             VStack(alignment: .leading, spacing: 2) {
-                Text(rule.name)
-                    .font(Theme.Font.bodyBold)
-                    .foregroundStyle(rule.enabled ? Theme.Color.textPrimary : Theme.Color.textSecondary)
+                HStack(spacing: Theme.Space.s6) {
+                    Text(rule.name)
+                        .font(Theme.Font.bodyBold)
+                        .foregroundStyle(rule.enabled ? Theme.Color.textPrimary : Theme.Color.textSecondary)
+
+                    confidenceBadge(rule.confidence)
+                }
 
                 Text(rule.condition.description)
                     .font(Theme.Font.footnote)
@@ -248,6 +312,7 @@ struct SettingsAutoTaggingPaneView: View {
                     Button {
                         withAnimation(.smooth(duration: 0.15)) {
                             preferences.autoTaggingRules.removeAll(where: { $0.id == rule.id })
+                            preferences.save()
                         }
                     } label: {
                         Image(systemName: "trash")
@@ -281,6 +346,25 @@ struct SettingsAutoTaggingPaneView: View {
         }
     }
 
+    private func confidenceBadge(_ confidence: Confidence) -> some View {
+        let (title, color) = confidenceDetails(confidence)
+        return Text(title)
+            .font(.system(size: 9, weight: .bold))
+            .tracking(0.5)
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private func confidenceDetails(_ confidence: Confidence) -> (String, Color) {
+        switch confidence {
+        case .high:   return ("HIGH CONFIDENCE", Theme.Color.success)
+        case .medium: return ("MED CONFIDENCE", Theme.Color.warning)
+        case .low:    return ("LOW CONFIDENCE", Theme.Color.textSecondary)
+        }
+    }
+
     // MARK: - Condition Mapping Helpers
 
     private func iconForCondition(_ condition: Condition) -> String {
@@ -298,7 +382,7 @@ struct SettingsAutoTaggingPaneView: View {
         case .aspectRatio, .aspectRatioValue:
             return "aspectratio"
         case .lensType, .lensTypeValue, .lensTypeNot, .lensTypeNotValue:
-            return "sparkles.square"
+            return "magnifyingglass.circle"
         case .imageStabilization:
             return "hand.wave"
         }
@@ -386,73 +470,100 @@ private struct RuleEditorSheet: View {
         self.onSave = onSave
         self.onCancel = onCancel
 
-        if let rule {
-            name = rule.name
-            enabled = rule.enabled
-            confidence = rule.confidence
-            suggestedTagNames = rule.suggestedTags.map(\.name).joined(separator: ", ")
-            suggestedCategory = rule.suggestedTags.first?.category ?? ""
+        let initialName: String
+        let initialEnabled: Bool
+        let initialConfidence: Confidence
+        let initialConditionType: ConditionType
+        let initialConditionValue: String
+        let initialTagNames: String
+        let initialCategory: String
 
-            // Map existing condition to a ConditionType.
+        if let rule {
+            initialName = rule.name
+            initialEnabled = rule.enabled
+            initialConfidence = rule.confidence
+            initialTagNames = rule.suggestedTags.map(\.name).joined(separator: ", ")
+            initialCategory = rule.suggestedTags.first?.category ?? ""
+
             switch rule.condition {
             case .cameraBrand:
-                selectedCondition = .cameraBrand
-                conditionValue = ""
+                initialConditionType = .cameraBrand
+                initialConditionValue = ""
             case .cameraBrandValue(let v):
-                selectedCondition = .cameraBrand
-                conditionValue = v
+                initialConditionType = .cameraBrand
+                initialConditionValue = v
             case .focalLength35mmLess:
-                selectedCondition = .focalLength35mmLess
-                conditionValue = "35"
+                initialConditionType = .focalLength35mmLess
+                initialConditionValue = "35"
             case .focalLength35mmValue(let v):
-                selectedCondition = .focalLength35mmLess
-                conditionValue = String(v)
+                initialConditionType = .focalLength35mmLess
+                initialConditionValue = String(Int(v))
             case .focalLength35mmMore:
-                selectedCondition = .focalLength35mmMore
-                conditionValue = "200"
+                initialConditionType = .focalLength35mmMore
+                initialConditionValue = "200"
             case .isoLess:
-                selectedCondition = .isoLess
-                conditionValue = "200"
+                initialConditionType = .isoLess
+                initialConditionValue = "200"
             case .isoValue(let v):
-                selectedCondition = .isoLess
-                conditionValue = String(v)
+                initialConditionType = .isoLess
+                initialConditionValue = String(v)
             case .isoMore:
-                selectedCondition = .isoMore
-                conditionValue = "3200"
+                initialConditionType = .isoMore
+                initialConditionValue = "3200"
             case .apertureLess:
-                selectedCondition = .apertureLess
-                conditionValue = "2.8"
+                initialConditionType = .apertureLess
+                initialConditionValue = "2.8"
             case .apertureValue(let v):
-                selectedCondition = .apertureLess
-                conditionValue = String(format: "%.1f", v)
+                initialConditionType = .apertureLess
+                initialConditionValue = String(format: "%.1f", v)
             case .apertureMore:
-                selectedCondition = .apertureMore
-                conditionValue = "8.0"
+                initialConditionType = .apertureMore
+                initialConditionValue = "8.0"
             case .flashFired:
-                selectedCondition = .flashFired
+                initialConditionType = .flashFired
+                initialConditionValue = ""
             case .flashNotFired:
-                selectedCondition = .flashNotFired
+                initialConditionType = .flashNotFired
+                initialConditionValue = ""
             case .aspectRatio:
-                selectedCondition = .aspectRatio
+                initialConditionType = .aspectRatio
+                initialConditionValue = "1.5"
             case .aspectRatioValue(let v):
-                selectedCondition = .aspectRatio
-                conditionValue = String(format: "%.2f", v)
+                initialConditionType = .aspectRatio
+                initialConditionValue = String(format: "%.2f", v)
             case .imageStabilization:
-                selectedCondition = .imageStabilization
+                initialConditionType = .imageStabilization
+                initialConditionValue = ""
             case .lensType:
-                selectedCondition = .lensTypeContains
-                conditionValue = ""
+                initialConditionType = .lensTypeContains
+                initialConditionValue = ""
             case .lensTypeValue(let v):
-                selectedCondition = .lensTypeContains
-                conditionValue = v
+                initialConditionType = .lensTypeContains
+                initialConditionValue = v
             case .lensTypeNot:
-                selectedCondition = .lensTypeNotContains
-                conditionValue = ""
+                initialConditionType = .lensTypeNotContains
+                initialConditionValue = ""
             case .lensTypeNotValue(let v):
-                selectedCondition = .lensTypeNotContains
-                conditionValue = v
+                initialConditionType = .lensTypeNotContains
+                initialConditionValue = v
             }
+        } else {
+            initialName = ""
+            initialEnabled = true
+            initialConfidence = .medium
+            initialConditionType = .cameraBrand
+            initialConditionValue = ""
+            initialTagNames = ""
+            initialCategory = ""
         }
+
+        _name = State(initialValue: initialName)
+        _enabled = State(initialValue: initialEnabled)
+        _confidence = State(initialValue: initialConfidence)
+        _selectedCondition = State(initialValue: initialConditionType)
+        _conditionValue = State(initialValue: initialConditionValue)
+        _suggestedTagNames = State(initialValue: initialTagNames)
+        _suggestedCategory = State(initialValue: initialCategory)
     }
 
     var body: some View {
@@ -534,6 +645,30 @@ private struct RuleEditorSheet: View {
                         }
                     }
 
+                    // Target EXIF / XMP Query Inspector Box (shows exact underlying configuration)
+                    VStack(alignment: .leading, spacing: Theme.Space.s4) {
+                        Text("Target EXIF / XMP Query Configuration")
+                            .font(Theme.Font.caption2)
+                            .fontWeight(.bold)
+                            .foregroundStyle(Theme.Color.textSecondary)
+
+                        HStack(spacing: Theme.Space.s6) {
+                            Image(systemName: "terminal.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Color.accent)
+                            Text(currentConstructedCondition.targetFieldDescription)
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(Theme.Color.textPrimary)
+                        }
+                        .padding(Theme.Space.s8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Theme.Color.surfaceBase, in: RoundedRectangle(cornerRadius: Theme.Radius.s))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Radius.s)
+                                .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
+                        )
+                    }
+
                     // Suggested tags
                     VStack(alignment: .leading, spacing: Theme.Space.s4) {
                         Text("Suggested Tag Names")
@@ -563,7 +698,6 @@ private struct RuleEditorSheet: View {
                 .padding(.horizontal, Theme.Space.s20)
                 .padding(.vertical, Theme.Space.s16)
             }
-            .scrollDisabled(true)
 
             Spacer()
 
@@ -597,6 +731,44 @@ private struct RuleEditorSheet: View {
             if !categories.isEmpty && suggestedCategory.isEmpty {
                 suggestedCategory = categories.first ?? ""
             }
+        }
+    }
+
+    private var currentConstructedCondition: Condition {
+        switch selectedCondition {
+        case .cameraBrand:
+            return Condition.cameraBrandValue(conditionValue)
+        case .focalLength35mmLess:
+            let val = Double(conditionValue) ?? 35.0
+            return Condition.focalLength35mmValue(val)
+        case .focalLength35mmMore:
+            let val = Double(conditionValue) ?? 200.0
+            return Condition.focalLength35mmValue(val)
+        case .isoLess:
+            let val = Int(conditionValue) ?? 200
+            return Condition.isoValue(val)
+        case .isoMore:
+            let val = Int(conditionValue) ?? 3200
+            return Condition.isoValue(val)
+        case .apertureLess:
+            let val = Double(conditionValue) ?? 2.8
+            return Condition.apertureValue(val)
+        case .apertureMore:
+            let val = Double(conditionValue) ?? 8.0
+            return Condition.apertureValue(val)
+        case .flashFired:
+            return Condition.flashFired
+        case .flashNotFired:
+            return Condition.flashNotFired
+        case .aspectRatio:
+            let val = Double(conditionValue) ?? 1.5
+            return Condition.aspectRatioValue(val)
+        case .lensTypeContains:
+            return Condition.lensTypeValue(conditionValue)
+        case .lensTypeNotContains:
+            return Condition.lensTypeNotValue(conditionValue)
+        case .imageStabilization:
+            return Condition.imageStabilization
         }
     }
 
@@ -654,5 +826,161 @@ private struct RuleEditorSheet: View {
         )
 
         onSave(newRule)
+    }
+}
+
+// MARK: - Sample Metadata Inspector Sheet
+
+private struct SampleMetadataInspectorSheet: View {
+    let filename: String
+    let snapshot: MetadataSnapshot
+    @Binding var isPresented: Bool
+    let onCreateRule: (AutoTagRule) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Inspect Metadata: \(filename)")
+                        .font(Theme.Font.title)
+                        .foregroundStyle(Theme.Color.textPrimary)
+                    Text("Found metadata fields in this file. Click '+ Create Rule' next to any field to generate a new auto-tagging rule.")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                Spacer()
+                Button("Done") { isPresented = false }
+                    .buttonStyle(.borderedProminent)
+            }
+
+            Divider().overlay(Theme.Color.surfaceDivider)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.Space.s10) {
+                    if let camera = snapshot.cameraModel, !camera.isEmpty {
+                        metadataRow(
+                            label: "Camera Model",
+                            value: camera,
+                            systemImage: "camera",
+                            rule: AutoTagRule(
+                                id: UUID(),
+                                name: "Camera: \(camera)",
+                                condition: .cameraBrandValue(camera),
+                                suggestedTags: [.init(name: camera.components(separatedBy: " ").first ?? camera, category: nil)]
+                            )
+                        )
+                    }
+
+                    if let lens = snapshot.lensModel, !lens.isEmpty {
+                        metadataRow(
+                            label: "Lens Model",
+                            value: lens,
+                            systemImage: "magnifyingglass.circle",
+                            rule: AutoTagRule(
+                                id: UUID(),
+                                name: "Lens: \(lens)",
+                                condition: .lensTypeValue(lens),
+                                suggestedTags: [.init(name: "Lens Tag", category: nil)]
+                            )
+                        )
+                    }
+
+                    if let focal = snapshot.focalLengthIn35mm {
+                        metadataRow(
+                            label: "Focal Length (35mm eq.)",
+                            value: "\(Int(focal))mm",
+                            systemImage: "scope",
+                            rule: AutoTagRule(
+                                id: UUID(),
+                                name: "Focal Length \(Int(focal))mm",
+                                condition: .focalLength35mmValue(focal),
+                                suggestedTags: [.init(name: focal < 35 ? "Wide Angle" : (focal > 100 ? "Telephoto" : "Standard Focal"), category: nil)]
+                            )
+                        )
+                    }
+
+                    if let iso = snapshot.iso {
+                        metadataRow(
+                            label: "ISO Speed",
+                            value: "\(iso)",
+                            systemImage: "sensor.fill",
+                            rule: AutoTagRule(
+                                id: UUID(),
+                                name: "ISO \(iso)",
+                                condition: .isoValue(iso),
+                                suggestedTags: [.init(name: iso > 1600 ? "High ISO" : "Low ISO", category: nil)]
+                            )
+                        )
+                    }
+
+                    if let ap = snapshot.aperture {
+                        metadataRow(
+                            label: "Aperture",
+                            value: "f/\(String(format: "%.1f", ap))",
+                            systemImage: "camera.aperture",
+                            rule: AutoTagRule(
+                                id: UUID(),
+                                name: "Aperture f/\(String(format: "%.1f", ap))",
+                                condition: .apertureValue(ap),
+                                suggestedTags: [.init(name: ap < 2.8 ? "Shallow DoF" : "Deep DoF", category: nil)]
+                            )
+                        )
+                    }
+
+                    if let flash = snapshot.flashFired {
+                        metadataRow(
+                            label: "Flash State",
+                            value: flash ? "Fired" : "Did not fire",
+                            systemImage: "bolt.fill",
+                            rule: AutoTagRule(
+                                id: UUID(),
+                                name: flash ? "Flash Fired" : "Flash Off",
+                                condition: flash ? .flashFired : .flashNotFired,
+                                suggestedTags: [.init(name: flash ? "Flash" : "Natural Light", category: nil)]
+                            )
+                        )
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(Theme.Space.s20)
+        .frame(width: 520, height: 460)
+        .background(Theme.Color.surfaceBase)
+    }
+
+    private func metadataRow(label: String, value: String, systemImage: String, rule: AutoTagRule) -> some View {
+        HStack(spacing: Theme.Space.s12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.Color.accent)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label)
+                    .font(Theme.Font.caption2)
+                    .foregroundStyle(Theme.Color.textSecondary)
+                Text(value)
+                    .font(Theme.Font.bodyBold)
+                    .foregroundStyle(Theme.Color.textPrimary)
+            }
+
+            Spacer()
+
+            Button {
+                onCreateRule(rule)
+                isPresented = false
+            } label: {
+                Label("Create Rule", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(Theme.Space.s10)
+        .background(Theme.Color.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.Radius.m))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.m)
+                .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
+        )
     }
 }

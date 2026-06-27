@@ -27,11 +27,15 @@ final class UserPreferences: ObservableObject {
 
     /// Master toggle for auto-tagging. When enabled, suggestions are
     /// evaluated when a photo is focused in the large viewer.
-    @Published var autoTaggingEnabled: Bool = true
+    @Published var autoTaggingEnabled: Bool = true {
+        didSet { save() }
+    }
 
     /// Configurable rules for auto-tagging. Defaults to the shipped
     /// default rules.
-    @Published var autoTaggingRules: [AutoTagRule] = AutoTagRule.defaultRules
+    @Published var autoTaggingRules: [AutoTagRule] = AutoTagRule.defaultRules {
+        didSet { save() }
+    }
 
     /// ID of the tag pack the user has most recently activated. Empty when
     /// the user has never picked a pack or has cleared all tags manually.

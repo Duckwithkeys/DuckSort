@@ -6,8 +6,11 @@ DuckSort matches the flat, dark professional aesthetic of modern photo editors l
 
 ---
 
-## ✨ Features
+## ✨ Features (v1.3.5)
 
+- **Unified Header Controls & Edge-to-Edge Grid**: Integrated Destination Selection (`tray.and.arrow.down`), Export Routing Rule Selection (`folder.badge.gearshape`), and Copy/Move operations directly into the top window toolbar alongside real-time photo and selection count indicators with vibrant green checkmarks. Bottom footers and redundant grid headers are removed for a clean edge-to-edge view.
+- **Full-Window Overlay Large Viewer**: Full `.ignoresSafeArea()` support on `LargeImageViewer` with 54pt viewport top clearance, native macOS titlebar navigation (`xmark`), and consolidated metadata inspection (Aperture, Shutter Speed, ISO, Camera, Lens, Date).
+- **Inline Tag Category Editing**: Click and rename tag categories directly on section headers in Tag Packs settings.
 - **Smart Photo Grouping**: Automatically pairs RAW files with their JPEG/HEIF derivatives and sidecar files (e.g., `.photo-edit`) into unified photo sets.
 - **Vast RAW & Image Format Support**: All major raw formats including Fuji (`.raf`), Sony (`.arw`), Canon (`.cr2`/`.cr3`), Nikon (`.nef`), Adobe (`.dng`), Olympus (`.orf`), Panasonic (`.rw2`), and Pentax (`.pef`), plus standard JPEG, HEIF (`.heic`/`.heif`/`.hif`).
 - **Native System Appearance**: Transitions fluidly between professional charcoal-dark and clean-light modes, matching your macOS system theme.

@@ -451,9 +451,18 @@ private struct CategorySection: View {
             HStack(spacing: Theme.Space.s8) {
                 Image(systemName: "folder.fill")
                     .foregroundStyle(Color.accentColor.opacity(0.6))
-                Text(category.name)
-                    .font(Theme.Font.bodyBold)
-                    .foregroundStyle(Theme.Color.textInverse)
+                TextField("Category name", text: Binding(
+                    get: { category.name },
+                    set: { newName in
+                        let trimmed = newName.trimmingCharacters(in: .whitespaces)
+                        guard !trimmed.isEmpty else { return }
+                        tagStore.renameCategory(id: category.id, to: trimmed)
+                    }
+                ))
+                .textFieldStyle(.plain)
+                .font(Theme.Font.bodyBold)
+                .foregroundStyle(Theme.Color.textInverse)
+                .frame(maxWidth: 220)
                 Text("\(tags.count)")
                     .font(Theme.Font.caption2)
                     .foregroundStyle(Theme.Color.textTertiary)
@@ -628,8 +637,18 @@ private struct NewPackSheet: View {
     @State private var basedOnTemplateID: String = TagPackTemplate.defaultTemplateID
     @State private var draftSymbol: String = TagPackTemplate.general.systemImage
     @State private var draftAccent: Color = Color(hex: TagPackTemplate.general.accentColor) ?? Theme.Color.accent
+    @State private var searchQuery: String = ""
 
     private let templates = TagPackTemplate.allTemplates
+
+    private var filteredGroups: [PackSymbolCatalog.Group] {
+        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !q.isEmpty else { return PackSymbolCatalog.groups }
+        return PackSymbolCatalog.groups.compactMap { group in
+            let matches = group.symbols.filter { $0.lowercased().contains(q) }
+            return matches.isEmpty ? nil : PackSymbolCatalog.Group(title: group.title, symbols: matches)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s14) {
@@ -641,36 +660,39 @@ private struct NewPackSheet: View {
                 .font(Theme.Font.subheadline)
                 .foregroundStyle(Theme.Color.textSecondary)
 
-            VStack(alignment: .leading, spacing: Theme.Space.s6) {
-                Text("Name")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                TextField("e.g. Studio Portraits", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(Theme.Font.body)
-                    .padding(.horizontal, Theme.Space.s10)
-                    .padding(.vertical, Theme.Space.s8)
-                    .background(
-                        RoundedRectangle(cornerRadius: Theme.Radius.m)
-                            .fill(Theme.Color.surfaceRaised)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.m)
-                            .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
-                    )
-            }
-
-            VStack(alignment: .leading, spacing: Theme.Space.s6) {
-                Text("Start from")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                Picker("Template", selection: $basedOnTemplateID) {
-                    ForEach(templates) { template in
-                        Text(template.name).tag(template.id)
-                    }
-                    Text("Empty").tag("__empty__")
+            HStack(spacing: Theme.Space.s16) {
+                VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                    Text("Name")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                    TextField("e.g. Studio Portraits", text: $name)
+                        .textFieldStyle(.plain)
+                        .font(Theme.Font.body)
+                        .padding(.horizontal, Theme.Space.s10)
+                        .padding(.vertical, Theme.Space.s8)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.Radius.m)
+                                .fill(Theme.Color.surfaceRaised)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.Radius.m)
+                                .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
+                        )
                 }
-                .pickerStyle(.menu)
+
+                VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                    Text("Start from Template")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                    Picker("Template", selection: $basedOnTemplateID) {
+                        ForEach(templates) { template in
+                            Text(template.name).tag(template.id)
+                        }
+                        Text("Empty").tag("__empty__")
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity)
+                }
             }
             .onChange(of: basedOnTemplateID) { _, newValue in
                 guard let template = TagPackTemplate.template(id: newValue) else {
@@ -682,49 +704,137 @@ private struct NewPackSheet: View {
                 draftAccent = Color(hex: template.accentColor) ?? Theme.Color.accent
             }
 
-            VStack(alignment: .leading, spacing: Theme.Space.s6) {
+            VStack(alignment: .leading, spacing: Theme.Space.s8) {
                 Text("Logo & Color")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Color.textSecondary)
+
                 HStack(spacing: Theme.Space.s8) {
                     Image(systemName: draftSymbol.isEmpty ? "questionmark.circle" : draftSymbol)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(draftAccent)
-                        .frame(width: 32, height: 32)
+                        .frame(width: 36, height: 36)
                         .background(
                             RoundedRectangle(cornerRadius: Theme.Radius.s)
                                 .fill(draftAccent.opacity(0.18))
                         )
-                    TextField("SF Symbol", text: $draftSymbol)
+                    TextField("Custom SF Symbol name, e.g. leaf.fill", text: $draftSymbol)
                         .textFieldStyle(.roundedBorder)
-                    Picker("Suggestions", selection: $draftSymbol) {
-                        ForEach(PackSymbolCatalog.allSymbols, id: \.self) { symbol in
-                            Label(symbol, systemImage: symbol).tag(symbol)
+                        .controlSize(.regular)
+                        .font(Theme.Font.caption)
+
+                    ColorPicker(selection: $draftAccent, supportsOpacity: false) {
+                        HStack(spacing: Theme.Space.s6) {
+                            Capsule()
+                                .fill(draftAccent)
+                                .frame(width: 20, height: 20)
+                            Text(draftAccent.toHex() ?? "—")
+                                .font(Theme.Font.caption)
+                                .foregroundStyle(Theme.Color.textInverse)
                         }
+                        .padding(.horizontal, Theme.Space.s8)
+                        .padding(.vertical, Theme.Space.s4)
+                        .background(Capsule().fill(Theme.Color.surfaceRaised))
                     }
-                    .pickerStyle(.menu)
                     .labelsHidden()
-                    ColorPicker("", selection: $draftAccent, supportsOpacity: false)
-                        .labelsHidden()
-                        .frame(width: 32)
                 }
+
+                HStack(spacing: Theme.Space.s8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(Theme.Color.textTertiary)
+                        .font(Theme.Font.caption2)
+                    TextField("Search built-in logo choices", text: $searchQuery)
+                        .textFieldStyle(.plain)
+                        .font(Theme.Font.caption)
+                    if !searchQuery.isEmpty {
+                        Button {
+                            searchQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(Theme.Color.textTertiary)
+                                .font(Theme.Font.caption2)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, Theme.Space.s8)
+                .padding(.vertical, 5)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.s)
+                        .fill(Theme.Color.surfaceRaised)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.s)
+                        .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
+                )
             }
 
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Theme.Space.s12) {
+                    ForEach(filteredGroups) { group in
+                        VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                            Text(group.title)
+                                .font(Theme.Font.caption2)
+                                .tracking(0.3)
+                                .foregroundStyle(Theme.Color.textTertiary)
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8),
+                                      alignment: .leading,
+                                      spacing: 6) {
+                                ForEach(group.symbols, id: \.self) { symbol in
+                                    symbolButton(symbol)
+                                }
+                            }
+                        }
+                    }
+                    if filteredGroups.isEmpty {
+                        Text("No curated matches. Type any SF Symbol name above.")
+                            .font(Theme.Font.caption2)
+                            .foregroundStyle(Theme.Color.textTertiary)
+                            .padding(.top, Theme.Space.s8)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .frame(maxHeight: 180)
+            .scrollIndicators(.visible)
+
             HStack {
-                Spacer()
                 Button("Cancel") { isPresented = false }
                     .buttonStyle(.bordered)
                     .controlSize(.large)
+                Spacer()
                 Button("Create & Activate") { commit() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .tint(Theme.Color.accent)
+                    .tint(draftAccent)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(Theme.Space.s24)
-        .frame(width: 460)
+        .frame(width: 520, height: 600)
         .background(Theme.Color.surfaceBase)
+    }
+
+    private func symbolButton(_ symbol: String) -> some View {
+        let isSelected = draftSymbol == symbol
+        return Button {
+            draftSymbol = symbol
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(isSelected ? .white : Theme.Color.textPrimary)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.s)
+                        .fill(isSelected ? draftAccent : Theme.Color.surfaceRaised)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.s)
+                        .stroke(isSelected ? draftAccent : Theme.Color.surfaceDivider,
+                                lineWidth: isSelected ? 1.5 : Theme.Stroke.hairline)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private func commit() {

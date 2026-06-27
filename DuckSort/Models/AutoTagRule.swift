@@ -238,26 +238,26 @@ enum Condition: Codable, Sendable {
     func matches(_ metadata: MetadataSnapshot) -> Bool {
         switch self {
         case .cameraBrand, .cameraBrandValue:
-            let brand = cameraBrandValue
+            let brand = extractedCameraBrandValue
             return metadata.cameraModel?.lowercased().contains(brand.lowercased()) ?? false
 
         case .focalLength35mmLess, .focalLength35mmValue:
-            return (metadata.focalLengthIn35mm ?? 0) < focalLength35mmValue
+            return (metadata.focalLengthIn35mm ?? 0) < extractedFocalLength35mmValue
 
         case .focalLength35mmMore:
-            return (metadata.focalLengthIn35mm ?? 0) > focalLength35mmValue
+            return (metadata.focalLengthIn35mm ?? 0) > extractedFocalLength35mmValue
 
         case .isoLess, .isoValue:
-            return (metadata.iso ?? 0) < isoValue
+            return (metadata.iso ?? 0) < extractedIsoValue
 
         case .isoMore:
-            return (metadata.iso ?? 0) > isoValue
+            return (metadata.iso ?? 0) > extractedIsoValue
 
         case .apertureLess, .apertureValue:
-            return (metadata.aperture ?? 0) < apertureValue
+            return (metadata.aperture ?? 0) < extractedApertureValue
 
         case .apertureMore:
-            return (metadata.aperture ?? 0) > apertureValue
+            return (metadata.aperture ?? 0) > extractedApertureValue
 
         case .flashFired:
             return metadata.flashFired == true
@@ -270,7 +270,7 @@ enum Condition: Codable, Sendable {
                 return false
             }
             let actualRatio = Double(width) / Double(height)
-            let targetRatio = aspectRatioValue
+            let targetRatio = extractedAspectRatioValue
             // Allow ±5% tolerance for aspect ratio matching.
             let tolerance = targetRatio * 0.05
             return abs(actualRatio - targetRatio) <= tolerance
@@ -280,10 +280,10 @@ enum Condition: Codable, Sendable {
             return false
 
         case .lensType, .lensTypeValue:
-            return metadata.lensModel?.lowercased().contains(lensTypeValue.lowercased()) ?? false
+            return metadata.lensModel?.lowercased().contains(extractedLensTypeValue.lowercased()) ?? false
 
         case .lensTypeNot, .lensTypeNotValue:
-            return (metadata.lensModel?.lowercased().contains(lensTypeNotValue.lowercased()) ?? false) == false
+            return (metadata.lensModel?.lowercased().contains(extractedLensTypeNotValue.lowercased()) ?? false) == false
         }
     }
 
@@ -292,63 +292,98 @@ enum Condition: Codable, Sendable {
     var description: String {
         switch self {
         case .cameraBrand, .cameraBrandValue:
-            return "Camera contains '\(cameraBrandValue)'"
+            return "Camera contains '\(extractedCameraBrandValue)'"
         case .focalLength35mmLess, .focalLength35mmValue:
-            return "35mm eq. focal length < \(Int(focalLength35mmValue))mm"
+            return "35mm eq. focal length < \(Int(extractedFocalLength35mmValue))mm"
         case .focalLength35mmMore:
-            return "35mm eq. focal length > \(Int(focalLength35mmValue))mm"
+            return "35mm eq. focal length > \(Int(extractedFocalLength35mmValue))mm"
         case .isoLess, .isoValue:
-            return "ISO < \(isoValue)"
+            return "ISO < \(extractedIsoValue)"
         case .isoMore:
-            return "ISO > \(isoValue)"
+            return "ISO > \(extractedIsoValue)"
         case .apertureLess, .apertureValue:
-            return "Aperture < f/\(String(format: "%.1f", apertureValue))"
+            return "Aperture < f/\(String(format: "%.1f", extractedApertureValue))"
         case .apertureMore:
-            return "Aperture > f/\(String(format: "%.1f", apertureValue))"
+            return "Aperture > f/\(String(format: "%.1f", extractedApertureValue))"
         case .flashFired:
             return "Flash fired"
         case .flashNotFired:
             return "Flash did not fire"
         case .aspectRatio, .aspectRatioValue:
-            return "Aspect ratio ≈ \(String(format: "%.2f", aspectRatioValue))"
+            return "Aspect ratio ≈ \(String(format: "%.2f", extractedAspectRatioValue))"
         case .imageStabilization:
             return "Image stabilization detected"
         case .lensType, .lensTypeValue:
-            return "Lens contains '\(lensTypeValue)'"
+            return "Lens contains '\(extractedLensTypeValue)'"
         case .lensTypeNot, .lensTypeNotValue:
-            return "Lens does not contain '\(lensTypeNotValue)'"
+            return "Lens does not contain '\(extractedLensTypeNotValue)'"
         }
     }
 
     // MARK: - Extractors (for matching discriminator + value cases)
 
-    private var cameraBrandValue: String {
+    private var extractedCameraBrandValue: String {
         if case .cameraBrandValue(let v) = self { return v }
         return ""
     }
-    private var focalLength35mmValue: Double {
+    private var extractedFocalLength35mmValue: Double {
         if case .focalLength35mmValue(let v) = self { return v }
         return 0
     }
-    private var isoValue: Int {
+    private var extractedIsoValue: Int {
         if case .isoValue(let v) = self { return v }
         return 0
     }
-    private var apertureValue: Double {
+    private var extractedApertureValue: Double {
         if case .apertureValue(let v) = self { return v }
         return 0
     }
-    private var aspectRatioValue: Double {
+    private var extractedAspectRatioValue: Double {
         if case .aspectRatioValue(let v) = self { return v }
         return 1.5
     }
-    private var lensTypeValue: String {
+    private var extractedLensTypeValue: String {
         if case .lensTypeValue(let v) = self { return v }
         return ""
     }
-    private var lensTypeNotValue: String {
+    private var extractedLensTypeNotValue: String {
         if case .lensTypeNotValue(let v) = self { return v }
         return ""
+    }
+
+    /// Returns the exact EXIF/XMP property field and target matching description.
+    var targetFieldDescription: String {
+        switch self {
+        case .cameraBrand, .cameraBrandValue:
+            let v = extractedCameraBrandValue
+            return "Field: cameraModel / Make | Target: \"\(v.isEmpty ? "any" : v)\""
+        case .focalLength35mmLess, .focalLength35mmValue:
+            return "Field: focalLengthIn35mm | Target: < \(Int(extractedFocalLength35mmValue))mm"
+        case .focalLength35mmMore:
+            return "Field: focalLengthIn35mm | Target: > \(Int(extractedFocalLength35mmValue))mm"
+        case .isoLess, .isoValue:
+            return "Field: iso | Target: < \(extractedIsoValue)"
+        case .isoMore:
+            return "Field: iso | Target: > \(extractedIsoValue)"
+        case .apertureLess, .apertureValue:
+            return "Field: aperture | Target: < f/\(String(format: "%.1f", extractedApertureValue))"
+        case .apertureMore:
+            return "Field: aperture | Target: > f/\(String(format: "%.1f", extractedApertureValue))"
+        case .flashFired:
+            return "Field: flashFired | Target: true"
+        case .flashNotFired:
+            return "Field: flashFired | Target: false"
+        case .aspectRatio, .aspectRatioValue:
+            return "Fields: pixelWidth & pixelHeight | Target: ≈ \(String(format: "%.2f", extractedAspectRatioValue))"
+        case .imageStabilization:
+            return "Field: imageStabilization | Target: true"
+        case .lensType, .lensTypeValue:
+            let v = extractedLensTypeValue
+            return "Field: lensModel | Target: \"\(v.isEmpty ? "any" : v)\""
+        case .lensTypeNot, .lensTypeNotValue:
+            let v = extractedLensTypeNotValue
+            return "Field: lensModel | Exclusion: \"\(v.isEmpty ? "any" : v)\""
+        }
     }
 }
 
