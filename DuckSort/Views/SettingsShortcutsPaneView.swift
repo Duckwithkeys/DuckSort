@@ -128,18 +128,8 @@ private struct ShortcutsDetailContent: View {
                 case .appActions:
                     headerView(
                         title: "App & Window Shortcuts",
-                        subtitle: "Configure customizable window hotkeys and review system commands."
+                        subtitle: "Review system window commands and application shortcuts."
                     )
-
-                    cardSection(title: "Customizable Hotkeys") {
-                        VStack(spacing: 0) {
-                            ShortcutEditableRow(label: "Tag Manager Modal", hotkey: $viewModel.tagManagerHotkey)
-                            ShortcutDividerRow()
-                            ShortcutEditableRow(label: "Rule Editor Modal", hotkey: $viewModel.ruleEditorHotkey)
-                            ShortcutDividerRow()
-                            ShortcutEditableRow(label: "Add Source Folder", hotkey: $viewModel.openSourceHotkey)
-                        }
-                    }
 
                     cardSection(title: "System Commands") {
                         VStack(spacing: 0) {
@@ -278,24 +268,6 @@ private struct ShortcutsDetailContent: View {
 }
 
 // MARK: - Reusable row components
-
-private struct ShortcutEditableRow: View {
-    let label: String
-    @Binding var hotkey: String?
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textPrimary)
-                .padding(.leading, Theme.Space.s16)
-            Spacer()
-            ShortcutRecorderView(hotkey: $hotkey)
-                .padding(.trailing, Theme.Space.s16)
-        }
-        .frame(height: 44)
-    }
-}
 
 private struct ShortcutStaticRow: View {
     let label: String
