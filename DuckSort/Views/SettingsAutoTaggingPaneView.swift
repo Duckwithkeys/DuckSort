@@ -66,7 +66,7 @@ struct SettingsAutoTaggingPaneView: View {
 
                         Spacer()
 
-                        Label("100% On-Device", systemImage: "shield.checkmark")
+                        Label("100% On-Device", systemImage: "checkmark.shield.fill")
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.Color.success)
                     }
