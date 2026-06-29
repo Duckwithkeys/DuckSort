@@ -657,7 +657,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             var inFlight = 0
             for photo in batch {
                 if inFlight >= maxConcurrency {
-                    if let result = await group.next() {
+                    if await group.next() != nil {
                         inFlight -= 1
                     }
                 }
