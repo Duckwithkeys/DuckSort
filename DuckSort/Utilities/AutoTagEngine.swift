@@ -74,11 +74,12 @@ final class AutoTagEngine: Sendable {
 
         return classifications.map { classification in
             let label = classification.identifier.components(separatedBy: ",").first?.capitalized ?? classification.identifier
+            let confidenceEnum: Confidence = classification.confidence >= 0.7 ? .high : (classification.confidence >= 0.4 ? .medium : .low)
             return AutoTagSuggestion(
                 tagName: label,
                 reason: "Vision ML: \(Int(classification.confidence * 100))% match",
                 categoryID: nil,
-                confidence: Double(classification.confidence)
+                confidence: confidenceEnum
             )
         }
     }
