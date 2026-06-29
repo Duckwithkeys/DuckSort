@@ -76,9 +76,6 @@ struct ThumbnailView: View {
 
             loader.image = nil
 
-            // Debounce fast scrolling
-            do { try await Task.sleep(nanoseconds: 30_000_000) } catch { return }
-
             // Dynamic LOD Adaptive Preloading:
             // Fast 128px proxy when scrolling, full size on scroll settle
             if ScrollStateObserver.shared.isScrolling {
@@ -121,7 +118,7 @@ final class ThumbnailService {
     static let shared = ThumbnailService()
 
     private let cache = ThumbnailCache()
-    private let semaphore = AsyncSemaphore(limit: 4)
+    private let semaphore = AsyncSemaphore(limit: 32)
 
     private init() {}
 
