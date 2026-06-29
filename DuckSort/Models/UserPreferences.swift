@@ -48,9 +48,9 @@ final class UserPreferences: ObservableObject {
     @Published var tagManagerHotkey: String = "cmd+t"
     @Published var ruleEditorHotkey: String = "cmd+r"
     @Published var openSourceHotkey: String = "cmd+o"
-    @Published var aiVisionHotkey: String = "cmd+shift+a"
+    @Published var aiVisionHotkey: String? = "cmd+shift+a"
     @Published var burstDeduplicationEnabled: Bool = false
-    @Published var burstDeduplicationHotkey: String = "cmd+shift+d"
+    @Published var burstDeduplicationHotkey: String? = "cmd+shift+d"
 
     // MARK: - IPTC / Copyright Embedding
     //
