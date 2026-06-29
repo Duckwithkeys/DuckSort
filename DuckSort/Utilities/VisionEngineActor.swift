@@ -29,8 +29,15 @@ final class VisionEngineActor {
 
     /// Classifies the content of an image file asynchronously.
     func classifyImage(at url: URL, confidenceThreshold: Float = 0.3) async throws -> [VisionClassificationResult] {
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 512,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
             return []
         }
 

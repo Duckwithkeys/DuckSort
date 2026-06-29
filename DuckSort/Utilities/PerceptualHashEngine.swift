@@ -29,8 +29,15 @@ final class PerceptualHashEngine: Sendable {
 
     /// Computes a 64-bit difference hash (dHash) for an image URL off the main thread.
     func computeDHash(for url: URL) async -> UInt64? {
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 64,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+        
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
             return nil
         }
 

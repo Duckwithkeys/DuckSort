@@ -27,8 +27,15 @@ final class BestShotEvaluator: Sendable {
 
     /// Evaluates sharpness score using Laplacian convolution matrix variance.
     func evaluateSharpness(for url: URL) async -> Double {
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return 0.0 }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 512,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
             return 0.0
         }
 
