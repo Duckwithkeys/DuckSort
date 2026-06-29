@@ -2,7 +2,7 @@
 //  VisionEngineActor.swift
 //  DuckSort
 //
-//  On-device AI classification engine using Apple's Vision framework.
+//  On-device AI classification engine using Apple's Vision framework and Neural Engine.
 //  Performs scene, object, landscape, and pet detection off the main thread.
 //
 
@@ -25,78 +25,62 @@ struct VisionClassificationResult: Sendable, Identifiable {
 final class VisionEngineActor {
     static let shared = VisionEngineActor()
 
-    private init() {}
+    private let cache = NSCache<NSURL, NSArray>()
 
-    /// Classifies the content of an image file asynchronously.
+    private init() {
+        cache.countLimit = 500
+    }
+
+    /// Classifies the content of an image file asynchronously with Neural Engine acceleration.
     func classifyImage(at url: URL, confidenceThreshold: Float = 0.3) async throws -> [VisionClassificationResult] {
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return [] }
+        let nsURL = url.standardizedFileURL as NSURL
+        if let cached = cache.object(forKey: nsURL) as? [VisionClassificationResult] {
+            return cached.filter { $0.confidence >= confidenceThreshold }
+        }
 
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 512,
-            kCGImageSourceCreateThumbnailWithTransform: true
+            kCGImageSourceThumbnailMaxPixelSize: 299,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false
         ]
 
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
             return []
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let request = VNClassifyImageRequest { request, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
+        let request = VNClassifyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
 
-                guard let observations = request.results as? [VNClassificationObservation] else {
-                    continuation.resume(returning: [])
-                    return
-                }
-
-                let results = observations
-                    .filter { $0.confidence >= confidenceThreshold }
-                    .map { VisionClassificationResult(identifier: $0.identifier, confidence: $0.confidence) }
-                continuation.resume(returning: results)
-            }
-
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(throwing: error)
-            }
+        guard let observations = request.results as? [VNClassificationObservation] else {
+            return []
         }
+
+        let results = observations.map { VisionClassificationResult(identifier: $0.identifier, confidence: $0.confidence) }
+        cache.setObject(results as NSArray, forKey: nsURL)
+
+        return results.filter { $0.confidence >= confidenceThreshold }
     }
 
     /// Detects human body poses within an image file.
     func detectBodyPoses(at url: URL) async throws -> Int {
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return 0 }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: 1024,
-            kCGImageSourceCreateThumbnailWithTransform: true
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false
         ]
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
             return 0
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let request = VNDetectHumanBodyPoseRequest { request, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                    return
-                }
+        let request = VNDetectHumanBodyPoseRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
 
-                let count = request.results?.count ?? 0
-                continuation.resume(returning: count)
-            }
-
-            let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
+        return request.results?.count ?? 0
     }
 }

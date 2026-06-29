@@ -1327,7 +1327,18 @@ final class PhotoLibraryViewModel: ObservableObject {
         let neighbors = [index - 1, index + 1, index + 2]
         for neighborIndex in neighbors {
             if neighborIndex >= 0 && neighborIndex < sets.count {
-                LargeImageLoader.preload(url: sets[neighborIndex].preferredPreviewURL)
+                let neighborSet = sets[neighborIndex]
+                if let url = neighborSet.preferredPreviewURL {
+                    LargeImageLoader.preload(url: url)
+                    if visionSuggestionsCache[neighborSet.id] == nil && UserPreferences.shared.autoTaggingEnabled {
+                        Task { @MainActor in
+                            if self.visionSuggestionsCache[neighborSet.id] == nil {
+                                let mlSuggestions = await AutoTagEngine.shared.visionSuggestions(for: url)
+                                self.visionSuggestionsCache[neighborSet.id] = mlSuggestions
+                            }
+                        }
+                    }
+                }
             }
         }
     }
