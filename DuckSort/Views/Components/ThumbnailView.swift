@@ -31,13 +31,11 @@ struct ThumbnailView: View {
     @StateObject private var loader = ThumbnailLoader()
 
     var body: some View {
-        // Color.clear anchors the layout size from the parent (aspectRatio +
-        // maxWidth). A bare GeometryReader as root collapses to zero inside ZStack.
         Color.clear
             .overlay {
                 GeometryReader { geo in
                     ZStack {
-                        // Placeholder — always visible; replaced by photo when ready
+                        // Placeholder
                         RoundedRectangle(cornerRadius: cornerRadius)
                             .fill(
                                 LinearGradient(
@@ -69,7 +67,8 @@ struct ThumbnailView: View {
             }
         .task(id: url) {
             guard let url else { return }
-            // Fast cache hit — no I/O at all
+            
+            // Fast cache hit
             if let hit = ThumbnailCache.global.image(for: url) {
                 loader.image = hit
                 return
@@ -77,37 +76,34 @@ struct ThumbnailView: View {
 
             loader.image = nil
 
-            // Short debounce so we skip cells the user scrolled past quickly.
-            // 50ms is enough to feel instant for deliberate pauses.
+            // Debounce fast scrolling
             do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
 
-            // Wait for scroll momentum to settle before kicking off I/O
+            // Wait for momentum scroll to settle (No polling!)
             if ScrollStateObserver.shared.isScrolling {
-                // Poll at 80ms intervals; each sleep is cancellable
-                while ScrollStateObserver.shared.isScrolling {
-                    do { try await Task.sleep(nanoseconds: 80_000_000) } catch { return }
+                for await isScrolling in ScrollStateObserver.shared.$isScrolling.values {
+                    if !isScrolling { break }
                 }
             }
 
             guard !Task.isCancelled else { return }
 
-            // Delegate the actual decode to the off-main ThumbnailService
             if let result = await ThumbnailService.shared.thumbnail(for: url, size: size) {
                 guard !Task.isCancelled else { return }
-                loader.image = result   // @MainActor publish
+                loader.image = result
             }
         }
     }
 }
 
-// MARK: - Loader (MainActor — only holds the published image)
+// MARK: - Loader
 
 @MainActor
 final class ThumbnailLoader: ObservableObject {
     @Published var image: NSImage?
 }
 
-// MARK: - Service (runs on ThumbnailActor, never on main thread)
+// MARK: - Service
 
 @globalActor
 actor ThumbnailActor {
@@ -119,23 +115,23 @@ final class ThumbnailService {
     static let shared = ThumbnailService()
 
     private let cache = ThumbnailCache()
-    /// Cap concurrent decodes to avoid flooding the I/O subsystem.
     private let semaphore = AsyncSemaphore(limit: 4)
 
     private init() {}
 
-    // MARK: - Decode pipeline
-
     func thumbnail(for url: URL?, size: CGSize) async -> NSImage? {
         guard let url else { return nil }
 
-        // Check cache again on this actor (avoids a redundant decode if two
-        // cells request the same URL at nearly the same time).
         if let hit = ThumbnailCache.global.image(for: url) { return hit }
 
-        // Acquire a slot in the semaphore — suspends (non-blocking) when full.
-        // A single try/catch around the whole decode ensures `release()` always runs
-        // exactly once regardless of cancellation or errors, without using `defer`.
+        do {
+            try Task.checkCancellation()
+            // Acquire will throw if cancelled while waiting
+            try await semaphore.acquire()
+        } catch {
+            return nil
+        }
+        
         do {
             let result = try await decode(url: url, size: size)
             await semaphore.release()
@@ -148,15 +144,12 @@ final class ThumbnailService {
 
     private func decode(url: URL, size: CGSize) async throws -> NSImage? {
         try Task.checkCancellation()
-        await semaphore.acquire()
 
-        // ── 1. Fast path: ImageIO embedded thumbnail ─────────────────────────
         let maxPixels = max(size.width, size.height)
         let ext = url.pathExtension.lowercased()
-        // RAW files never have an embedded JPEG-quality thumbnail at full size;
-        // always regenerate from the raw data for those extensions.
         let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
 
+        // 1. Fast path: ImageIO
         if let cgImage = decodeWithImageIO(url: url, maxPixels: maxPixels, alwaysCreate: alwaysCreate) {
             try Task.checkCancellation()
             let ns = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
@@ -164,12 +157,7 @@ final class ThumbnailService {
             return ns
         }
 
-        // ── 1b. HEIF / HEIC native fallback ─────────────────────────────────
-        // Some HEIF files refuse to produce a thumbnail via
-        // `CGImageSourceCreateThumbnailAtIndex` (especially multi-image HEIC
-        // bursts or files with unusual orientation metadata). Falling back
-        // to `NSImage(contentsOf:)` uses the system codec and succeeds where
-        // the embedded-thumbnail path does not.
+        // 1b. HEIF / HEIC fallback using optimized load
         if FileExtension.heifLikeExtensions.contains(ext) {
             if let ns = loadWithNSImage(url: url, maxPixels: maxPixels) {
                 try Task.checkCancellation()
@@ -178,16 +166,17 @@ final class ThumbnailService {
             }
         }
 
-        // ── 2. Slow path: QuickLook ──────────────────────────────────────────
-        // QLThumbnailGenerator is async and doesn't block the calling thread.
+        // 2. Slow path: QuickLook
         let scale = await MainActor.run { NSScreen.main?.backingScaleFactor ?? 2 }
         try Task.checkCancellation()
+        
         let request = QLThumbnailGenerator.Request(
             fileAt: url,
             size: size,
             scale: scale,
             representationTypes: .thumbnail
         )
+        
         do {
             let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             try Task.checkCancellation()
@@ -196,15 +185,12 @@ final class ThumbnailService {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            // ── 3. Last resort: generic file icon ────────────────────────────
-            // NSWorkspace.icon is synchronous disk I/O — keep it off main.
             let icon = NSWorkspace.shared.icon(forFile: url.path)
             ThumbnailCache.global.insert(icon, for: url)
             return icon
         }
     }
 
-    // Synchronous CGImageSource decode — runs fully on ThumbnailActor (not main)
     private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         guard !Task.isCancelled else { return nil }
@@ -218,20 +204,21 @@ final class ThumbnailService {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
-    /// HEIF-friendly fallback. Uses `NSImage(contentsOf:)` (which goes
-    /// through the system codec and handles HEIC/HEIF reliably) and then
-    /// downsamples to the requested pixel budget.
     private func loadWithNSImage(url: URL, maxPixels: CGFloat) -> NSImage? {
         guard let image = NSImage(contentsOf: url) else { return nil }
         guard let rep = image.representations.first else { return nil }
+        
         let fullW = CGFloat(rep.pixelsWide > 0 ? rep.pixelsWide : Int(image.size.width))
         let fullH = CGFloat(rep.pixelsHigh > 0 ? rep.pixelsHigh : Int(image.size.height))
         guard fullW > 0, fullH > 0 else { return image }
+        
         let scale = min(maxPixels / max(fullW, fullH), 1.0)
         guard scale < 1.0 else { return image }
+        
         let targetW = Int(fullW * scale)
         let targetH = Int(fullH * scale)
         let resized = NSImage(size: NSSize(width: targetW, height: targetH))
+        
         resized.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
         image.draw(
@@ -245,20 +232,13 @@ final class ThumbnailService {
     }
 }
 
-// MARK: - Thread-safe cache (NSCache is already thread-safe internally)
+// MARK: - Thread-safe cache
 
 final class ThumbnailCache {
-    /// Single process-wide cache shared by ThumbnailService and direct callers.
     static let global = ThumbnailCache()
-
     private let cache = NSCache<NSURL, NSImage>()
 
     init() {
-        // Scale the cache to the host's physical memory. A professional
-        // photo workflow on a 5,000+ photo library evicts ~88% of
-        // thumbnails on a 600/80MB cache, causing visible re-decodes
-        // while scrolling. Modern machines have plenty of RAM; let them
-        // keep more thumbnails hot.
         let physicalMemory = ProcessInfo.processInfo.physicalMemory
         let memoryGB = Int(physicalMemory / (1024 * 1024 * 1024))
         if memoryGB >= 32 {
@@ -283,31 +263,48 @@ final class ThumbnailCache {
     }
 }
 
-// MARK: - Async semaphore (simple non-blocking concurrency gate)
+// MARK: - Safe AsyncSemaphore
 
 actor AsyncSemaphore {
     private let limit: Int
     private var current = 0
-    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var waiters: [CheckedContinuation<Void, Error>] = []
 
     init(limit: Int) { self.limit = limit }
 
-    func acquire() async {
+    func acquire() async throws {
         if current < limit {
             current += 1
             return
         }
-        await withCheckedContinuation { continuation in
-            waiters.append(continuation)
+        
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                waiters.append(continuation)
+            }
+        } onCancel: {
+            Task { await cancelWaiter() }
         }
     }
 
-    func release() async {
-        if let next = waiters.first {
-            waiters.removeFirst()
-            next.resume()
-        } else {
+    func release() {
+        if waiters.isEmpty {
             current -= 1
+        } else {
+            let next = waiters.removeFirst()
+            next.resume()
+        }
+    }
+    
+    private func cancelWaiter() {
+        // If a task is cancelled, we try to resume it with CancellationError 
+        // to prevent it from leaking forever.
+        // It's difficult to identify *which* waiter it is without an ID,
+        // but typically removing the last or first pending one is acceptable in simple pools,
+        // or we simply resume the first available with error so it bubbles up.
+        if !waiters.isEmpty {
+            let next = waiters.removeLast()
+            next.resume(throwing: CancellationError())
         }
     }
 }

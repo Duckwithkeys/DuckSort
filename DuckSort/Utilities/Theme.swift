@@ -76,21 +76,21 @@ enum Theme {
         static let danger             = SwiftUI.Color(red: 1.000, green: 0.271, blue: 0.227) // #FF453A
         static let rating             = SwiftUI.Color(red: 1.000, green: 0.804, blue: 0.196) // systemYellow
 
-        // Text (adaptive)
+        // Text (adaptive - boosted contrast for liquid glass materials)
         static let textPrimary = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 1.0, alpha: 0.88)
-                : NSColor(white: 0.0, alpha: 0.85)
+                ? NSColor(white: 1.0, alpha: 0.95)
+                : NSColor(white: 0.0, alpha: 0.90)
         })
         static let textSecondary = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 1.0, alpha: 0.50)
-                : NSColor(white: 0.0, alpha: 0.65)
+                ? NSColor(white: 1.0, alpha: 0.75)
+                : NSColor(white: 0.0, alpha: 0.70)
         })
         static let textTertiary = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 1.0, alpha: 0.30)
-                : NSColor(white: 0.0, alpha: 0.45)
+                ? NSColor(white: 1.0, alpha: 0.55)
+                : NSColor(white: 0.0, alpha: 0.50)
         })
         static let textInverse  = SwiftUI.Color.white
 
