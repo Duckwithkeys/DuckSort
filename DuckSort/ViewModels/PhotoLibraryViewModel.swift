@@ -196,6 +196,9 @@ final class PhotoLibraryViewModel: ObservableObject {
             dismissedSuggestions.removeAll()
             preloadNeighbors(around: focusedPhotoIndex)
             updateDerivedState()
+            if UserPreferences.shared.burstDeduplicationEnabled {
+                runBurstDeduplication()
+            }
         }
     }
     @Published var isLargeImageViewerOpen: Bool = false
@@ -600,13 +603,19 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     func runBurstDeduplication() {
-        let urls = photoSets.compactMap(\.preferredPreviewURL)
+        guard !filteredPhotoSets.isEmpty else { return }
+        let centerIndex = max(0, min(focusedPhotoIndex, filteredPhotoSets.count - 1))
+        let startIndex = max(0, centerIndex - 50)
+        let endIndex = min(filteredPhotoSets.count, centerIndex + 51)
+
+        let windowPhotoSets = Array(filteredPhotoSets[startIndex..<endIndex])
+        let urls = windowPhotoSets.compactMap(\.preferredPreviewURL)
         guard !urls.isEmpty else { return }
-        statusMessage = "Analyzing burst shots & calculating Best Shot AI..."
+
         Task { @MainActor in
             let groups = await PerceptualHashEngine.shared.groupBurstShots(urls: urls)
-            var map: [URL: BurstGroup] = [:]
-            var bestSet = Set<URL>()
+            var map = self.burstGroups
+            var bestSet = self.bestShots
             for group in groups {
                 for member in group.memberURLs {
                     map[member] = group
@@ -617,7 +626,6 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
             self.burstGroups = map
             self.bestShots = bestSet
-            self.statusMessage = "Burst analysis complete. Found \(groups.count) burst groups."
         }
     }
     
