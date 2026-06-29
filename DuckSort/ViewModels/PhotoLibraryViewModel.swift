@@ -605,8 +605,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     func runBurstDeduplication() {
         guard !filteredPhotoSets.isEmpty else { return }
         let centerIndex = max(0, min(focusedPhotoIndex, filteredPhotoSets.count - 1))
-        let startIndex = max(0, centerIndex - 50)
-        let endIndex = min(filteredPhotoSets.count, centerIndex + 51)
+        let startIndex = max(0, centerIndex - 25)
+        let endIndex = min(filteredPhotoSets.count, centerIndex + 26)
 
         let windowPhotoSets = Array(filteredPhotoSets[startIndex..<endIndex])
         let urls = windowPhotoSets.compactMap(\.preferredPreviewURL)
