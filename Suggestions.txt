@@ -1,29 +1,13 @@
 DUCKSORT FUTURE ARCHITECTURAL & FEATURE SUGGESTIONS
 
-1. ON-DEVICE AI & VISION MACHINE LEARNING
-- Integrate Vision Framework (VNClassifyImageRequest and VNHumanBodyPoseRequest) to automatically auto-tag photo subjects, landscapes, and pets locally off the main thread.
-- Implement Apple Neural Engine (ANE) acceleration for automated face clustering and duplicate detection without uploading private photos to third-party APIs.
+1. AUTO-TAGGING SYSTEM OVERHAUL & EXPORT SEPARATION
+- Decouple Export Routing Rules from Interactive Viewer Auto-Tags: Currently, rules applied during export (like IPTC copyright, export path routing, or automated export sidecar creation) overlap with interactive viewer suggestions. If a tag or metadata modification is handled automatically by an Export Rule during transfer, it must be excluded from interactive Auto-Tag suggestions to prevent UI clutter and user confusion.
+- Strict Domain Scoping: Define explicit domains: Export Rules operate silently during file transfers, while Auto-Tagging operates strictly as interactive tag recommendations in the sidebar.
+- Categorize Suggestions by Source: Group suggestions in the UI into distinct, clear sections: "AI Vision Machine Learning" vs "EXIF Camera Rules". Every suggested tag card must clearly state why it is being offered with an instant toggle to disable that specific rule directly from the card.
+- Deterministic Deduplication: Enforce strict cross-source deduplication so that if a tag is already assigned to a photo (or handled by an export profile), it is never offered as an auto-tag suggestion.
 
 
 
-2. PERCEPTUAL HASHING & BURST SHOT DEDUPLICATION
+3. PERCEPTUAL HASHING & BURST SHOT DEDUPLICATION
 - Implement a perceptual hashing engine (pHash / dHash) to compute hamming distances between images, grouping burst shots and near-duplicate photos automatically.
 - Provide automated "Best Shot" recommendations based on sharpness metrics (laplacian variance), exposure balance, and eye-open detection.
-
-
-
-3. NON-DESTRUCTIVE BATCH EDITING PIPELINES
-- Implement a non-destructive image processing pipeline using Core Image filters and metal-backed rendering contexts.
-- Support batch applying color LUTs, white balance adjustments, and exposure corrections alongside XMP sidecar synchronization.
-
-
-
-4. CLOUDKIT SYNC & CROSS-PLATFORM STATE HANDOFF
-- Define a CloudKit sync engine for TagPacks, user preferences, and metadata edits so users can seamlessly sort libraries across multiple Macs or iPadOS devices.
-- Support real-time conflict resolution when metadata sidecars are modified on external drives or networked storage (NAS).
-
-
-
-5. PRO KEYBOARD WORKFLOW & ACCESSIBILITY
-- Implement dedicated macOS menu commands and configurable global hotkeys for lightning-fast rating (1-5), flagging (Pick/Reject), and TagPack switching.
-- Ensure full VoiceOver accessibility compliance with dynamic accessibility labels on thumbnail grids and metadata inspectors.

@@ -18,35 +18,57 @@ struct AutoTagSuggestionsView: View {
         return viewModel.suggestedTags(for: photoSet)
     }
 
+    private var visionSuggestions: [AutoTagSuggestion] {
+        suggestions.filter { $0.source == .visionML }
+    }
+
+    private var exifSuggestions: [AutoTagSuggestion] {
+        suggestions.filter { $0.source == .exifRule }
+    }
+
     var body: some View {
         Group {
             if !suggestions.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Space.s12) {
-                    // Premium Header with Icon and Badge
-                    HStack(spacing: Theme.Space.s6) {
-                        Image(systemName: "sparkles")
-                            .foregroundStyle(Theme.Color.accent)
-                            .font(.system(size: 12, weight: .semibold))
+                    if !visionSuggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: Theme.Space.s8) {
+                            HStack(spacing: Theme.Space.s6) {
+                                Image(systemName: "brain.head.profile")
+                                    .foregroundStyle(Theme.Color.accent)
+                                    .font(.system(size: 11, weight: .semibold))
 
-                        Text("SUGGESTED TAGS")
-                            .font(Theme.Font.caption)
-                            .fontWeight(.bold)
-                            .foregroundStyle(Theme.Color.textTertiary)
+                                Text("AI VISION MACHINE LEARNING")
+                                    .font(Theme.Font.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(Theme.Color.textTertiary)
 
-                        Spacer()
+                                Spacer()
+                            }
 
-                        Text("\(suggestions.count)")
-                            .font(Theme.Font.badgeTiny)
-                            .foregroundStyle(Theme.Color.textInverse)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1.5)
-                            .background(Theme.Color.accent, in: Capsule())
+                            ForEach(visionSuggestions) { suggestion in
+                                AutoTagSuggestionCard(viewModel: viewModel, suggestion: suggestion)
+                            }
+                        }
                     }
 
-                    // Suggestions stack
-                    VStack(alignment: .leading, spacing: Theme.Space.s8) {
-                        ForEach(suggestions) { suggestion in
-                            AutoTagSuggestionCard(viewModel: viewModel, suggestion: suggestion)
+                    if !exifSuggestions.isEmpty {
+                        VStack(alignment: .leading, spacing: Theme.Space.s8) {
+                            HStack(spacing: Theme.Space.s6) {
+                                Image(systemName: "camera.filters")
+                                    .foregroundStyle(Theme.Color.warning)
+                                    .font(.system(size: 11, weight: .semibold))
+
+                                Text("EXIF CAMERA RULES")
+                                    .font(Theme.Font.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+
+                                Spacer()
+                            }
+
+                            ForEach(exifSuggestions) { suggestion in
+                                AutoTagSuggestionCard(viewModel: viewModel, suggestion: suggestion)
+                            }
                         }
                     }
                 }

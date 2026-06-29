@@ -56,7 +56,8 @@ final class AutoTagEngine: Sendable {
                     tagName: suggestedTag.name,
                     reason: reason,
                     categoryID: resolvedCategoryID,
-                    confidence: rule.confidence
+                    confidence: rule.confidence,
+                    source: .exifRule
                 )
 
                 suggestions.append(suggestion)
@@ -79,7 +80,8 @@ final class AutoTagEngine: Sendable {
                 tagName: label,
                 reason: "Vision ML: \(Int(classification.confidence * 100))% match",
                 categoryID: nil,
-                confidence: confidenceEnum
+                confidence: confidenceEnum,
+                source: .visionML
             )
         }
     }

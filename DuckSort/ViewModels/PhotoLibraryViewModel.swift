@@ -1435,10 +1435,24 @@ final class PhotoLibraryViewModel: ObservableObject {
             combined.append(contentsOf: visionML)
         }
 
-        // Filter out dismissed suggestions.
-        return combined.filter { suggestion in
-            !dismissedSuggestions.contains(DismissedSuggestionKey(photoSetID: photoSet.id, tagName: suggestion.tagName))
+        // Get currently assigned tags to exclude them from suggestions
+        let assignedNames = Set(assignedTags(for: photoSet).map { $0.name.lowercased() })
+
+        // Filter out dismissed suggestions and already assigned tags, with deduplication
+        var deduplicated: [AutoTagSuggestion] = []
+        var seenTagNames = Set<String>()
+
+        for suggestion in combined {
+            let lowerName = suggestion.tagName.lowercased()
+            guard !assignedNames.contains(lowerName) else { continue }
+            guard !seenTagNames.contains(lowerName) else { continue }
+            guard !dismissedSuggestions.contains(DismissedSuggestionKey(photoSetID: photoSet.id, tagName: suggestion.tagName)) else { continue }
+
+            seenTagNames.insert(lowerName)
+            deduplicated.append(suggestion)
         }
+
+        return deduplicated
     }
     
     /// Accepts a suggestion: applies the tag to the photo (or creates it
