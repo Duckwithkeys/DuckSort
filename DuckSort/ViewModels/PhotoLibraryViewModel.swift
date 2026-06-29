@@ -52,6 +52,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:]
     @Published private(set) var photoCaptions: [UUID: String] = [:]
     @Published private(set) var visionSuggestionsCache: [UUID: [AutoTagSuggestion]] = [:]
+    @Published private(set) var burstGroups: [URL: BurstGroup] = [:]
+    @Published private(set) var bestShots: Set<URL> = []
     @Published var filterRule: PhotoFilterRule = .allPhotos {
         didSet {
             guard !isInitializing else { return }
@@ -590,7 +592,32 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
             
             self.loadMetadataAndTags(for: photoSets)
+            if UserPreferences.shared.burstDeduplicationEnabled {
+                self.runBurstDeduplication()
+            }
             self.isScanning = false
+        }
+    }
+
+    func runBurstDeduplication() {
+        let urls = photoSets.compactMap(\.preferredPreviewURL)
+        guard !urls.isEmpty else { return }
+        statusMessage = "Analyzing burst shots & calculating Best Shot AI..."
+        Task { @MainActor in
+            let groups = await PerceptualHashEngine.shared.groupBurstShots(urls: urls)
+            var map: [URL: BurstGroup] = [:]
+            var bestSet = Set<URL>()
+            for group in groups {
+                for member in group.memberURLs {
+                    map[member] = group
+                }
+                if let best = await BestShotEvaluator.shared.findBestShot(in: group.memberURLs) {
+                    bestSet.insert(best.url)
+                }
+            }
+            self.burstGroups = map
+            self.bestShots = bestSet
+            self.statusMessage = "Burst analysis complete. Found \(groups.count) burst groups."
         }
     }
     

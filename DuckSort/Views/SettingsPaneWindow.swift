@@ -16,7 +16,7 @@ enum SettingsTab: String, CaseIterable {
     case tags       = "Tags"
     case copyright  = "Copyright"
     case shortcuts  = "Shortcuts"
-    case autoTagging = "Auto Tagging"
+    case autoTagging = "Mode Switching"
 
     var systemImage: String {
         switch self {
@@ -24,7 +24,7 @@ enum SettingsTab: String, CaseIterable {
         case .tags:      return "tag"
         case .copyright: return "c.circle"
         case .shortcuts: return "keyboard.badge.ellipsis"
-        case .autoTagging: return "sparkles"
+        case .autoTagging: return "slider.horizontal.3"
         }
     }
 }

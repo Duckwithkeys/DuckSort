@@ -17,7 +17,7 @@ struct SettingsAutoTaggingPaneView: View {
             VStack(alignment: .leading, spacing: Theme.Space.s16) {
                 // Header
                 VStack(alignment: .leading, spacing: Theme.Space.s4) {
-                    Text("AI Modes & Intelligent Tagging")
+                    Text("Mode Switching & AI Configuration")
                         .font(Theme.Font.title)
                         .foregroundStyle(Theme.Color.textPrimary)
 
@@ -62,10 +62,7 @@ struct SettingsAutoTaggingPaneView: View {
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.Color.textTertiary)
 
-                        TextField("Shortcut", text: $preferences.aiVisionHotkey)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                            .font(.system(size: 11, design: .monospaced))
+                        ShortcutRecorderView(hotkey: $preferences.aiVisionHotkey)
 
                         Spacer()
 
@@ -115,10 +112,7 @@ struct SettingsAutoTaggingPaneView: View {
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.Color.textTertiary)
 
-                        TextField("Shortcut", text: $preferences.burstDeduplicationHotkey)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 120)
-                            .font(.system(size: 11, design: .monospaced))
+                        ShortcutRecorderView(hotkey: $preferences.burstDeduplicationHotkey)
 
                         Spacer()
 
