@@ -6,7 +6,11 @@ DUCKSORT FUTURE ARCHITECTURAL & FEATURE SUGGESTIONS
 - Categorize Suggestions by Source: Group suggestions in the UI into distinct, clear sections: "AI Vision Machine Learning" vs "EXIF Camera Rules". Every suggested tag card must clearly state why it is being offered with an instant toggle to disable that specific rule directly from the card.
 - Deterministic Deduplication: Enforce strict cross-source deduplication so that if a tag is already assigned to a photo (or handled by an export profile), it is never offered as an auto-tag suggestion.
 
-
+2. PHOTO RENDERING & GRAPHICS ACCELERATION OPTIMIZATIONS
+- Zero-Copy Metal / IOSurface Rendering Pipeline: Replace CPU-bound NSImage decoding in the large viewer with direct IOSurface hardware memory mapping and Metal texture buffers (MTKView), eliminating RAM-to-VRAM copy overhead during pan/zoom operations on high-res photos.
+- Metal-Accelerated Pre-Warmed Texture Pool for Grid Scrolling: Pre-rasterize grid thumbnails directly into GPU texture arrays on Apple Silicon unified memory, bypassing main actor heap allocations and eliminating micro-stutters during fast scrolling across thousands of photos.
+- Dynamic Level-of-Detail (LOD) Adaptive Preloading: Implement dynamic thumbnail target sizing based on retina display scaling and scroll velocity. Load ultra-fast 128px proxies during rapid grid scrolling, automatically upscaling to full 512px resolution when scroll velocity settles.
+- Hardware-Accelerated Zero-Copy RAW Preview Extraction: Utilize QLThumbnailGenerator with CVPixelBuffer zero-copy memory sharing to extract embedded RAW preview frames directly from Apple Silicon hardware decoders, bypassing software JPEG decompression for CR3, NEF, and ARW files.
 
 3. PERCEPTUAL HASHING & BURST SHOT DEDUPLICATION
 - Implement a perceptual hashing engine (pHash / dHash) to compute hamming distances between images, grouping burst shots and near-duplicate photos automatically.
