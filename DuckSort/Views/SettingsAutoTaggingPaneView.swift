@@ -2,7 +2,8 @@
 //  SettingsAutoTaggingPaneView.swift
 //  DuckSort
 //
-//  Settings tab for configuring AI Vision Machine Learning auto-tagging.
+//  Settings tab for configuring AI Modes: On-Device AI Vision Auto-Tagging
+//  and Perceptual Burst Deduplication & Best Shot AI, with configurable hotkeys.
 //
 
 import SwiftUI
@@ -12,75 +13,131 @@ struct SettingsAutoTaggingPaneView: View {
     @ObservedObject var tagStore: TagStore
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s16) {
-            // Header
-            HStack {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Space.s16) {
+                // Header
                 VStack(alignment: .leading, spacing: Theme.Space.s4) {
-                    Text("AI Vision Auto Tagging")
+                    Text("AI Modes & Intelligent Tagging")
                         .font(Theme.Font.title)
                         .foregroundStyle(Theme.Color.textPrimary)
 
-                    Text("On-device machine learning automatically analyzes scenes, objects, and subjects.")
+                    Text("Configure on-device artificial intelligence modes and keyboard shortcut toggles.")
                         .font(Theme.Font.body)
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
+                .padding(.bottom, Theme.Space.s4)
 
-                Spacer()
+                Divider()
+                    .background(Theme.Color.separator)
 
-                Toggle("", isOn: $preferences.autoTaggingEnabled)
-                    .toggleStyle(.switch)
-                    .labelsHidden()
-                    .controlSize(.small)
-            }
-            .padding(.bottom, Theme.Space.s4)
+                // Mode 1: AI Vision Auto-Tagging Card
+                VStack(alignment: .leading, spacing: Theme.Space.s12) {
+                    HStack {
+                        HStack(spacing: Theme.Space.s12) {
+                            Image(systemName: "brain.head.profile")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(Theme.Color.accent)
 
-            Divider()
-                .background(Theme.Color.separator)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("AI Vision Auto-Tagging")
+                                    .font(Theme.Font.headline)
+                                    .foregroundStyle(Theme.Color.textPrimary)
 
-            // AI Vision Engine Info Card
-            VStack(alignment: .leading, spacing: Theme.Space.s12) {
-                HStack(spacing: Theme.Space.s12) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Theme.Color.accent)
+                                Text("Automatically classifies scenes, landscapes, objects, and subjects.")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
+                        }
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Apple Vision Framework & Neural Engine")
-                            .font(Theme.Font.headline)
-                            .foregroundStyle(Theme.Color.textPrimary)
+                        Spacer()
 
-                        Text("All photo classification runs 100% locally on your Mac without external cloud APIs.")
-                            .font(Theme.Font.caption)
-                            .foregroundStyle(Theme.Color.textSecondary)
+                        Toggle("", isOn: $preferences.autoTaggingEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .controlSize(.small)
                     }
+
+                    HStack(spacing: Theme.Space.s12) {
+                        Text("Shortcut Hotkey:")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
+
+                        TextField("Shortcut", text: $preferences.aiVisionHotkey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .font(.system(size: 11, design: .monospaced))
+
+                        Spacer()
+
+                        Label("100% On-Device", systemImage: "shield.checkmark")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.success)
+                    }
+                    .padding(.top, Theme.Space.s4)
                 }
+                .padding(Theme.Space.s16)
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.l))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.l)
+                        .strokeBorder(Theme.Color.separator.opacity(0.4), lineWidth: 1)
+                )
 
-                HStack(spacing: Theme.Space.s8) {
-                    Label("Scene Detection", systemImage: "checkmark.circle.fill")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.Color.success)
+                // Mode 2: Perceptual Burst Deduplication & Best Shot AI Card
+                VStack(alignment: .leading, spacing: Theme.Space.s12) {
+                    HStack {
+                        HStack(spacing: Theme.Space.s12) {
+                            Image(systemName: "square.3.layers.3d.down.right")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(Theme.Color.warning)
 
-                    Label("Face & Body Clustering", systemImage: "checkmark.circle.fill")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.Color.success)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Burst Deduplication & Best Shot AI")
+                                    .font(Theme.Font.headline)
+                                    .foregroundStyle(Theme.Color.textPrimary)
 
-                    Label("Zero Cloud Uploads", systemImage: "checkmark.circle.fill")
-                        .font(Theme.Font.caption)
-                        .foregroundStyle(Theme.Color.success)
+                                Text("Perceptual dHash grouping for burst shots with Laplacian sharpness scoring.")
+                                    .font(Theme.Font.caption)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+                            }
+                        }
+
+                        Spacer()
+
+                        Toggle("", isOn: $preferences.burstDeduplicationEnabled)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                            .controlSize(.small)
+                    }
+
+                    HStack(spacing: Theme.Space.s12) {
+                        Text("Shortcut Hotkey:")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textTertiary)
+
+                        TextField("Shortcut", text: $preferences.burstDeduplicationHotkey)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                            .font(.system(size: 11, design: .monospaced))
+
+                        Spacer()
+
+                        Label("Neural Engine Accelerated", systemImage: "cpu")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.accent)
+                    }
+                    .padding(.top, Theme.Space.s4)
                 }
-                .padding(.top, Theme.Space.s4)
+                .padding(Theme.Space.s16)
+                .background(.thinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.l))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.l)
+                        .strokeBorder(Theme.Color.separator.opacity(0.4), lineWidth: 1)
+                )
             }
-            .padding(Theme.Space.s16)
-            .background(.thinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.l))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.l)
-                    .strokeBorder(Theme.Color.separator.opacity(0.4), lineWidth: 1)
-            )
-
-            Spacer()
+            .padding(Theme.Space.s20)
         }
-        .padding(Theme.Space.s20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Theme.Color.surfaceBase)
     }
