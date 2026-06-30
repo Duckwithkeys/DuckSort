@@ -2237,6 +2237,138 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Insights
+
+    func computeInsights() -> InsightReport {
+        let metadata = Array(photoMetadata.values)
+        let total = metadata.count
+
+        // Unique cameras and lenses
+        let cameras = Set(metadata.compactMap { $0.cameraModel }).count
+        let lenses = Set(metadata.compactMap { $0.lensModel }).count
+
+        // Date range
+        let dates = metadata.compactMap { $0.captureDate }
+        let earliest = dates.min()
+        let latest = dates.max()
+
+        // Focal length buckets: ≤24, 25–35, 36–50, 51–85, 86–135, 135+
+        let focalBucketLabels = ["≤24mm", "25–35mm", "36–50mm", "51–85mm", "86–135mm", "135mm+"]
+        var focalCounts = [0, 0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let fl = m.focalLength else { continue }
+            switch fl {
+            case ...24:        focalCounts[0] += 1
+            case 25...35:      focalCounts[1] += 1
+            case 36...50:      focalCounts[2] += 1
+            case 51...85:      focalCounts[3] += 1
+            case 86...135:     focalCounts[4] += 1
+            default:           focalCounts[5] += 1
+            }
+        }
+        let focalTotal = focalCounts.reduce(0, +)
+        let focalBuckets = zip(focalBucketLabels, focalCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: focalTotal > 0 ? Double(count) / Double(focalTotal) : 0)
+        }
+
+        // Aperture buckets
+        let apertureBucketLabels = ["f/1.4", "f/1.8–f/2", "f/2.8", "f/4", "f/5.6–f/8", "f/11+"]
+        var apertureCounts = [0, 0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let ap = m.aperture else { continue }
+            switch ap {
+            case ..<1.5:       apertureCounts[0] += 1
+            case 1.5..<3.0:   apertureCounts[1] += 1
+            case 3.0..<3.5:   apertureCounts[2] += 1
+            case 3.5..<4.5:   apertureCounts[3] += 1
+            case 4.5..<9:     apertureCounts[4] += 1
+            default:           apertureCounts[5] += 1
+            }
+        }
+        let apTotal = apertureCounts.reduce(0, +)
+        let apertureBuckets = zip(apertureBucketLabels, apertureCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: apTotal > 0 ? Double(count) / Double(apTotal) : 0)
+        }
+
+        // ISO buckets
+        let isoBucketLabels = ["ISO 100–400", "ISO 400–800", "ISO 800–1600", "ISO 1600–3200", "ISO 3200+"]
+        var isoCounts = [0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let iso = m.iso else { continue }
+            switch iso {
+            case ...399:       isoCounts[0] += 1
+            case 400...799:    isoCounts[1] += 1
+            case 800...1599:   isoCounts[2] += 1
+            case 1600...3199:  isoCounts[3] += 1
+            default:           isoCounts[4] += 1
+            }
+        }
+        let isoTotal = isoCounts.reduce(0, +)
+        let isoBuckets = zip(isoBucketLabels, isoCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: isoTotal > 0 ? Double(count) / Double(isoTotal) : 0)
+        }
+
+        // Shutter speed buckets
+        let shutterBucketLabels = ["1/4000+", "1/1000–1/4000", "1/250–1/1000", "1/60–1/250", "<1/60"]
+        var shutterCounts = [0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let ss = m.shutterSpeed, ss > 0 else { continue }
+            switch ss {
+            case ..<(1.0 / 4000):              shutterCounts[0] += 1
+            case (1.0 / 4000)..<(1.0 / 1000): shutterCounts[1] += 1
+            case (1.0 / 1000)..<(1.0 / 250):  shutterCounts[2] += 1
+            case (1.0 / 250)..<(1.0 / 60):    shutterCounts[3] += 1
+            default:                           shutterCounts[4] += 1
+            }
+        }
+        let shutterTotal = shutterCounts.reduce(0, +)
+        let shutterBuckets = zip(shutterBucketLabels, shutterCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: shutterTotal > 0 ? Double(count) / Double(shutterTotal) : 0)
+        }
+
+        // Top gear combos: group by (camera, lens) pair
+        struct ComboKey: Hashable { let camera: String; let lens: String }
+        struct ComboData { var count: Int; var picks: Int; var apertures: [Double] }
+        var comboMap: [ComboKey: ComboData] = [:]
+
+        for (id, meta) in photoMetadata {
+            guard let cam = meta.cameraModel, let lens = meta.lensModel else { continue }
+            let key = ComboKey(camera: cam, lens: lens)
+            let photoSet = photoSets.first { $0.id == id }
+            let isPick = photoSet?.pick == 1
+            if comboMap[key] == nil { comboMap[key] = ComboData(count: 0, picks: 0, apertures: []) }
+            comboMap[key]!.count += 1
+            if isPick { comboMap[key]!.picks += 1 }
+            if let ap = meta.aperture { comboMap[key]!.apertures.append(ap) }
+        }
+
+        let topCombos = comboMap
+            .sorted { $0.value.count > $1.value.count }
+            .prefix(8)
+            .map { (key, data) in
+                GearCombo(
+                    camera: key.camera,
+                    lens: key.lens,
+                    totalShots: data.count,
+                    pickRatio: data.count > 0 ? Double(data.picks) / Double(data.count) : 0,
+                    avgAperture: data.apertures.isEmpty ? nil : data.apertures.reduce(0, +) / Double(data.apertures.count)
+                )
+            }
+
+        return InsightReport(
+            totalPhotos: total,
+            uniqueCameras: cameras,
+            uniqueLenses: lenses,
+            earliestDate: earliest,
+            latestDate: latest,
+            focalLengthBuckets: focalBuckets,
+            apertureBuckets: apertureBuckets,
+            isoBuckets: isoBuckets,
+            shutterBuckets: shutterBuckets,
+            topGearCombos: topCombos
+        )
+    }
+
 }
 
 /// Key for tracking dismissed auto-tag suggestions.

@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var showOnboarding: Bool = false
     @State private var showFilterPopover: Bool = false
     @State private var showTagsPopover: Bool = false
+    @State private var showInsights: Bool = false
 
     var body: some View {
         MainLayout(viewModel: viewModel)
@@ -53,6 +54,13 @@ struct ContentView: View {
                     }
                 )
                 .frame(minWidth: 800, minHeight: 500)
+            }
+            .sheet(isPresented: $showInsights) {
+                InsightsView(
+                    report: viewModel.computeInsights(),
+                    onDismiss: { showInsights = false }
+                )
+                .frame(minWidth: 900, minHeight: 680)
             }
             .onAppear {
                 FloatingWindowManager.shared.activeViewModel = viewModel
@@ -182,6 +190,16 @@ struct ContentView: View {
                 }
                 .disabled(!viewModel.canTransfer)
                 .help("Move originals to destination using selected rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showInsights = true
+                } label: {
+                    Label("Insights", systemImage: "chart.bar.xaxis")
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .help("Camera & Lens Performance Insights")
             }
 
             ToolbarItem(placement: .primaryAction) {
