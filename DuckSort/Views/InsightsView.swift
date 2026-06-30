@@ -110,14 +110,10 @@ struct InsightsView: View {
         }
         .padding(.horizontal, Theme.Space.s24)
         .padding(.vertical, Theme.Space.s16)
-        .background(
-            Theme.Color.background.opacity(0.95)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(Theme.Color.separator)
-                        .frame(height: 1)
-                }
-        )
+    
+        
+                
+        
     }
 
     // MARK: - Summary pills

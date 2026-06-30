@@ -7,7 +7,7 @@
 //
 
 import Foundation
-import CommonCrypto
+import CryptoKit
 
 enum CollisionResolution: Sendable, Equatable {
     case skip             // MD5 match
@@ -38,10 +38,10 @@ enum CollisionResolver {
             return .normal(originalDest)
         }
         
-        // 1. MD5 Checksum Skip
-        if let sourceMD5 = fileMD5(url: source),
-           let destMD5 = fileMD5(url: originalDest),
-           sourceMD5 == destMD5 {
+        // 1. SHA-256 Checksum Skip
+        if let sourceHash = fileHash(url: source),
+           let destHash = fileHash(url: originalDest),
+           sourceHash == destHash {
             return .skip
         }
         
@@ -72,29 +72,16 @@ enum CollisionResolver {
         return .rename(originalDest)
     }
     
-    private static func fileMD5(url: URL) -> String? {
+    private static func fileHash(url: URL) -> String? {
         guard let file = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? file.close() }
-        var context = CC_MD5_CTX()
-        CC_MD5_Init(&context)
+        var hasher = SHA256()
         let bufferSize = 1024 * 1024
         while true {
-            if #available(macOS 10.15.4, *) {
-                guard let chunk = try? file.read(upToCount: bufferSize), !chunk.isEmpty else { break }
-                chunk.withUnsafeBytes {
-                    _ = CC_MD5_Update(&context, $0.baseAddress, CC_LONG($0.count))
-                }
-            } else {
-                let chunk = file.readData(ofLength: bufferSize)
-                if chunk.isEmpty { break }
-                chunk.withUnsafeBytes {
-                    _ = CC_MD5_Update(&context, $0.baseAddress, CC_LONG($0.count))
-                }
-            }
+            guard let chunk = try? file.read(upToCount: bufferSize), !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
         }
-        var digest = [UInt8](repeating: 0, count: Int(CC_MD5_DIGEST_LENGTH))
-        CC_MD5_Final(&digest, &context)
-        return digest.map { String(format: "%02hhx", $0) }.joined()
+        return hasher.finalize().compactMap { String(format: "%02hhx", $0) }.joined()
     }
 }
 
