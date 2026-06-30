@@ -12,13 +12,24 @@ import QuickLookThumbnailing
 import SwiftUI
 import ImageIO
 
+final class SynchronizedZoomState: ObservableObject, @unchecked Sendable {
+    @Published var zoomScale: CGFloat = 1.0
+    @Published var currentAmount: CGFloat = 0.0
+    @Published var panOffset: CGSize = .zero
+    @Published var accumulatedPan: CGSize = .zero
+
+    func reset() {
+        zoomScale = 1.0
+        currentAmount = 0.0
+        panOffset = .zero
+        accumulatedPan = .zero
+    }
+}
+
 struct LargeImagePane: View {
     let photoSet: PhotoSet
+    @ObservedObject var zoomState: SynchronizedZoomState
     @StateObject private var imageLoader = LargeImageLoader()
-    @State private var zoomScale: CGFloat = 1.0
-    @State private var currentAmount: CGFloat = 0.0 // Tracks active pinch change
-    @State private var panOffset: CGSize = .zero
-    @State private var accumulatedPan: CGSize = .zero // Pan committed by prior drags
 
     private let minZoom: CGFloat = 0.5
     private let maxZoom: CGFloat = 5.0
@@ -41,8 +52,8 @@ struct LargeImagePane: View {
                                 .resizable()
                                 .interpolation(.low)
                                 .scaledToFit()
-                                .scaleEffect(zoomScale + currentAmount)
-                                .offset(panOffset)
+                                .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
+                                .offset(zoomState.panOffset)
                                 .blur(radius: 12)
                                 .opacity(0.8)
                                 .grayscale(photoSet.pick == -1 ? 0.8 : 0)
@@ -53,8 +64,8 @@ struct LargeImagePane: View {
                                 .resizable()
                                 .interpolation(.high)
                                 .scaledToFit()
-                                .scaleEffect(zoomScale + currentAmount)
-                                .offset(panOffset)
+                                .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
+                                .offset(zoomState.panOffset)
                                 .transition(.opacity)
                                 .grayscale(photoSet.pick == -1 ? 0.8 : 0)
                         }
@@ -64,41 +75,41 @@ struct LargeImagePane: View {
                     .gesture(
                         MagnificationGesture()
                             .onChanged { value in
-                                currentAmount = value - 1.0
+                                zoomState.currentAmount = value - 1.0
                             }
                             .onEnded { value in
-                                zoomScale = clamp(zoomScale + currentAmount)
-                                currentAmount = 0
+                                zoomState.zoomScale = clamp(zoomState.zoomScale + zoomState.currentAmount)
+                                zoomState.currentAmount = 0
                             }
                             .simultaneously(
                                 with: DragGesture(minimumDistance: 0)
                                     .onChanged { value in
-                                        if (zoomScale + currentAmount) > 1.0 {
-                                            panOffset = CGSize(
-                                                width: accumulatedPan.width + value.translation.width,
-                                                height: accumulatedPan.height + value.translation.height
+                                        if (zoomState.zoomScale + zoomState.currentAmount) > 1.0 {
+                                            zoomState.panOffset = CGSize(
+                                                width: zoomState.accumulatedPan.width + value.translation.width,
+                                                height: zoomState.accumulatedPan.height + value.translation.height
                                             )
                                         }
                                     }
                                     .onEnded { _ in
-                                        accumulatedPan = panOffset
+                                        zoomState.accumulatedPan = zoomState.panOffset
                                     }
                             )
                     )
                     .onTapGesture(count: 2) {
                         withAnimation(.spring()) {
-                            if zoomScale > 1.0 {
-                                zoomScale = 1.0
-                                panOffset = .zero
-                                accumulatedPan = .zero
+                            if zoomState.zoomScale > 1.0 {
+                                zoomState.zoomScale = 1.0
+                                zoomState.panOffset = .zero
+                                zoomState.accumulatedPan = .zero
                             } else if let nsImage = highResImage ?? lowResImage {
                                 let fitScale = min(
                                     geometry.size.width / nsImage.size.width,
                                     geometry.size.height / nsImage.size.height
                                 )
-                                zoomScale = max(fitScale * 2.0, 1.5)
-                                panOffset = .zero
-                                accumulatedPan = .zero
+                                zoomState.zoomScale = max(fitScale * 2.0, 1.5)
+                                zoomState.panOffset = .zero
+                                zoomState.accumulatedPan = .zero
                             }
                         }
                     }
@@ -116,9 +127,9 @@ struct LargeImagePane: View {
                     HStack(spacing: 10) {
                         Button {
                             withAnimation(.spring()) {
-                                zoomScale = clamp(zoomScale * 0.7)
-                                panOffset = .zero
-                                accumulatedPan = .zero
+                                zoomState.zoomScale = clamp(zoomState.zoomScale * 0.7)
+                                zoomState.panOffset = .zero
+                                zoomState.accumulatedPan = .zero
                             }
                         } label: {
                             Image(systemName: "minus.magnifyingglass")
@@ -128,18 +139,18 @@ struct LargeImagePane: View {
                                 .background(.ultraThinMaterial, in: Circle())
                         }
                         .buttonStyle(.plain)
-
-                        Text(String(format: "%.0f%%", (zoomScale + currentAmount) * 100))
+ 
+                        Text(String(format: "%.0f%%", (zoomState.zoomScale + zoomState.currentAmount) * 100))
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(.white.opacity(0.7))
                             .padding(.horizontal, 8)
                             .background(.ultraThinMaterial, in: Capsule())
-
+ 
                         Button {
                             withAnimation(.spring()) {
-                                zoomScale = clamp(zoomScale * 1.4)
-                                panOffset = .zero
-                                accumulatedPan = .zero
+                                zoomState.zoomScale = clamp(zoomState.zoomScale * 1.4)
+                                zoomState.panOffset = .zero
+                                zoomState.accumulatedPan = .zero
                             }
                         } label: {
                             Image(systemName: "plus.magnifyingglass")
@@ -149,12 +160,12 @@ struct LargeImagePane: View {
                                 .background(.ultraThinMaterial, in: Circle())
                         }
                         .buttonStyle(.plain)
-
+ 
                         Button {
                             withAnimation(.spring()) {
-                                zoomScale = 1.0
-                                panOffset = .zero
-                                accumulatedPan = .zero
+                                zoomState.zoomScale = 1.0
+                                zoomState.panOffset = .zero
+                                zoomState.accumulatedPan = .zero
                             }
                         } label: {
                             Image(systemName: "arrow.2.squarepath")
@@ -174,10 +185,6 @@ struct LargeImagePane: View {
             }
         }
         .task(id: photoSet.id) {
-            zoomScale = 1.0
-            currentAmount = 0
-            panOffset = .zero
-            accumulatedPan = .zero
             imageLoader.image = nil
             imageLoader.loadedURL = nil
             await imageLoader.load(url: photoSet.preferredPreviewURL)
