@@ -22,7 +22,7 @@ struct EXIFSanitizer: Sendable {
             throw NSError(domain: "EXIFSanitizer", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create image destination"])
         }
         
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else {
             CGImageDestinationAddImageFromSource(destination, source, 0, nil)
             CGImageDestinationFinalize(destination)
             return
@@ -31,14 +31,14 @@ struct EXIFSanitizer: Sendable {
         var mutableProperties = properties
         
         if stripLocation {
-            mutableProperties.removeValue(forKey: kCGImagePropertyGPSDictionary)
+            mutableProperties.removeValue(forKey: kCGImagePropertyGPSDictionary as String)
         }
         
-        if stripCameraInfo, var exif = mutableProperties[kCGImagePropertyExifDictionary] as? [CFString: Any] {
-            exif.removeValue(forKey: kCGImagePropertyExifBodySerialNumber)
-            exif.removeValue(forKey: kCGImagePropertyExifLensSerialNumber)
-            exif.removeValue(forKey: kCGImagePropertyExifCameraOwnerName)
-            mutableProperties[kCGImagePropertyExifDictionary] = exif
+        if stripCameraInfo, var exif = mutableProperties[kCGImagePropertyExifDictionary as String] as? [String: Any] {
+            exif.removeValue(forKey: kCGImagePropertyExifBodySerialNumber as String)
+            exif.removeValue(forKey: kCGImagePropertyExifLensSerialNumber as String)
+            exif.removeValue(forKey: kCGImagePropertyExifCameraOwnerName as String)
+            mutableProperties[kCGImagePropertyExifDictionary as String] = exif
         }
         
         CGImageDestinationAddImageFromSource(destination, source, 0, mutableProperties as CFDictionary)

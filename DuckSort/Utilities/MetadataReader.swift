@@ -21,7 +21,7 @@ struct MetadataReader: Sendable {
 
         let options: [CFString: Any] = [kCGImageSourceShouldCache as CFString: false]
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any]
         else {
             if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {
                 return parseXMPText(xmlString)
@@ -35,21 +35,21 @@ struct MetadataReader: Sendable {
             return snapshot
         }
 
-        let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any]
-        let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
-        let gps = properties[kCGImagePropertyGPSDictionary] as? [CFString: Any]
-        let iptc = properties[kCGImagePropertyIPTCDictionary] as? [CFString: Any]
+        let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
+        let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        let gps = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any]
+        let iptc = properties[kCGImagePropertyIPTCDictionary as String] as? [String: Any]
 
-        let cameraModel = tiff?[kCGImagePropertyTIFFModel] as? String
-        let lensModel = exif?[kCGImagePropertyExifLensModel] as? String
+        let cameraModel = tiff?[kCGImagePropertyTIFFModel as String] as? String
+        let lensModel = exif?[kCGImagePropertyExifLensModel as String] as? String
         
         // Exif datetime -> TIFF datetime -> IPTC datetime
-        var captureDateString = exif?[kCGImagePropertyExifDateTimeOriginal] as? String
-            ?? tiff?[kCGImagePropertyTIFFDateTime] as? String
+        var captureDateString = exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String
+            ?? tiff?[kCGImagePropertyTIFFDateTime as String] as? String
         
         if captureDateString == nil, let iptc = iptc {
-            if let dateStr = iptc[kCGImagePropertyIPTCDateCreated] as? String {
-                if let timeStr = iptc[kCGImagePropertyIPTCTimeCreated] as? String {
+            if let dateStr = iptc[kCGImagePropertyIPTCDateCreated as String] as? String {
+                if let timeStr = iptc[kCGImagePropertyIPTCTimeCreated as String] as? String {
                     captureDateString = "\(dateStr) \(timeStr)"
                 } else {
                     captureDateString = dateStr
@@ -59,33 +59,33 @@ struct MetadataReader: Sendable {
         
         var captureDate = captureDateString.flatMap(Self.parseExifDate)
         
-        let aperture = exif?[kCGImagePropertyExifFNumber] as? Double
-        let shutterSpeed = exif?[kCGImagePropertyExifExposureTime] as? Double
-        let isoArray = exif?[kCGImagePropertyExifISOSpeedRatings] as? [Int]
+        let aperture = exif?[kCGImagePropertyExifFNumber as String] as? Double
+        let shutterSpeed = exif?[kCGImagePropertyExifExposureTime as String] as? Double
+        let isoArray = exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [Int]
 
         // Advanced fields
-        let focalLength = exif?[kCGImagePropertyExifFocalLength] as? Double
-        let focalLengthIn35mm = exif?[kCGImagePropertyExifFocalLenIn35mmFilm] as? Double
-        let whiteBalanceRaw = exif?[kCGImagePropertyExifWhiteBalance] as? Int
-        let flashRaw = exif?[kCGImagePropertyExifFlash] as? Int
-        let exposureProgramRaw = exif?[kCGImagePropertyExifExposureProgram] as? Int
-        let meteringModeRaw = exif?[kCGImagePropertyExifMeteringMode] as? Int
-        let exposureBias = exif?[kCGImagePropertyExifExposureBiasValue] as? Double
+        let focalLength = exif?[kCGImagePropertyExifFocalLength as String] as? Double
+        let focalLengthIn35mm = exif?[kCGImagePropertyExifFocalLenIn35mmFilm as String] as? Double
+        let whiteBalanceRaw = exif?[kCGImagePropertyExifWhiteBalance as String] as? Int
+        let flashRaw = exif?[kCGImagePropertyExifFlash as String] as? Int
+        let exposureProgramRaw = exif?[kCGImagePropertyExifExposureProgram as String] as? Int
+        let meteringModeRaw = exif?[kCGImagePropertyExifMeteringMode as String] as? Int
+        let exposureBias = exif?[kCGImagePropertyExifExposureBiasValue as String] as? Double
 
-        let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int
-        let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int
-        let orientation = properties[kCGImagePropertyOrientation] as? Int
-        let colorSpaceRaw = properties[kCGImagePropertyColorModel] as? String
-        let profileName = properties[kCGImagePropertyProfileName] as? String
+        let pixelWidth = properties[kCGImagePropertyPixelWidth as String] as? Int
+        let pixelHeight = properties[kCGImagePropertyPixelHeight as String] as? Int
+        let orientation = properties[kCGImagePropertyOrientation as String] as? Int
+        let colorSpaceRaw = properties[kCGImagePropertyColorModel as String] as? String
+        let profileName = properties[kCGImagePropertyProfileName as String] as? String
 
-        let gpsLatitude = gps?[kCGImagePropertyGPSLatitude] as? Double
-        let gpsLongitude = gps?[kCGImagePropertyGPSLongitude] as? Double
-        let gpsAltitude = gps?[kCGImagePropertyGPSAltitude] as? Double
+        let gpsLatitude = gps?[kCGImagePropertyGPSLatitude as String] as? Double
+        let gpsLongitude = gps?[kCGImagePropertyGPSLongitude as String] as? Double
+        let gpsAltitude = gps?[kCGImagePropertyGPSAltitude as String] as? Double
 
         var rating: Int? = nil
         var pick: Int? = nil
         if let iptc = iptc {
-            rating = iptc[kCGImagePropertyIPTCStarRating] as? Int
+            rating = iptc[kCGImagePropertyIPTCStarRating as String] as? Int
         }
         
         // Check embedded XMP

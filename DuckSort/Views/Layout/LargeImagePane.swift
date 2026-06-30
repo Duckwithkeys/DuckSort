@@ -70,7 +70,6 @@ struct LargeImagePane: View {
                                 .grayscale(photoSet.pick == -1 ? 0.8 : 0)
                         }
                     }
-                    .drawingGroup(opaque: false)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .gesture(
                         MagnificationGesture()
