@@ -76,6 +76,8 @@ cat << 'EOF' > "$APP_DIR/Contents/Info.plist"
 EOF
 
 echo "=== Codesigning App Bundle ==="
+find build/Release -name "._*" -exec rm -f {} + || true
+find "$APP_DIR" -name "._*" -exec rm -f {} + || true
 xattr -cr build/Release || true
 xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"
