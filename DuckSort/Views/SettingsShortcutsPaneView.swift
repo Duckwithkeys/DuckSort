@@ -157,6 +157,8 @@ private struct ShortcutsDetailContent: View {
                             ShortcutDividerRow()
                             ShortcutStaticRow(label: "Open Large Image Viewer", shortcut: "Space / Return / I")
                             ShortcutDividerRow()
+                            ShortcutStaticRow(label: "Compare Selected Photos (2-Up / 4-Up)", shortcut: "Space / Return / I (2-4 selected)")
+                            ShortcutDividerRow()
                             ShortcutStaticRow(label: "Close Large Image Viewer", shortcut: "Esc / Space / Return")
                             ShortcutDividerRow()
                             ShortcutStaticRow(label: "Cycle Active Tag Category", shortcut: "[ / ]")
