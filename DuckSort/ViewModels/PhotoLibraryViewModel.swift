@@ -668,9 +668,12 @@ final class PhotoLibraryViewModel: ObservableObject {
         await withTaskGroup(of: LoadedPhotoInfo.self) { group in
             let maxConcurrency = 16
             var inFlight = 0
+            var out: [LoadedPhotoInfo] = []
+            out.reserveCapacity(batch.count)
             for photo in batch {
                 if inFlight >= maxConcurrency {
-                    if await group.next() != nil {
+                    if let result = await group.next() {
+                        out.append(result)
                         inFlight -= 1
                     }
                 }
@@ -693,8 +696,6 @@ final class PhotoLibraryViewModel: ObservableObject {
                     )
                 }
             }
-            var out: [LoadedPhotoInfo] = []
-            out.reserveCapacity(batch.count)
             for await result in group { out.append(result) }
             return out
         }
