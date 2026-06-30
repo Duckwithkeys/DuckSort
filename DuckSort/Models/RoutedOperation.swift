@@ -52,7 +52,8 @@ struct RoutedPhoto: Sendable {
     let tags: [CustomTag]
 }
 
-struct RoutedPlan: Sendable {
+struct RoutedPlan: Identifiable, Sendable {
+    let id = UUID()
     let operation: RoutedOperation
     let baseDestination: URL
     let rule: [ExportPathComponent]

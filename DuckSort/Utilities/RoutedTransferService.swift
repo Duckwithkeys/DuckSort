@@ -202,18 +202,35 @@ actor RoutedTransferService {
         sidecarService: XMPTaggingService
     ) async throws -> (Int64, Bool, URL, URL) {
         let fm = FileManager.default
-        let dest = uniqueDestinationURL(
-            for: job.sourceURL, in: job.destinationFolder, fileManager: fm
-        )
-        let fileSize = (try? fm.attributesOfItem(atPath: job.sourceURL.path)[.size] as? Int64) ?? 0
-        let isSameLocation = job.sourceURL.standardizedFileURL == dest.standardizedFileURL
-
-        if !isSameLocation {
-            try fm.copyItem(at: job.sourceURL, to: dest)
+        let resolution = CollisionResolver.resolve(source: job.sourceURL, destinationDir: job.destinationFolder, fileManager: fm)
+        
+        let dest: URL
+        var skipTransfer = false
+        var isSameLocation = false
+        
+        switch resolution {
+        case .skip:
+            dest = job.destinationFolder.appendingPathComponent(job.sourceURL.lastPathComponent)
+            skipTransfer = true
+        case .overwrite:
+            dest = job.destinationFolder.appendingPathComponent(job.sourceURL.lastPathComponent)
+            try? fm.removeItem(at: dest)
+        case .rename(let uniqueURL):
+            dest = uniqueURL
+        case .normal(let destURL):
+            dest = destURL
         }
-
+        
+        let fileSize = (try? fm.attributesOfItem(atPath: job.sourceURL.path)[.size] as? Int64) ?? 0
+        if !skipTransfer {
+            isSameLocation = job.sourceURL.standardizedFileURL == dest.standardizedFileURL
+            if !isSameLocation {
+                try fm.copyItem(at: job.sourceURL, to: dest)
+            }
+        }
+        
         var sidecarFailed = false
-        if job.mediaSet.contains(job.sourceURL.standardizedFileURL) {
+        if !skipTransfer && job.mediaSet.contains(job.sourceURL.standardizedFileURL) {
             let sourceSidecar = XMPTaggingService.exportSidecarURL(for: job.sourceURL)
             let payload = SidecarPayload(
                 tagNames: job.tagNames,
@@ -230,7 +247,7 @@ actor RoutedTransferService {
                 sidecarFailed = true
             }
         }
-
+        
         return (fileSize, sidecarFailed, job.sourceURL, dest)
     }
 

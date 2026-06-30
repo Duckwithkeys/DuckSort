@@ -223,6 +223,7 @@ final class PhotoLibraryViewModel: ObservableObject {
             updateDerivedState()
         }
     }
+    @Published var pendingRoutedPlan: RoutedPlan? = nil
     @Published var cachedSubfolders: [URL: [URL]] = [:]
     @Published var cachedSubfolderCounts: [URL: Int] = [:]
 
@@ -1682,6 +1683,10 @@ final class PhotoLibraryViewModel: ObservableObject {
             photos: routedPhotos
         )
         
+        self.pendingRoutedPlan = plan
+    }
+
+    func executeRoutedPlan(_ plan: RoutedPlan) {
         let categoryNames = Dictionary(
             uniqueKeysWithValues: tagStore.categories.map { ($0.id, $0.name) }
         )
@@ -1689,11 +1694,14 @@ final class PhotoLibraryViewModel: ObservableObject {
             categoryNames[id]
         }
         
+        let operation = plan.operation
+        let selectedCount = plan.photos.count
+        
         transferTask?.cancel()
         isTransferring = true
         operationProgress = nil
         errorMessage = nil
-        statusMessage = "\(operation.progressTitle) \(selected.count) photo sets into routed folders..."
+        statusMessage = "\(operation.progressTitle) \(selectedCount) photo sets into routed folders..."
         
         let currentSources = sourceDirectories
         transferTask = Task { @MainActor [routedTransfer, currentSources] in

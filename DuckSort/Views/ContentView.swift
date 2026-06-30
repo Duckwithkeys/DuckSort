@@ -40,6 +40,20 @@ struct ContentView: View {
             } message: {
                 Text(viewModel.errorMessage ?? "")
             }
+            .sheet(item: $viewModel.pendingRoutedPlan) { plan in
+                PreFlightVisualizerView(
+                    plan: plan,
+                    viewModel: viewModel,
+                    onConfirm: {
+                        viewModel.pendingRoutedPlan = nil
+                        viewModel.executeRoutedPlan(plan)
+                    },
+                    onCancel: {
+                        viewModel.pendingRoutedPlan = nil
+                    }
+                )
+                .frame(minWidth: 800, minHeight: 500)
+            }
             .onAppear {
                 FloatingWindowManager.shared.activeViewModel = viewModel
                 viewModel.registerKeyboardMonitor { event in
