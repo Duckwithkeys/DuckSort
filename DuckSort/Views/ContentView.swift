@@ -641,20 +641,25 @@ struct MainLayout: View {
 
     @ViewBuilder
     private var mainCenter: some View {
-        switch (viewModel.photoSets.isEmpty, viewModel.isScanning) {
-        case (true, false):
-            EmptyLibraryView(isScanning: false) {
-                viewModel.importItems()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case (true, true):
-            EmptyLibraryView(isScanning: true) {
-                viewModel.importItems()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case (false, _):
-            PhotoGridView(viewModel: viewModel)
+        if viewModel.showAnalytics {
+            EXIFAnalyticsView(viewModel: viewModel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch (viewModel.photoSets.isEmpty, viewModel.isScanning) {
+            case (true, false):
+                EmptyLibraryView(isScanning: false) {
+                    viewModel.importItems()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case (true, true):
+                EmptyLibraryView(isScanning: true) {
+                    viewModel.importItems()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case (false, _):
+                PhotoGridView(viewModel: viewModel)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
     }
 }
