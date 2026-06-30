@@ -171,74 +171,79 @@ struct PreFlightVisualizerView: View {
         }
     }
 
-    private func folderSection(for folder: SimulatedFolder) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s8) {
-            // Simulated directory path header (Clickable Button to Collapse/Expand)
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    if collapsedFolders.contains(folder.url) {
+    private func isExpandedBinding(for folder: SimulatedFolder) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedFolders.contains(folder.url) },
+            set: { expand in
+                withAnimation(.smooth(duration: 0.15)) {
+                    if expand {
                         collapsedFolders.remove(folder.url)
                     } else {
                         collapsedFolders.insert(folder.url)
                     }
                 }
-            } label: {
-                HStack(spacing: Theme.Space.s6) {
-                    Image(systemName: collapsedFolders.contains(folder.url) ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Theme.Color.textSecondary)
-                    Image(systemName: "folder")
-                        .foregroundStyle(Theme.Color.accent)
-                    Text(folder.relativeDirectoryPath(base: plan.baseDestination))
-                        .font(Theme.Font.bodyBold)
-                        .foregroundStyle(Theme.Color.textPrimary)
-                    Spacer()
-                    Text("\(folder.files.count) files")
-                        .font(Theme.Font.caption2)
-                        .foregroundStyle(Theme.Color.textTertiary)
-                }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .contentShape(Rectangle())
-                .background(Theme.Color.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.Radius.s))
             }
-            .buttonStyle(.plain)
+        )
+    }
 
-            if !collapsedFolders.contains(folder.url) {
-                // Subfiles mapped inside this folder
-                VStack(alignment: .leading, spacing: Theme.Space.s6) {
-                    ForEach(folder.files) { file in
-                        HStack(spacing: Theme.Space.s10) {
-                            Image(systemName: "doc")
-                                .font(Theme.Font.caption)
-                                .foregroundStyle(Theme.Color.textSecondary)
-                            
-                            Text(file.sourceURL.lastPathComponent)
-                                .font(Theme.Font.monoCaption)
-                                .foregroundStyle(Theme.Color.textPrimary)
-                            
-                            Spacer()
-                            
-                            if case .rename(let uniqueURL) = file.resolution {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.right")
-                                        .font(Theme.Font.caption2)
-                                        .foregroundStyle(Theme.Color.textTertiary)
-                                    Text(uniqueURL.lastPathComponent)
-                                        .font(Theme.Font.monoCaption)
-                                        .foregroundStyle(Theme.Color.accent)
-                                }
+    private func folderSection(for folder: SimulatedFolder) -> some View {
+        DisclosureGroup(isExpanded: isExpandedBinding(for: folder)) {
+            // Subfiles mapped inside this folder
+            VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                ForEach(folder.files) { file in
+                    HStack(spacing: Theme.Space.s10) {
+                        Image(systemName: "doc")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+                        
+                        Text(file.sourceURL.lastPathComponent)
+                            .font(Theme.Font.monoCaption)
+                            .foregroundStyle(Theme.Color.textPrimary)
+                        
+                        Spacer()
+                        
+                        if case .rename(let uniqueURL) = file.resolution {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.right")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textTertiary)
+                                Text(uniqueURL.lastPathComponent)
+                                    .font(Theme.Font.monoCaption)
+                                    .foregroundStyle(Theme.Color.accent)
                             }
-
-                            resolutionPill(for: file.resolution)
                         }
-                        .padding(.leading, Theme.Space.s16)
-                        .padding(.vertical, 2)
+
+                        resolutionPill(for: file.resolution)
                     }
+                    .padding(.vertical, 3)
                 }
-                .transition(.opacity)
             }
+            .padding(.leading, 12)
+            .padding(.vertical, Theme.Space.s6)
+        } label: {
+            HStack(spacing: Theme.Space.s6) {
+                Image(systemName: "folder")
+                    .foregroundStyle(Theme.Color.accent)
+                    .font(.system(size: 11))
+                
+                Text(folder.relativeDirectoryPath(base: plan.baseDestination))
+                    .font(Theme.Font.bodyBold)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                
+                Spacer()
+                
+                Text("\(folder.files.count) files")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.Color.textSecondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        Capsule().fill(Theme.Color.overlaySoft)
+                    )
+            }
+            .padding(.vertical, 4)
         }
+        .tint(Theme.Color.textSecondary)
     }
 
     private func resolutionPill(for resolution: CollisionResolution) -> some View {
