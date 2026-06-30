@@ -707,9 +707,8 @@ final class PhotoLibraryViewModel: ObservableObject {
         _ results: [LoadedPhotoInfo],
         nameToID: [String: UUID]
     ) {
-        guard !results.isEmpty else { return }
-        var metadataCache: [UUID: MetadataSnapshot] = [:]
-        metadataCache.reserveCapacity(results.count)
+        var metadataCache = self.photoMetadata
+        metadataCache.reserveCapacity(metadataCache.count + results.count)
         var batchTags: [UUID: Set<UUID>] = [:]
         var batchCaptions: [UUID: String] = [:]
 
