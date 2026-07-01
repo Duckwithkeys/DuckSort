@@ -229,7 +229,7 @@ struct ContentView: View {
                         }
                     }
                 }
-                .padding(.trailing, 4)
+                .padding(.trailing, 16)
                 .help("Library status (\(viewModel.filterRule.rawValue))")
             }
         }
