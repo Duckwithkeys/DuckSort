@@ -8,6 +8,13 @@ DuckSort matches the flat, dark professional aesthetic of modern photo editors l
 
 ## ✨ Features (v1.3.5)
 
+- **Camera & Lens Performance Insights (EXIF Analytics)**: View Canvas-based, fluidly animated breakdowns of Focal Length, Aperture, ISO, and Shutter Speed parameters, plus "Top Gear Combinations" with average apertures and pick ratio analytics.
+- **Photomator Handoff Integration**: Launch Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) directly with the active RAW/image file via a customizable hotkey (defaults to `E`) or a glassmorphic floating edit button on the viewer canvas.
+- **Speed Culling (Auto-Advance) Settings**: Real-time culling preferences, sound effects, haptic physical clicks, and custom shortcut recording, managed under the Mode Switching Settings tab.
+- **Triple-Pulse Tactile Haptics**: Delivers a distinct mechanical triple-click tactile vibration using a sequence of `.levelChange` and double `.alignment` trackpad triggers.
+- **Integrated XMP Tag Importer Settings**: Import orphaned XMP subjects directly into your active pack via the new "XMP Tags" settings pane.
+- **Horizontal Mouse Scroll on Tag Packs**: Smoothly scroll the templates list in settings using standard mouse horizontal scroll gestures.
+- **CryptoKit File Checksums**: Secure, modern SHA-256 file comparison hash checks migrating away from deprecated `CC_MD5` configurations.
 - **Unified Header Controls & Edge-to-Edge Grid**: Integrated Destination Selection (`tray.and.arrow.down`), Export Routing Rule Selection (`folder.badge.gearshape`), and Copy/Move operations directly into the top window toolbar alongside real-time photo and selection count indicators with vibrant green checkmarks. Bottom footers and redundant grid headers are removed for a clean edge-to-edge view.
 - **Metal GPU Zoom & Instant Memory Release**: `.drawingGroup(opaque: false)` Metal-accelerated pan/zoom gestures with automatic instant memory release of previous high-res image buffers on view swap (~36MB memory saved per swap).
 - **Ultra-Sharp Retina Previews & Extended Dynamic Ceiling**: 600px Retina grid thumbnails, 3072px 5K-ready large viewer previews, immediate zero-hitch GPU bitmap caching, and Display P3 wide-gamut float color precision.

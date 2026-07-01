@@ -1,9 +1,27 @@
 # DuckSort v1.3.5 Release Notes
 
-Welcome to version **1.3.5** of **DuckSort**! This major release unifies the window header with comprehensive routing & transfer controls, streamlines the main photo grid, introduces inline category editing, and ships a sweeping **Graphics Acceleration & On-Device AI Neural Engine Performance Pass** featuring Metal zero-copy rendering, dynamic LOD preloading, ultra-sharp Retina previews, and predictive AI vision auto-tagging.
+Welcome to version **1.3.5** of **DuckSort**! This release unifies the window header with comprehensive routing & transfer controls, streamlines the main photo grid, introduces inline category editing, integrates direct Photomator editing handoffs, exposes comprehensive Speed Culling (Auto-Advance) customization options, adds a multi-pulse haptic physical click sequence, and adds a brand-new EXIF Analytics dashboard.
 
 ## ✨ What's New in v1.3.5
 
+* **Camera & Lens Performance Insights (EXIF Analytics)**:
+  * Added a dedicated "EXIF Analytics" dashboard button in the toolbar (`chart.bar.xaxis`).
+  * Features a full-screen sheet with Canvas-based, fluidly-animated bar charts showing Focal Length, Aperture, ISO Distribution, and Shutter Speed breakdowns.
+  * Displays "Top Gear Combinations" showing camera and lens pairings, occurrence count, average aperture, and pick ratios.
+* **Photomator Integration & Custom Handoff**:
+  * Added a configurable hotkey (defaults to `E`) and a glassmorphic floating **Edit** overlay button on the large viewer.
+  * Instantly launches Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) and opens the current RAW or image file directly.
+* **Speed Culling (Auto-Advance) Customizations & Hotkey**:
+  * Added a "Speed Culling (Auto-Advance)" settings card under the Mode Switching Settings tab.
+  * Allows toggling Auto-Advance sound effects, haptic clicks, and recording a custom global hotkey to toggle the feature instantly.
+* **Triple-Pulse Tactile Haptic click**:
+  * Swapped the faint `.generic` haptic pattern with a triple-pulse mechanical click sequence (`.levelChange` and double `.alignment` bursts in a 30ms queue) for a strong physical feedback tick on supported trackpads.
+* **Orphaned XMP Tags Settings Pane**:
+  * Migrated the XMP Tag Inspector directly into the Settings window as a dedicated pane for importing orphaned XMP subjects into active packs.
+* **Horizontal Mouse Scroll on Tag Packs**:
+  * Added custom horizontal mouse scroll support to the tag pack templates list in Settings.
+* **CryptoKit SHA-256 Migration**:
+  * Migrated `FileNaming.swift` from deprecated CommonCrypto `CC_MD5` to Apple's modern CryptoKit `SHA256` hashing for file checksum comparisons.
 * **Unified Window Header & Top Bar Navigation**:
   * Moved Destination Selection (`tray.and.arrow.down`), Export Routing Rule Menu (`folder.badge.gearshape`), and Copy (`doc.on.doc`) / Move (`folder`) action buttons directly into the top window header toolbar alongside Add Source and Filters.
   * Added a real-time photo count and active selection status item in the top toolbar with a vibrant green checkmark icon (`checkmark.circle.fill` in brand green) showing active selected photo counts.
