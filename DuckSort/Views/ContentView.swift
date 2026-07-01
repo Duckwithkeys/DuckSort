@@ -60,7 +60,7 @@ struct ContentView: View {
                     report: viewModel.computeInsights(),
                     onDismiss: { showInsights = false }
                 )
-                .frame(minWidth: 900, minHeight: 680)
+                .frame(width: 900, height: 680)
             }
             .onAppear {
                 FloatingWindowManager.shared.activeViewModel = viewModel

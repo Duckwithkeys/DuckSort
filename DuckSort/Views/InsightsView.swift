@@ -81,6 +81,7 @@ struct InsightsView: View {
                 }
             }
         }
+        .clipped()
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 animating = true
