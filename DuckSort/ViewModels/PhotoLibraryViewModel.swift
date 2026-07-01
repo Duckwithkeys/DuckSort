@@ -991,6 +991,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         #endif
     }
 
+    func setStatusMessage(_ message: String) {
+        self.statusMessage = message
+    }
+
     func advanceToNext() {
         guard focusedPhotoIndex < filteredPhotoSets.count - 1 else { return }
         focusedPhotoIndex += 1

@@ -288,6 +288,17 @@ struct ContentView: View {
         // so a user-assigned pack swap works from the grid, the large
         // viewer, or anywhere else the global monitor is active. If no
         // pack claims this combo we fall through to the normal handler.
+        if let autoAdvanceHotkeyStr = UserPreferences.shared.autoAdvanceToggleHotkey,
+           !autoAdvanceHotkeyStr.isEmpty {
+            let autoAdvanceShortcut = KeyboardShortcutInfo.parse(autoAdvanceHotkeyStr)
+            if !autoAdvanceShortcut.key.isEmpty && eventMatchesShortcut(event, shortcut: autoAdvanceShortcut) {
+                UserPreferences.shared.speedCullingEnabled.toggle()
+                viewModel.triggerHapticFeedback()
+                viewModel.setStatusMessage("Speed Culling (Auto-Advance): \(UserPreferences.shared.speedCullingEnabled ? "Enabled" : "Disabled")")
+                return true
+            }
+        }
+
         if handlePackHotkey(event) {
             return true
         }
