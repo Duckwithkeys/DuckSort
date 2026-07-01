@@ -2444,7 +2444,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         let workspace = NSWorkspace.shared
         
         // Attempt to launch Photomator explicitly
-        if let photomatorURL = workspace.urlForApplication(withBundleIdentifier: "com.pixelmator.photomator") {
+        if let photomatorURL = workspace.urlForApplication(withBundleIdentifier: "com.pixelmatorteam.pixelmator.touch.x.photo") {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             workspace.open([targetURL], withApplicationAt: photomatorURL, configuration: configuration) { _, error in
