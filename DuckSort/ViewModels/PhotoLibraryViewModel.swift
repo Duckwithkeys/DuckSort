@@ -2436,13 +2436,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         guard focusedPhotoIndex >= 0 && focusedPhotoIndex < filteredPhotoSets.count else { return }
         let photo = filteredPhotoSets[focusedPhotoIndex]
         
-        // Gather all media files (RAW, JPEG, HEIF) and include the .photo-edit sidecar if present
-        var targets = photo.mediaFiles
-        if let editPath = photo.editPath {
-            targets.append(editPath)
-        }
-        
-        guard !targets.isEmpty else { return }
+        // Choose the raw file if present (Photomator prefers editing RAWs), otherwise fallback to JPEG/HEIF
+        let rawExtensions: Set<String> = ["raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"]
+        guard let targetURL = photo.mediaFiles.first(where: { rawExtensions.contains($0.pathExtension.lowercased()) })
+               ?? photo.preferredPreviewURL else { return }
 
         let workspace = NSWorkspace.shared
         
@@ -2450,16 +2447,14 @@ final class PhotoLibraryViewModel: ObservableObject {
         if let photomatorURL = workspace.urlForApplication(withBundleIdentifier: "com.pixelmatorteam.pixelmator.touch.x.photo") {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
-            workspace.open(targets, withApplicationAt: photomatorURL, configuration: configuration) { _, error in
+            workspace.open([targetURL], withApplicationAt: photomatorURL, configuration: configuration) { _, error in
                 if let error {
                     print("Failed to launch Photomator: \(error.localizedDescription)")
                 }
             }
         } else {
-            // Fallback: Open with default application(s)
-            for url in targets {
-                workspace.open(url)
-            }
+            // Fallback: Open with default application
+            workspace.open(targetURL)
         }
     }
 
