@@ -49,7 +49,9 @@ struct LargeImageViewer: View {
         if selected.count >= 2 && selected.count <= 4 {
             comparisonGrid(for: selected)
         } else if let photo = viewModel.currentFocusedPhotoSet {
-            LargeImagePane(photoSet: photo, zoomState: singleZoomState)
+            LargeImagePane(photoSet: photo, zoomState: singleZoomState) {
+                viewModel.openFocusedPhotoInPhotomator()
+            }
                 .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
         } else {
@@ -70,7 +72,9 @@ struct LargeImageViewer: View {
         case 2:
             HStack(spacing: Theme.Space.s12) {
                 ForEach(selected) { photo in
-                    LargeImagePane(photoSet: photo, zoomState: sharedZoomState)
+                    LargeImagePane(photoSet: photo, zoomState: sharedZoomState) {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    }
                         .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
                 }
@@ -78,7 +82,9 @@ struct LargeImageViewer: View {
         case 3:
             HStack(spacing: Theme.Space.s12) {
                 ForEach(selected) { photo in
-                    LargeImagePane(photoSet: photo, zoomState: sharedZoomState)
+                    LargeImagePane(photoSet: photo, zoomState: sharedZoomState) {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    }
                         .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
                 }
@@ -86,18 +92,26 @@ struct LargeImageViewer: View {
         case 4:
             VStack(spacing: Theme.Space.s12) {
                 HStack(spacing: Theme.Space.s12) {
-                    LargeImagePane(photoSet: selected[0], zoomState: sharedZoomState)
+                    LargeImagePane(photoSet: selected[0], zoomState: sharedZoomState) {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    }
                         .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
-                    LargeImagePane(photoSet: selected[1], zoomState: sharedZoomState)
+                    LargeImagePane(photoSet: selected[1], zoomState: sharedZoomState) {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    }
                         .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
                 }
                 HStack(spacing: Theme.Space.s12) {
-                    LargeImagePane(photoSet: selected[2], zoomState: sharedZoomState)
+                    LargeImagePane(photoSet: selected[2], zoomState: sharedZoomState) {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    }
                         .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
-                    LargeImagePane(photoSet: selected[3], zoomState: sharedZoomState)
+                    LargeImagePane(photoSet: selected[3], zoomState: sharedZoomState) {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    }
                         .background(Theme.Color.scrim, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
                         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
                 }

@@ -29,6 +29,7 @@ final class SynchronizedZoomState: ObservableObject, @unchecked Sendable {
 struct LargeImagePane: View {
     let photoSet: PhotoSet
     @ObservedObject var zoomState: SynchronizedZoomState
+    var onEdit: (() -> Void)? = nil
     @StateObject private var imageLoader = LargeImageLoader()
 
     private let minZoom: CGFloat = 0.5
@@ -150,6 +151,28 @@ struct LargeImagePane: View {
                                 .background(pick == 1 ? Theme.Color.danger : Theme.Color.warning, in: Circle())
                                 .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
                                 .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)
+                        }
+
+                        if let onEdit {
+                            Button {
+                                onEdit()
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "slider.horizontal.3")
+                                        .font(.system(size: 11, weight: .bold))
+                                    Text("Edit")
+                                        .font(Theme.Font.caption)
+                                }
+                                .foregroundStyle(Theme.Color.textPrimary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(.ultraThinMaterial, in: Capsule())
+                                .overlay(
+                                    Capsule().stroke(.white.opacity(0.2), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)
                         }
                     }
                     .padding(14)

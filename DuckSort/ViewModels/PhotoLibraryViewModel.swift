@@ -365,6 +365,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.tagManagerHotkey = UserPreferences.shared.tagManagerHotkey
         self.ruleEditorHotkey = UserPreferences.shared.ruleEditorHotkey
         self.openSourceHotkey = UserPreferences.shared.openSourceHotkey
+        self.photomatorHotkey = UserPreferences.shared.photomatorHotkey
 
         
         self.isInitializing = false
@@ -1832,6 +1833,14 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
+    @Published var photomatorHotkey: String? = "e" {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.photomatorHotkey = photomatorHotkey ?? ""
+            UserPreferences.shared.save()
+        }
+    }
+
 
 
     var tagManagerShortcutInfo: KeyboardShortcutInfo? {
@@ -2419,6 +2428,34 @@ final class PhotoLibraryViewModel: ObservableObject {
             shutterBuckets: shutterBuckets,
             topGearCombos: topCombos
         )
+    }
+
+    // MARK: - External Editor Handoff
+
+    func openFocusedPhotoInPhotomator() {
+        guard focusedPhotoIndex >= 0 && focusedPhotoIndex < filteredPhotoSets.count else { return }
+        let photo = filteredPhotoSets[focusedPhotoIndex]
+        
+        // Choose the raw file if present (Photomator prefers editing RAWs), otherwise fallback to JPEG/HEIF
+        let rawExtensions: Set<String> = ["raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"]
+        guard let targetURL = photo.mediaFiles.first(where: { rawExtensions.contains($0.pathExtension.lowercased()) })
+               ?? photo.preferredPreviewURL else { return }
+
+        let workspace = NSWorkspace.shared
+        
+        // Attempt to launch Photomator explicitly
+        if let photomatorURL = workspace.urlForApplication(withBundleIdentifier: "com.pixelmator.photomator") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            workspace.open([targetURL], withApplicationAt: photomatorURL, configuration: configuration) { _, error in
+                if let error {
+                    print("Failed to launch Photomator: \(error.localizedDescription)")
+                }
+            }
+        } else {
+            // Fallback: Open with default application
+            workspace.open(targetURL)
+        }
     }
 
 }

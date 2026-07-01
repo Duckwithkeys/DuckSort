@@ -75,6 +75,7 @@ final class UserPreferences: ObservableObject {
     @Published var ruleEditorHotkey: String = "cmd+r"
     @Published var openSourceHotkey: String = "cmd+o"
     @Published var aiVisionHotkey: String? = "cmd+shift+a"
+    @Published var photomatorHotkey: String? = "e"
 
     // MARK: - IPTC / Copyright Embedding
     //
@@ -125,6 +126,8 @@ final class UserPreferences: ObservableObject {
         static let tagManagerHotkey = "tagManagerHotkey"
         static let ruleEditorHotkey = "ruleEditorHotkey"
         static let openSourceHotkey = "openSourceHotkey"
+        static let aiVisionHotkey = "aiVisionHotkey"
+        static let photomatorHotkey = "photomatorHotkey"
 
         // IPTC / copyright
         static let embedIPTCInExports     = "embedIPTCInExports"
@@ -181,6 +184,8 @@ final class UserPreferences: ObservableObject {
         UserDefaults.standard.set(tagManagerHotkey, forKey: Keys.tagManagerHotkey)
         UserDefaults.standard.set(ruleEditorHotkey, forKey: Keys.ruleEditorHotkey)
         UserDefaults.standard.set(openSourceHotkey, forKey: Keys.openSourceHotkey)
+        UserDefaults.standard.set(aiVisionHotkey, forKey: Keys.aiVisionHotkey)
+        UserDefaults.standard.set(photomatorHotkey, forKey: Keys.photomatorHotkey)
 
         UserDefaults.standard.set(embedIPTCInExports, forKey: Keys.embedIPTCInExports)
         UserDefaults.standard.set(iptcCreatorName, forKey: Keys.iptcCreatorName)
@@ -226,6 +231,8 @@ final class UserPreferences: ObservableObject {
         tagManagerHotkey = UserDefaults.standard.string(forKey: Keys.tagManagerHotkey) ?? "cmd+t"
         ruleEditorHotkey = UserDefaults.standard.string(forKey: Keys.ruleEditorHotkey) ?? "cmd+r"
         openSourceHotkey = UserDefaults.standard.string(forKey: Keys.openSourceHotkey) ?? "cmd+o"
+        aiVisionHotkey = UserDefaults.standard.string(forKey: Keys.aiVisionHotkey)
+        photomatorHotkey = UserDefaults.standard.string(forKey: Keys.photomatorHotkey) ?? "e"
 
         embedIPTCInExports = UserDefaults.standard.bool(forKey: Keys.embedIPTCInExports)
         iptcCreatorName = UserDefaults.standard.string(forKey: Keys.iptcCreatorName) ?? ""
@@ -257,6 +264,8 @@ final class UserPreferences: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Keys.tagManagerHotkey)
         UserDefaults.standard.removeObject(forKey: Keys.ruleEditorHotkey)
         UserDefaults.standard.removeObject(forKey: Keys.openSourceHotkey)
+        UserDefaults.standard.removeObject(forKey: Keys.aiVisionHotkey)
+        UserDefaults.standard.removeObject(forKey: Keys.photomatorHotkey)
 
         UserDefaults.standard.removeObject(forKey: Keys.embedIPTCInExports)
         UserDefaults.standard.removeObject(forKey: Keys.iptcCreatorName)
@@ -285,6 +294,8 @@ final class UserPreferences: ObservableObject {
         tagManagerHotkey = "cmd+t"
         ruleEditorHotkey = "cmd+r"
         openSourceHotkey = "cmd+o"
+        aiVisionHotkey = "cmd+shift+a"
+        photomatorHotkey = "e"
 
         embedIPTCInExports = false
         iptcCreatorName = ""

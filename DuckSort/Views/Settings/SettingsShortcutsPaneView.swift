@@ -145,6 +145,19 @@ private struct ShortcutsDetailContent: View {
                         }
                     }
 
+                    cardSection(title: "External Editors") {
+                        HStack {
+                            Text("Edit in Photomator")
+                                .font(Theme.Font.body)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                                .padding(.leading, Theme.Space.s16)
+                            Spacer()
+                            ShortcutRecorderView(hotkey: $viewModel.photomatorHotkey)
+                                .padding(.trailing, Theme.Space.s16)
+                        }
+                        .frame(height: 44)
+                    }
+
                 case .culling:
                     headerView(
                         title: "Culling & Navigation",

@@ -299,6 +299,15 @@ struct ContentView: View {
             }
         }
 
+        if let photomatorHotkeyStr = UserPreferences.shared.photomatorHotkey,
+           !photomatorHotkeyStr.isEmpty {
+            let photomatorShortcut = KeyboardShortcutInfo.parse(photomatorHotkeyStr)
+            if !photomatorShortcut.key.isEmpty && eventMatchesShortcut(event, shortcut: photomatorShortcut) {
+                viewModel.openFocusedPhotoInPhotomator()
+                return true
+            }
+        }
+
         if handlePackHotkey(event) {
             return true
         }
