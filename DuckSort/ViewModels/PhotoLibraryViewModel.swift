@@ -292,6 +292,18 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.ruleStore = ruleStore ?? ExportRuleStore()
         self.packLibrary = packLibrary ?? TagPackLibrary()
         
+        UserPreferences.shared.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.speedCullingEnabled != UserPreferences.shared.speedCullingEnabled {
+                        self.speedCullingEnabled = UserPreferences.shared.speedCullingEnabled
+                    }
+                    self.updateDerivedState()
+                }
+            }
+            .store(in: &cancellables)
+        
         self.tagStore.objectWillChange
             // Coalesce multiple `objectWillChange` fires from a batch tag
             // operation into a single MainActor pass per runloop cycle.
