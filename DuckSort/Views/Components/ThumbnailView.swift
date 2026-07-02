@@ -63,7 +63,7 @@ struct ThumbnailView: View {
             guard let url else { return }
             
             // Fast cache hit
-            if let hit = ThumbnailCache.global.image(for: url) {
+            if let hit = ThumbnailCache.global.image(for: url, size: size) {
                 loader.image = hit
                 return
             }
@@ -112,14 +112,14 @@ final class ThumbnailService {
     static let shared = ThumbnailService()
 
     private let cache = ThumbnailCache()
-    private let semaphore = AsyncSemaphore(limit: 32)
+    private let semaphore = AsyncSemaphore(limit: 6)
 
     private init() {}
 
     func thumbnail(for url: URL?, size: CGSize) async -> NSImage? {
         guard let url else { return nil }
 
-        if let hit = ThumbnailCache.global.image(for: url) { return hit }
+        if let hit = ThumbnailCache.global.image(for: url, size: size) { return hit }
 
         do {
             try Task.checkCancellation()
@@ -150,7 +150,7 @@ final class ThumbnailService {
         if let cgImage = decodeWithImageIO(url: url, maxPixels: maxPixels, alwaysCreate: alwaysCreate) {
             try Task.checkCancellation()
             let ns = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            ThumbnailCache.global.insert(ns, for: url)
+            ThumbnailCache.global.insert(ns, for: url, size: size)
             return ns
         }
 
@@ -158,7 +158,7 @@ final class ThumbnailService {
         if FileExtension.heifLikeExtensions.contains(ext) {
             if let ns = loadWithNSImage(url: url, maxPixels: maxPixels) {
                 try Task.checkCancellation()
-                ThumbnailCache.global.insert(ns, for: url)
+                ThumbnailCache.global.insert(ns, for: url, size: size)
                 return ns
             }
         }
@@ -177,21 +177,22 @@ final class ThumbnailService {
         do {
             let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             try Task.checkCancellation()
-            ThumbnailCache.global.insert(rep.nsImage, for: url)
+            ThumbnailCache.global.insert(rep.nsImage, for: url, size: size)
             return rep.nsImage
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             let icon = NSWorkspace.shared.icon(forFile: url.path)
-            ThumbnailCache.global.insert(icon, for: url)
+            ThumbnailCache.global.insert(icon, for: url, size: size)
             return icon
         }
     }
 
     private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) -> CGImage? {
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return nil }
         guard !Task.isCancelled else { return nil }
-        let options: [CFString: Any] = [
+        let decodeOptions: [CFString: Any] = [
             (alwaysCreate
                 ? kCGImageSourceCreateThumbnailFromImageAlways
                 : kCGImageSourceCreateThumbnailFromImageIfAbsent): true,
@@ -200,7 +201,7 @@ final class ThumbnailService {
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceShouldAllowFloat: true
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
     }
 
     private func loadWithNSImage(url: URL, maxPixels: CGFloat) -> NSImage? {
@@ -252,13 +253,21 @@ final class ThumbnailCache {
         }
     }
 
-    func image(for url: URL) -> NSImage? {
-        cache.object(forKey: url.standardizedFileURL as NSURL)
+    private func cacheKey(for url: URL, size: CGSize) -> NSURL {
+        let path = url.standardizedFileURL.path + "_\(Int(size.width))x\(Int(size.height))"
+        return NSURL(fileURLWithPath: path)
     }
 
-    func insert(_ image: NSImage, for url: URL) {
-        let cost = Int(max(image.size.width * image.size.height * 4, 1))
-        cache.setObject(image, forKey: url.standardizedFileURL as NSURL, cost: cost)
+    func image(for url: URL, size: CGSize) -> NSImage? {
+        cache.object(forKey: cacheKey(for: url, size: size))
+    }
+
+    func insert(_ image: NSImage, for url: URL, size: CGSize) {
+        let rep = image.representations.first
+        let pw = rep?.pixelsWide ?? Int(image.size.width)
+        let ph = rep?.pixelsHigh ?? Int(image.size.height)
+        let cost = Int(max(pw * ph * 4, 1))
+        cache.setObject(image, forKey: cacheKey(for: url, size: size), cost: cost)
     }
 }
 
@@ -267,7 +276,7 @@ final class ThumbnailCache {
 actor AsyncSemaphore {
     private let limit: Int
     private var current = 0
-    private var waiters: [CheckedContinuation<Void, Error>] = []
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Void, Error>)] = []
 
     init(limit: Int) { self.limit = limit }
 
@@ -277,12 +286,13 @@ actor AsyncSemaphore {
             return
         }
         
+        let id = UUID()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                waiters.append(continuation)
+                waiters.append((id, continuation))
             }
         } onCancel: {
-            Task { await cancelWaiter() }
+            Task { await cancelWaiter(id: id) }
         }
     }
 
@@ -291,19 +301,14 @@ actor AsyncSemaphore {
             current -= 1
         } else {
             let next = waiters.removeFirst()
-            next.resume()
+            next.continuation.resume()
         }
     }
     
-    private func cancelWaiter() {
-        // If a task is cancelled, we try to resume it with CancellationError 
-        // to prevent it from leaking forever.
-        // It's difficult to identify *which* waiter it is without an ID,
-        // but typically removing the last or first pending one is acceptable in simple pools,
-        // or we simply resume the first available with error so it bubbles up.
-        if !waiters.isEmpty {
-            let next = waiters.removeLast()
-            next.resume(throwing: CancellationError())
+    private func cancelWaiter(id: UUID) {
+        if let index = waiters.firstIndex(where: { $0.id == id }) {
+            let cancelled = waiters.remove(at: index)
+            cancelled.continuation.resume(throwing: CancellationError())
         }
     }
 }

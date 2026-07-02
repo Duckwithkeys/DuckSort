@@ -36,7 +36,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         didSet {
             rebuildPhotoSetIndex()
             updateGlobalCounts()
-            updateDerivedState()
+            setNeedsDerivedUpdate()
         }
     }
 
@@ -46,6 +46,18 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// should go through this index instead.
     private var photoSetIndex: [UUID: Int] = [:]
     private var suppressDerivedUpdates = false
+    private var derivedStateDirty = false
+
+    private func setNeedsDerivedUpdate() {
+        guard !suppressDerivedUpdates else { return }
+        guard !derivedStateDirty else { return }
+        derivedStateDirty = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.derivedStateDirty = false
+            self.updateDerivedState()
+        }
+    }
 
     func batchUpdate(_ body: () -> Void) {
         suppressDerivedUpdates = true
@@ -79,22 +91,22 @@ final class PhotoLibraryViewModel: ObservableObject {
             guard !isInitializing else { return }
             UserPreferences.shared.lastFilterRule = filterRule
             UserPreferences.shared.save()
-            updateDerivedState()
+            setNeedsDerivedUpdate()
         }
     }
     @Published var selectedTagFilters: Set<UUID> = [] {
         didSet {
-            updateDerivedState()
+            setNeedsDerivedUpdate()
         }
     }
     @Published var selectedFlags: Set<Int> = [] {
         didSet {
-            updateDerivedState()
+            setNeedsDerivedUpdate()
         }
     }
     @Published var selectedRatings: Set<Int> = [] {
         didSet {
-            updateDerivedState()
+            setNeedsDerivedUpdate()
         }
     }
 
@@ -153,58 +165,58 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     @Published var sortOrder: SortOrder = .name {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var sortDirection: SortDirection = .ascending {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var isFilterPopoverEnabled: Bool = true {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterEditedActive: Bool = false {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterEdited: BinaryFilter = .include {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterRawActive: Bool = false {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterRaw: BinaryFilter = .include {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterRatingActive: Bool = false {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterRatingValue: Int = 0 {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterRatingCondition: RatingCondition = .equalTo {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterFlagActive: Bool = false {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterFlag: FlagFilter = .all {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterNameActive: Bool = false {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var nameFilterQuery: String = "" {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var nameFilterCondition: NameCondition = .contains {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterDateActive: Bool = false {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterStartDate: Date = Date() {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published var filterEndDate: Date = Date() {
-        didSet { updateDerivedState() }
+        didSet { setNeedsDerivedUpdate() }
     }
     @Published private(set) var isScanning = false
     @Published private(set) var isTransferring = false
@@ -441,7 +453,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// Write a caption (description) to the photo set's XMP sidecars and update
     /// the in-memory cache. Pass an empty/whitespace-only string to clear it.
     func setCaption(_ caption: String?, for photoSetID: UUID) {
-        guard let photo = photoSets.first(where: { $0.id == photoSetID }) else { return }
+        guard let idx = photoSetIndex[photoSetID] else { return }
+        let photo = photoSets[idx]
         let trimmed = caption?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
         let previous = photoCaptions[photoSetID]
@@ -724,20 +737,19 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
-    /// Apply a batch of metadata + tag results to the published state in
-    /// ONE `photoSets` assignment. Uses a local O(1) index so we never do
-    /// a `firstIndex(where:)` scan inside the per-photo loop.
     private func applyMetadataAndTagResults(
         _ results: [LoadedPhotoInfo],
         nameToID: [String: UUID]
     ) {
+        guard !results.isEmpty else { return }
+        
+        suppressDerivedUpdates = true
         var metadataCache = self.photoMetadata
         metadataCache.reserveCapacity(metadataCache.count + results.count)
         var batchTags: [UUID: Set<UUID>] = [:]
         var batchCaptions: [UUID: String] = [:]
 
         var updatedSets = self.photoSets
-        let localIndex = Dictionary(uniqueKeysWithValues: updatedSets.enumerated().map { ($1.id, $0) })
 
         for info in results {
             metadataCache[info.id] = info.metadata
@@ -758,7 +770,7 @@ final class PhotoLibraryViewModel: ObservableObject {
                 batchCaptions[info.id] = description
             }
 
-            if let idx = localIndex[info.id] {
+            if let idx = photoSetIndex[info.id] {
                 // Prefer sidecar rating/pick over EXIF — the sidecar is what
                 // the user's editor wrote last, EXIF is whatever the camera
                 // baked in. Only fill in when the photo set doesn't already
@@ -784,6 +796,9 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
         }
         self.photoSets = updatedSets
+        suppressDerivedUpdates = false
+        updateGlobalCounts()
+        updateDerivedState()
     }
 
     /// Compact value type used by `loadMetadataAndTags` to ferry per-photo
@@ -910,18 +925,10 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// to no-op (used when no photo is in scope).
     func setRating(_ rating: Int?, forIDs ids: [PhotoSet.ID]) {
         guard !ids.isEmpty else { return }
-        // Build an index once instead of doing O(n) firstIndex lookups inside
-        // the loop — for a 5,000-photo library that turns 25M comparisons
-        // into 5K.
-        var indexByID: [PhotoSet.ID: Int] = [:]
-        indexByID.reserveCapacity(photoSets.count)
-        for (i, set) in photoSets.enumerated() {
-            indexByID[set.id] = i
-        }
         var updated = photoSets
         var targets: [PhotoSet] = []
         for id in ids {
-            if let index = indexByID[id] {
+            if let index = photoSetIndex[id] {
                 updated[index].rating = rating
                 targets.append(updated[index])
             }
@@ -953,15 +960,10 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// Apply the same pick flag to every photo in ``ids``.
     func setPick(_ pick: Int?, forIDs ids: [PhotoSet.ID]) {
         guard !ids.isEmpty else { return }
-        var indexByID: [PhotoSet.ID: Int] = [:]
-        indexByID.reserveCapacity(photoSets.count)
-        for (i, set) in photoSets.enumerated() {
-            indexByID[set.id] = i
-        }
         var updated = photoSets
         var targets: [PhotoSet] = []
         for id in ids {
-            if let index = indexByID[id] {
+            if let index = photoSetIndex[id] {
                 updated[index].pick = pick
                 targets.append(updated[index])
             }
@@ -1491,7 +1493,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
     
     func applyTag(_ tag: CustomTag, to photoSetID: UUID) {
-        guard let photo = photoSets.first(where: { $0.id == photoSetID }) else { return }
+        guard let idx = photoSetIndex[photoSetID] else { return }
+        let photo = photoSets[idx]
         var current = tagStore.assignedTagIDs(for: photoSetID)
         let alreadyApplied = current.contains(tag.id)
         if !alreadyApplied { current.insert(tag.id) }
@@ -1499,7 +1502,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
     
     func removeTag(_ tag: CustomTag, from photoSetID: UUID) {
-        guard let photo = photoSets.first(where: { $0.id == photoSetID }) else { return }
+        guard let idx = photoSetIndex[photoSetID] else { return }
+        let photo = photoSets[idx]
         var current = tagStore.assignedTagIDs(for: photoSetID)
         current.remove(tag.id)
         commitTagChange(current, for: photo, remove: current.isEmpty)
@@ -1884,6 +1888,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     func updateDerivedState() {
+        guard !suppressDerivedUpdates else { return }
+
         let hasTagFilter = !selectedTagFilters.isEmpty
         let subfolderPath = selectedSubfolderFilter?.standardizedFileURL.path
         let textQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -1894,9 +1900,16 @@ final class PhotoLibraryViewModel: ObservableObject {
         let hasNameFilter = !nameQuery.isEmpty
 
         // Date range boundaries
-        let startOfDay = Calendar.current.startOfDay(for: filterStartDate)
-        let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: filterEndDate)
-            .map { Calendar.current.startOfDay(for: $0) } ?? filterEndDate
+        let startOfDay: Date
+        let endOfDay: Date
+        if isFilterPopoverEnabled && filterDateActive {
+            startOfDay = Calendar.current.startOfDay(for: filterStartDate)
+            endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: filterEndDate)
+                .map { Calendar.current.startOfDay(for: $0) } ?? filterEndDate
+        } else {
+            startOfDay = .distantPast
+            endOfDay = .distantFuture
+        }
 
         var list: [PhotoSet] = []
         list.reserveCapacity(photoSets.count)
@@ -2395,8 +2408,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         for (id, meta) in photoMetadata {
             guard let cam = meta.cameraModel, let lens = meta.lensModel else { continue }
             let key = ComboKey(camera: cam, lens: lens)
-            let photoSet = photoSets.first { $0.id == id }
-            let isPick = photoSet?.pick == 1
+            let isPick = photoSetIndex[id].map { photoSets[$0].pick == 1 } ?? false
             if comboMap[key] == nil { comboMap[key] = ComboData(count: 0, picks: 0, apertures: []) }
             comboMap[key]!.count += 1
             if isPick { comboMap[key]!.picks += 1 }

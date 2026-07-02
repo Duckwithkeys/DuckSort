@@ -60,7 +60,8 @@ struct MetadataReader: Sendable {
             }
         }
 
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?
         else {
             if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {
@@ -128,20 +129,22 @@ struct MetadataReader: Sendable {
             rating = iptc[kCGImagePropertyIPTCStarRating] as? Int
         }
         
-        // Check embedded XMP
-        if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
-           let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
-           let xmpString = String(data: xmpData, encoding: .utf8) {
+        // Check embedded XMP only if we still need rating, pick, or captureDate
+        if rating == nil || pick == nil || captureDate == nil {
+            if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
+               let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
+               let xmpString = String(data: xmpData, encoding: .utf8) {
 
-            let xmpSnapshot = parseXMPText(xmpString)
-            if rating == nil {
-                rating = xmpSnapshot.rating
-            }
-            if pick == nil {
-                pick = xmpSnapshot.pick
-            }
-            if captureDate == nil {
-                captureDate = xmpSnapshot.captureDate
+                let xmpSnapshot = parseXMPText(xmpString)
+                if rating == nil {
+                    rating = xmpSnapshot.rating
+                }
+                if pick == nil {
+                    pick = xmpSnapshot.pick
+                }
+                if captureDate == nil {
+                    captureDate = xmpSnapshot.captureDate
+                }
             }
         }
         
@@ -247,27 +250,53 @@ struct MetadataReader: Sendable {
         }
     }
 
+    private static let isoFormatterFractional: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let isoFormatterPlain: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let gregorianCalendar: Calendar = {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = .current
+        return cal
+    }()
+
     static func parseExifDate(_ string: String) -> Date? {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 10 else { return nil }
 
         // Attempt 1: ISO8601 formatting (with/without fractional seconds or offsets)
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = isoFormatter.date(from: trimmed) {
+        if let date = isoFormatterFractional.date(from: trimmed) {
             return date
         }
-        
-        isoFormatter.formatOptions = [.withInternetDateTime]
-        if let date = isoFormatter.date(from: trimmed) {
+        if let date = isoFormatterPlain.date(from: trimmed) {
             return date
         }
 
         // Attempt 2: Direct numeric separator scanning (safely handles YYYY:MM:DD, YYYY-MM-DD, YYYY/MM/DD)
-        let chars = Array(trimmed)
-        guard let year = Int(String(chars[0...3])),
-              let month = Int(String(chars[5...6])),
-              let day = Int(String(chars[8...9]))
+        let utf8 = Array(trimmed.utf8)
+        
+        func parseSlice(start: Int, len: Int) -> Int? {
+            guard start + len <= utf8.count else { return nil }
+            var val = 0
+            for i in 0..<len {
+                let char = utf8[start + i]
+                guard char >= 48 && char <= 57 else { return nil }
+                val = val * 10 + Int(char - 48)
+            }
+            return val
+        }
+
+        guard let year = parseSlice(start: 0, len: 4),
+              let month = parseSlice(start: 5, len: 2),
+              let day = parseSlice(start: 8, len: 2)
         else {
             return nil
         }
@@ -276,10 +305,10 @@ struct MetadataReader: Sendable {
         var minute = 0
         var second = 0
 
-        if chars.count >= 19 {
-            if let h = Int(String(chars[11...12])),
-               let m = Int(String(chars[14...15])),
-               let s = Int(String(chars[17...18])) {
+        if utf8.count >= 19 {
+            if let h = parseSlice(start: 11, len: 2),
+               let m = parseSlice(start: 14, len: 2),
+               let s = parseSlice(start: 17, len: 2) {
                 hour = h
                 minute = m
                 second = s
@@ -294,23 +323,24 @@ struct MetadataReader: Sendable {
         dateComponents.minute = minute
         dateComponents.second = second
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
-        return calendar.date(from: dateComponents)
+        return gregorianCalendar.date(from: dateComponents)
     }
 
     private func parseXMPText(_ xml: String) -> MetadataSnapshot {
+        let xmlRange = NSRange(xml.startIndex..., in: xml)
+
         func extractValue(forKeys keys: [String]) -> String? {
             for key in keys {
+                guard xml.contains(key) else { continue }
                 // Check attribute: key="val" or key='val'
                 if let regex = Self.precompiledAttrRegexes[key],
-                   let match = regex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
+                   let match = regex.firstMatch(in: xml, options: [], range: xmlRange),
                    let range = Range(match.range(at: 1), in: xml) {
                     return String(xml[range])
                 }
                 // Check tag: <key>val</key>
                 if let regex = Self.precompiledTagRegexes[key],
-                   let match = regex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
+                   let match = regex.firstMatch(in: xml, options: [], range: xmlRange),
                    let range = Range(match.range(at: 1), in: xml) {
                     return String(xml[range])
                 }
@@ -319,8 +349,9 @@ struct MetadataReader: Sendable {
         }
 
         func extractSeqValue(forKey key: String) -> String? {
+            guard xml.contains(key) else { return nil }
             if let regex = Self.seqRegexes[key],
-               let match = regex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
+               let match = regex.firstMatch(in: xml, options: [], range: xmlRange),
                let range = Range(match.range(at: 1), in: xml) {
                 return String(xml[range])
             }
@@ -332,7 +363,7 @@ struct MetadataReader: Sendable {
         let model = extractValue(forKeys: ["tiff:Model", "Model"])
         var cameraModel: String? = nil
         if let make, let model {
-            cameraModel = model.lowercased().contains(make.lowercased()) ? model : "\(make) \(model)"
+            cameraModel = model.range(of: make, options: .caseInsensitive) != nil ? model : "\(make) \(model)"
         } else {
             cameraModel = model ?? make
         }

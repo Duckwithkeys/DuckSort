@@ -91,19 +91,19 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
     ) {
         self.id = id
         self.baseName = baseName
-        let sortedFiles = mediaFiles.sorted { $0.path < $1.path }
+        let sortedFiles = mediaFiles.sorted { Self.previewRank(for: $0) < Self.previewRank(for: $1) }
         self.mediaFiles = sortedFiles
         self.editPath = editPath
 
         self.displayName = baseName.replacingOccurrences(of: "_", with: " ")
                                    .replacingOccurrences(of: "-", with: " ")
 
-        self.preferredPreviewURL = sortedFiles
-            .map { (url: $0, rank: Self.previewRank(for: $0)) }
-            .min(by: { $0.rank < $1.rank })?
-            .url
+        self.preferredPreviewURL = sortedFiles.first
 
-        let extensions = Set(sortedFiles.map { $0.pathExtension.lowercased() })
+        var extensions = Set<String>(minimumCapacity: sortedFiles.count)
+        for url in sortedFiles {
+            extensions.insert(url.pathExtension.lowercased())
+        }
         var hasRaw = false
         var hasJpeg = false
         var hasHeif = false
@@ -160,9 +160,7 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
         lhs.id == rhs.id &&
         lhs.isSelected == rhs.isSelected &&
         lhs.rating == rhs.rating &&
-        lhs.pick == rhs.pick &&
-        lhs.mediaFiles == rhs.mediaFiles &&
-        lhs.editPath == rhs.editPath
+        lhs.pick == rhs.pick
     }
 
     nonisolated func hash(into hasher: inout Hasher) {
@@ -170,8 +168,6 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
         hasher.combine(isSelected)
         hasher.combine(rating)
         hasher.combine(pick)
-        hasher.combine(mediaFiles)
-        hasher.combine(editPath)
     }
 
     private static func previewRank(for url: URL) -> Int {

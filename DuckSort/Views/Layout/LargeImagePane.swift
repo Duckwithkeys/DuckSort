@@ -41,7 +41,10 @@ struct LargeImagePane: View {
                 .ignoresSafeArea()
 
             let highResImage = (imageLoader.loadedURL == photoSet.preferredPreviewURL ? imageLoader.image : nil) ?? LargeImageLoader.cachedImage(for: photoSet.preferredPreviewURL)
-            let lowResImage = photoSet.preferredPreviewURL.flatMap { ThumbnailCache.global.image(for: $0) }
+            let lowResImage = photoSet.preferredPreviewURL.flatMap {
+                ThumbnailCache.global.image(for: $0, size: CGSize(width: 600, height: 600)) ??
+                ThumbnailCache.global.image(for: $0, size: CGSize(width: 128, height: 128))
+            }
 
             if highResImage != nil || lowResImage != nil {
                 GeometryReader { geometry in
@@ -82,7 +85,7 @@ struct LargeImagePane: View {
                                 zoomState.currentAmount = 0
                             }
                             .simultaneously(
-                                with: DragGesture(minimumDistance: 0)
+                                with: DragGesture(minimumDistance: 4)
                                     .onChanged { value in
                                         if (zoomState.zoomScale + zoomState.currentAmount) > 1.0 {
                                             zoomState.panOffset = CGSize(
@@ -300,22 +303,29 @@ final class LargeImageLoader: ObservableObject {
         return resized
     }
 
+    private static let activePreloads = NSCache<NSURL, AnyObject>()
+
     static func cachedImage(for url: URL?) -> NSImage? {
         guard let url else { return nil }
         return cache.object(forKey: url.standardizedFileURL as NSURL)
     }
 
     static func preload(url: URL?) {
-        guard let url else { return }
-        let standardized = url.standardizedFileURL
-        if cache.object(forKey: standardized as NSURL) != nil {
+        guard let url = url?.standardizedFileURL else { return }
+        if cache.object(forKey: url as NSURL) != nil {
             return
         }
+        if activePreloads.object(forKey: url as NSURL) != nil {
+            return
+        }
+        activePreloads.setObject(true as AnyObject, forKey: url as NSURL)
 
         let ext = url.pathExtension.lowercased()
         let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
-        Task.detached(priority: .userInitiated) {
-            if let imageSource = CGImageSourceCreateWithURL(standardized as CFURL, nil) {
+        Task.detached(priority: .utility) {
+            defer { activePreloads.removeObject(forKey: url as NSURL) }
+            let options = [kCGImageSourceShouldCache: false] as CFDictionary
+            if let imageSource = CGImageSourceCreateWithURL(url as CFURL, options) {
                 let options: [CFString: Any] = [
                     alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
                     kCGImageSourceThumbnailMaxPixelSize: CGFloat(2048),
@@ -325,7 +335,7 @@ final class LargeImageLoader: ObservableObject {
                     let previewImage = NSImage(cgImage: thumbnailCG, size: NSSize(width: thumbnailCG.width, height: thumbnailCG.height))
                     let cost = thumbnailCG.width * thumbnailCG.height * 4
                     await MainActor.run {
-                        cache.setObject(previewImage, forKey: standardized as NSURL, cost: cost)
+                        cache.setObject(previewImage, forKey: url as NSURL, cost: cost)
                     }
                     return
                 }
@@ -333,17 +343,23 @@ final class LargeImageLoader: ObservableObject {
 
             // HEIF-friendly fallback when CGImageSource refuses the file.
             if FileExtension.heifLikeExtensions.contains(ext),
-               let raw = NSImage(contentsOf: standardized) {
+               let raw = NSImage(contentsOf: url) {
                 let downsampled = downsample(image: raw, maxPixels: 2048)
                 let cost = Self.cost(for: downsampled)
                 await MainActor.run {
-                    cache.setObject(downsampled, forKey: standardized as NSURL, cost: cost)
+                    cache.setObject(downsampled, forKey: url as NSURL, cost: cost)
                 }
             }
         }
     }
 
     func load(url: URL?) async {
+        guard let url = url?.standardizedFileURL else {
+            image = nil
+            loadedURL = nil
+            return
+        }
+
         let cached = Self.cachedImage(for: url)
         if cached != nil {
             image = cached
@@ -353,7 +369,6 @@ final class LargeImageLoader: ObservableObject {
 
         image = nil
         loadedURL = nil
-        guard let url else { return }
 
         // 1. Try to load using the fast ImageIO CGImageSource in a detached task
         // We load as CGImage (which is thread-safe and has no Sendable restrictions)
@@ -361,7 +376,8 @@ final class LargeImageLoader: ObservableObject {
         let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
         let decodeTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
             if Task.isCancelled { return nil }
-            guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+            guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
             if Task.isCancelled { return nil }
             let options: [CFString: Any] = [
                 alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
@@ -385,7 +401,7 @@ final class LargeImageLoader: ObservableObject {
             // Instantiate NSImage on the Main Actor
             let previewImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             let cost = cgImage.width * cgImage.height * 4
-            Self.cache.setObject(previewImage, forKey: url.standardizedFileURL as NSURL, cost: cost)
+            Self.cache.setObject(previewImage, forKey: url as NSURL, cost: cost)
             image = previewImage
             loadedURL = url
             return
@@ -404,7 +420,7 @@ final class LargeImageLoader: ObservableObject {
             if let nsImage = await fallbackTask.value {
                 if Task.isCancelled { return }
                 let cost = Self.cost(for: nsImage)
-                Self.cache.setObject(nsImage, forKey: url.standardizedFileURL as NSURL, cost: cost)
+                Self.cache.setObject(nsImage, forKey: url as NSURL, cost: cost)
                 image = nsImage
                 loadedURL = url
                 return
@@ -426,9 +442,10 @@ final class LargeImageLoader: ObservableObject {
             if Task.isCancelled { return }
             let nsImage = representation.nsImage
             let cost = representation.cgImage.width * representation.cgImage.height * 4
-            Self.cache.setObject(nsImage, forKey: url.standardizedFileURL as NSURL, cost: cost)
+            Self.cache.setObject(nsImage, forKey: url as NSURL, cost: cost)
             image = nsImage
             loadedURL = url
+            return
         } catch is CancellationError {
             // Task was cancelled, do not write fallback to cache or change state
             return
@@ -451,7 +468,7 @@ final class LargeImageLoader: ObservableObject {
                 if Task.isCancelled { return }
                 if let nsImage = NSImage(data: data) {
                     let cost = Self.cost(for: nsImage)
-                    Self.cache.setObject(nsImage, forKey: url.standardizedFileURL as NSURL, cost: cost)
+                    Self.cache.setObject(nsImage, forKey: url as NSURL, cost: cost)
                     image = nsImage
                     loadedURL = url
                 }
