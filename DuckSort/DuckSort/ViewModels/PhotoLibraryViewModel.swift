@@ -988,26 +988,22 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
-    func triggerHapticFeedback() {
+    enum CullingAction {
+        case flag, reject, rating
+    }
+
+    func triggerHapticFeedback(for action: CullingAction = .flag) {
         let prefs = UserPreferences.shared
         #if os(macOS)
-        if prefs.autoAdvanceHapticEnabled {
-            // Fire multiple haptic clicks in rapid succession to create
-            // a noticeably more forceful physical pulse.
-            let performer = NSHapticFeedbackManager.defaultPerformer
-            performer.perform(.levelChange, performanceTime: .now)
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
-                performer.perform(.alignment, performanceTime: .now)
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                performer.perform(.alignment, performanceTime: .now)
-            }
+        let profile: HapticProfile
+        switch action {
+        case .flag: profile = prefs.hapticProfileFlag
+        case .reject: profile = prefs.hapticProfileReject
+        case .rating: profile = prefs.hapticProfileRating
         }
+        HapticFeedbackManager.shared.performHaptic(profile)
+
         if prefs.autoAdvanceSoundEnabled {
-            // System "Tink" is short, neutral, and built into every macOS
-            // install — no asset bundling required. Loudness respects the
-            // user's system volume / "Play sound effects" preference.
             NSSound.beep()
         }
         #endif

@@ -14,10 +14,12 @@
 import SwiftUI
 import AppKit
 
+@MainActor
 enum Theme {
 
     // MARK: - Color (adaptive, light + dark)
 
+    @MainActor
     enum Color {
 
         static let background = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
@@ -64,11 +66,13 @@ enum Theme {
         static let surfaceDivider     = SwiftUI.Color(red: 0.196, green: 0.196, blue: 0.196) // #323232
         static let surfaceStroke      = SwiftUI.Color(red: 0.235, green: 0.235, blue: 0.243) // #3C3C3E
 
-        // Accent — defer to the system accent color so a user-chosen tint
-        // is honored app-wide. Kept as a named token for places that need
-        // to *read* the accent rather than re-type Color.accentColor.
-        static let accent             = SwiftUI.Color.accentColor
-        static let accentPressed      = SwiftUI.Color(nsColor: .controlAccentColor).opacity(0.85)
+        // Accent — respects user-selected custom accent color highlight
+        static var accent: SwiftUI.Color {
+            UserPreferences.shared.customAccent.color
+        }
+        static var accentPressed: SwiftUI.Color {
+            UserPreferences.shared.customAccent.color.opacity(0.85)
+        }
 
         // Semantic
         static let success            = SwiftUI.Color(red: 0.196, green: 0.776, blue: 0.408) // systemGreen
@@ -76,26 +80,43 @@ enum Theme {
         static let danger             = SwiftUI.Color(red: 1.000, green: 0.271, blue: 0.227) // #FF453A
         static let rating             = SwiftUI.Color(red: 1.000, green: 0.804, blue: 0.196) // systemYellow
 
-        // Text (adaptive - boosted contrast for liquid glass materials)
-        static let textPrimary = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 1.0, alpha: 0.95)
-                : NSColor(white: 0.0, alpha: 0.90)
-        })
-        static let textSecondary = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 1.0, alpha: 0.75)
-                : NSColor(white: 0.0, alpha: 0.70)
-        })
-        static let textTertiary = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 1.0, alpha: 0.55)
-                : NSColor(white: 0.0, alpha: 0.50)
-        })
+        // Text (adaptive - boosted contrast when highContrastEnabled is active)
+        static var textPrimary: SwiftUI.Color {
+            if UserPreferences.shared.highContrastEnabled {
+                return .white
+            }
+            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(white: 1.0, alpha: 0.95)
+                    : NSColor(white: 0.0, alpha: 0.90)
+            })
+        }
+        static var textSecondary: SwiftUI.Color {
+            if UserPreferences.shared.highContrastEnabled {
+                return SwiftUI.Color(white: 0.90)
+            }
+            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(white: 1.0, alpha: 0.75)
+                    : NSColor(white: 0.0, alpha: 0.70)
+            })
+        }
+        static var textTertiary: SwiftUI.Color {
+            if UserPreferences.shared.highContrastEnabled {
+                return SwiftUI.Color(white: 0.75)
+            }
+            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                    ? NSColor(white: 1.0, alpha: 0.55)
+                    : NSColor(white: 0.0, alpha: 0.50)
+            })
+        }
         static let textInverse  = SwiftUI.Color.white
 
         // Selection / row hover tints (over any background).
-        static let rowSelectedFill   = SwiftUI.Color.accentColor.opacity(0.18)
+        static var rowSelectedFill: SwiftUI.Color {
+            UserPreferences.shared.customAccent.color.opacity(0.18)
+        }
         static let rowHoverFill      = SwiftUI.Color.primary.opacity(0.06)
 
         // Image-pane scrim (the photo viewer sits on a near-black scrim).

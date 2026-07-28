@@ -227,7 +227,7 @@ struct SourceRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: isFolder ? "folder" : "photo")
+            Image(systemName: isFolder ? "doc.fill" : "doc")
                 .foregroundStyle(hasError ? Theme.Color.danger : Theme.Color.textSecondary)
                 .frame(width: 16)
             Text(url.lastPathComponent)
@@ -324,10 +324,11 @@ struct SystemFilterRow: View {
 
 // MARK: - Custom Section / Subfolder Rows
 
+@MainActor
 private func iconNameForFolder(_ folder: URL) -> String {
     let name = folder.lastPathComponent.lowercased()
-    if name == "documents" { return "doc.folder.fill" }
-    if name == "downloads" { return "arrow.down.folder.fill" }
+    if name == "documents" { return "doc.fill" }
+    if name == "downloads" { return "arrow.down.doc.fill" }
     if name == "desktop" { return "desktopcomputer" }
     if name.contains("archive") { return "archivebox.fill" }
     if name.contains("creative") { return "paintpalette.fill" }
@@ -335,9 +336,10 @@ private func iconNameForFolder(_ folder: URL) -> String {
     if name.contains("project") { return "shippingbox.fill" }
     if name.contains("graph") { return "chart.bar.fill" }
     if name.contains("permaculture") || name.contains("garden") { return "leaf.fill" }
-    return "folder.fill"
+    return "doc.fill"
 }
 
+@MainActor
 private func iconColorForFolder(_ folder: URL) -> Color {
     let name = folder.lastPathComponent.lowercased()
     if name == "documents" || name == "downloads" || name == "desktop" {
@@ -346,7 +348,7 @@ private func iconColorForFolder(_ folder: URL) -> Color {
     if name.contains("archive") || name.contains("creative") || name.contains("media") || name.contains("pictures") || name.contains("photos") || name.contains("project") || name.contains("graph") || name.contains("permaculture") || name.contains("garden") {
         return Theme.Color.textSecondary
     }
-    return Color.blue // Default standard folder is blue
+    return Color.blue
 }
 
 struct FolderTreeNode: View {

@@ -8,6 +8,46 @@
 import Foundation
 import SwiftUI
 
+enum HapticProfile: String, Codable, CaseIterable, Identifiable, Sendable {
+    case lightTick = "Light Tick"
+    case doubleClick = "Double Click"
+    case heavyPulse = "Heavy Pulse"
+
+    var id: String { rawValue }
+}
+
+enum GlassTranslucencyMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case standard = "Standard Liquid Glass"
+    case subtle = "Subtle Blur"
+    case ultraGlass = "Ultra Translucent"
+    case opaque = "Solid Opaque"
+
+    var id: String { rawValue }
+}
+
+enum CustomAccentColor: String, Codable, CaseIterable, Identifiable, Sendable {
+    case system = "System Accent"
+    case emerald = "Emerald Green"
+    case ocean = "Ocean Blue"
+    case amber = "Sunset Amber"
+    case purple = "Electric Purple"
+    case pink = "Neon Pink"
+
+    var id: String { rawValue }
+
+    @MainActor
+    var color: SwiftUI.Color {
+        switch self {
+        case .system: return SwiftUI.Color.accentColor
+        case .emerald: return SwiftUI.Color(red: 0.196, green: 0.776, blue: 0.408)
+        case .ocean: return SwiftUI.Color(red: 0.040, green: 0.518, blue: 1.000)
+        case .amber: return SwiftUI.Color(red: 1.000, green: 0.624, blue: 0.039)
+        case .purple: return SwiftUI.Color(red: 0.749, green: 0.353, blue: 0.949)
+        case .pink: return SwiftUI.Color(red: 1.000, green: 0.216, blue: 0.373)
+        }
+    }
+}
+
 @MainActor
 final class UserPreferences: ObservableObject {
     static let shared = UserPreferences()
@@ -46,6 +86,26 @@ final class UserPreferences: ObservableObject {
     /// Hotkey the user can press to toggle the master auto-advance
     /// switch without opening Settings. `nil` = no binding.
     @Published var autoAdvanceToggleHotkey: String? = nil {
+        didSet { save() }
+    }
+
+    // MARK: - Appearance & Haptics
+    @Published var customAccent: CustomAccentColor = .system {
+        didSet { save() }
+    }
+    @Published var glassTranslucency: GlassTranslucencyMode = .standard {
+        didSet { save() }
+    }
+    @Published var highContrastEnabled: Bool = false {
+        didSet { save() }
+    }
+    @Published var hapticProfileFlag: HapticProfile = .heavyPulse {
+        didSet { save() }
+    }
+    @Published var hapticProfileReject: HapticProfile = .doubleClick {
+        didSet { save() }
+    }
+    @Published var hapticProfileRating: HapticProfile = .lightTick {
         didSet { save() }
     }
 
@@ -119,6 +179,14 @@ final class UserPreferences: ObservableObject {
         static let autoAdvanceSoundEnabled = "autoAdvanceSoundEnabled"
         static let autoAdvanceToggleHotkey = "autoAdvanceToggleHotkey"
 
+        // Appearance & Haptics
+        static let customAccent = "customAccent"
+        static let glassTranslucency = "glassTranslucency"
+        static let highContrastEnabled = "highContrastEnabled"
+        static let hapticProfileFlag = "hapticProfileFlag"
+        static let hapticProfileReject = "hapticProfileReject"
+        static let hapticProfileRating = "hapticProfileRating"
+
         // Auto tagging
         static let autoTaggingEnabled = "autoTaggingEnabled"
         static let autoTaggingRules = "autoTaggingRules"
@@ -175,6 +243,14 @@ final class UserPreferences: ObservableObject {
         UserDefaults.standard.set(autoAdvanceSoundEnabled, forKey: Keys.autoAdvanceSoundEnabled)
         UserDefaults.standard.set(autoAdvanceToggleHotkey, forKey: Keys.autoAdvanceToggleHotkey)
 
+        // Appearance & Haptics
+        UserDefaults.standard.set(customAccent.rawValue, forKey: Keys.customAccent)
+        UserDefaults.standard.set(glassTranslucency.rawValue, forKey: Keys.glassTranslucency)
+        UserDefaults.standard.set(highContrastEnabled, forKey: Keys.highContrastEnabled)
+        UserDefaults.standard.set(hapticProfileFlag.rawValue, forKey: Keys.hapticProfileFlag)
+        UserDefaults.standard.set(hapticProfileReject.rawValue, forKey: Keys.hapticProfileReject)
+        UserDefaults.standard.set(hapticProfileRating.rawValue, forKey: Keys.hapticProfileRating)
+
         // Auto tagging
         UserDefaults.standard.set(autoTaggingEnabled, forKey: Keys.autoTaggingEnabled)
         if let encoded = try? JSONEncoder().encode(autoTaggingRules) {
@@ -219,6 +295,23 @@ final class UserPreferences: ObservableObject {
         autoAdvanceSoundEnabled = UserDefaults.standard.bool(forKey: Keys.autoAdvanceSoundEnabled)
         autoAdvanceToggleHotkey = UserDefaults.standard.string(forKey: Keys.autoAdvanceToggleHotkey)
         activeTagPackID = UserDefaults.standard.string(forKey: Keys.activeTagPackID) ?? TagPack.defaultPackID
+
+        if let rawAccent = UserDefaults.standard.string(forKey: Keys.customAccent), let acc = CustomAccentColor(rawValue: rawAccent) {
+            customAccent = acc
+        }
+        if let rawGlass = UserDefaults.standard.string(forKey: Keys.glassTranslucency), let mode = GlassTranslucencyMode(rawValue: rawGlass) {
+            glassTranslucency = mode
+        }
+        highContrastEnabled = UserDefaults.standard.bool(forKey: Keys.highContrastEnabled)
+        if let rawFlag = UserDefaults.standard.string(forKey: Keys.hapticProfileFlag), let profile = HapticProfile(rawValue: rawFlag) {
+            hapticProfileFlag = profile
+        }
+        if let rawReject = UserDefaults.standard.string(forKey: Keys.hapticProfileReject), let profile = HapticProfile(rawValue: rawReject) {
+            hapticProfileReject = profile
+        }
+        if let rawRating = UserDefaults.standard.string(forKey: Keys.hapticProfileRating), let profile = HapticProfile(rawValue: rawRating) {
+            hapticProfileRating = profile
+        }
 
         // Auto tagging
         autoTaggingEnabled = UserDefaults.standard.bool(forKey: Keys.autoTaggingEnabled)

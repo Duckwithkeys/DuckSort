@@ -21,6 +21,7 @@
 		29ED4D2AD68B4BEF01643C03 /* SettingsPaneWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B3214F3D2A0BDA8A0D6A59 /* SettingsPaneWindow.swift */; };
 		2C92A4DECE485C94DA8F19C7 /* SettingsRulesPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E2D82FBB1499652691B819F /* SettingsRulesPaneView.swift */; };
 		2D58F1F083760A443D86CD73 /* VisionEngineActor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3509D78E1B27605A054FF33C /* VisionEngineActor.swift */; };
+		2EE09B09E9ADF88E57129184 /* HapticFeedbackManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B86F548BB138B2D82A4B9469 /* HapticFeedbackManager.swift */; };
 		2F2AFFD234FCC01524AC38BC /* FolderPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE5635EE4BAB4BB2E2AA60D /* FolderPanel.swift */; };
 		37B252F09AF99052DF0DA57C /* FilenameSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46692D62F0489B6E7671C3B6 /* FilenameSanitizer.swift */; };
 		389218CF5704D14EFAA2C731 /* XMPTagInspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C5105C82DFFB46839420646 /* XMPTagInspectorView.swift */; };
@@ -60,6 +61,7 @@
 		9B09849180DADB70DA4F4EBE /* ShortcutRecorderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81A825B0532F44F152B8E497 /* ShortcutRecorderView.swift */; };
 		A1FDA818DB0AFBB4350EF957 /* MetadataReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9031656A4CC6CAB74745F678 /* MetadataReader.swift */; };
 		A4E109711142B7AA15852478 /* FileNaming.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77C711587A2BD65A21C6363A /* FileNaming.swift */; };
+		A95A3A39BF1B2D9E958278D3 /* SettingsAppearancePaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1848956E84D6A25D73082EDF /* SettingsAppearancePaneView.swift */; };
 		A9B5B38148DF9AF05F7ABD0D /* SmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF5614B15ED7C21EFDBF562F /* SmokeTests.swift */; };
 		AEAA8D8218CEFD38CD7A9872 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 963B1CFADABA02D686F01552 /* Theme.swift */; };
 		B4B2D8FFA80F0718D06EF1D7 /* EXIFSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7228D82647360B4BB0C17C60 /* EXIFSanitizer.swift */; };
@@ -102,6 +104,7 @@
 		08BD0E782B18D12BB3DF9ACD /* SettingsAutoTaggingPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAutoTaggingPaneView.swift; sourceTree = "<group>"; };
 		09E55EA8AE27FEEB586D07D0 /* FaceClusteringService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceClusteringService.swift; sourceTree = "<group>"; };
 		1184E52C88111EE418D8416B /* FileTransferSidecarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTransferSidecarTests.swift; sourceTree = "<group>"; };
+		1848956E84D6A25D73082EDF /* SettingsAppearancePaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAppearancePaneView.swift; sourceTree = "<group>"; };
 		19DDFBB246CA896FC9FA2C47 /* FileScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileScanner.swift; sourceTree = "<group>"; };
 		1CF2FF0B35B905C252F41912 /* AutoTagSuggestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoTagSuggestionsView.swift; sourceTree = "<group>"; };
 		1E65ADF7DCFB0D5724848482 /* ExportOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportOptions.swift; sourceTree = "<group>"; };
@@ -155,6 +158,7 @@
 		B0B3214F3D2A0BDA8A0D6A59 /* SettingsPaneWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPaneWindow.swift; sourceTree = "<group>"; };
 		B5B3FA2DB6518F2F35324E4C /* CaptionEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptionEditorView.swift; sourceTree = "<group>"; };
 		B728E75D067AB427150D3344 /* HorizontalMouseScrollWrapper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizontalMouseScrollWrapper.swift; sourceTree = "<group>"; };
+		B86F548BB138B2D82A4B9469 /* HapticFeedbackManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticFeedbackManager.swift; sourceTree = "<group>"; };
 		C33694B84956961FFD297D6E /* UserPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserPreferences.swift; sourceTree = "<group>"; };
 		C4F8614179323AB4E373A885 /* PhotoFilterRule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoFilterRule.swift; sourceTree = "<group>"; };
 		C8797E26229C751E3E290B92 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -199,6 +203,7 @@
 		295E9F2A414E62812DFEDB64 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				1848956E84D6A25D73082EDF /* SettingsAppearancePaneView.swift */,
 				08BD0E782B18D12BB3DF9ACD /* SettingsAutoTaggingPaneView.swift */,
 				8C17CE567197E2392618717C /* SettingsIPTCPaneView.swift */,
 				B0B3214F3D2A0BDA8A0D6A59 /* SettingsPaneWindow.swift */,
@@ -377,6 +382,7 @@
 			children = (
 				4BDA7E931BABADAED5B13813 /* FileManager+Directory.swift */,
 				7C15252EAB38589686E1A606 /* FloatingWindowManager.swift */,
+				B86F548BB138B2D82A4B9469 /* HapticFeedbackManager.swift */,
 				8E930DF98D55812A31E16523 /* IOSurfaceMetalRenderer.swift */,
 				025C162E20816F6FB71B863E /* ScrollStateObserver.swift */,
 				963B1CFADABA02D686F01552 /* Theme.swift */,
@@ -545,6 +551,7 @@
 				6F7AE843C2B3541971E6D207 /* FilmstripView.swift in Sources */,
 				7DB5156AD1B7F9E3004D85A7 /* FloatingWindowManager.swift in Sources */,
 				2F2AFFD234FCC01524AC38BC /* FolderPanel.swift in Sources */,
+				2EE09B09E9ADF88E57129184 /* HapticFeedbackManager.swift in Sources */,
 				891E066CCACA503894FC149C /* HeaderFilterBar.swift in Sources */,
 				4016607D802D3059B8E4A9CE /* HorizontalMouseScrollWrapper.swift in Sources */,
 				CE6BDC80C1755BFB602203F2 /* IOSurfaceMetalRenderer.swift in Sources */,
@@ -566,6 +573,7 @@
 				90C363DE2F101B32194C39B4 /* RoutedOperation.swift in Sources */,
 				48F9A7EE6B7F10CB715B3D5F /* RoutedTransferService.swift in Sources */,
 				7A1BCE15797FF118271E15F5 /* ScrollStateObserver.swift in Sources */,
+				A95A3A39BF1B2D9E958278D3 /* SettingsAppearancePaneView.swift in Sources */,
 				51F35755B8CD2539AEB31AEF /* SettingsAutoTaggingPaneView.swift in Sources */,
 				ED3289D40BE7B30CE889F6BE /* SettingsIPTCPaneView.swift in Sources */,
 				29ED4D2AD68B4BEF01643C03 /* SettingsPaneWindow.swift in Sources */,

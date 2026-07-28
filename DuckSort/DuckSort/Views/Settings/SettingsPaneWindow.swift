@@ -18,6 +18,7 @@ enum SettingsTab: String, CaseIterable {
     case copyright  = "Copyright"
     case shortcuts  = "Shortcuts"
     case autoTagging = "Mode Switching"
+    case appearance = "Appearance"
 
     var systemImage: String {
         switch self {
@@ -27,6 +28,7 @@ enum SettingsTab: String, CaseIterable {
         case .copyright:  return "c.circle"
         case .shortcuts:  return "keyboard.badge.ellipsis"
         case .autoTagging: return "slider.horizontal.3"
+        case .appearance: return "paintpalette.fill"
         }
     }
 }
@@ -74,6 +76,8 @@ struct SettingsPaneView: View {
                         preferences: UserPreferences.shared,
                         tagStore: viewModel.tagStore
                     )
+                case .appearance:
+                    SettingsAppearancePaneView(preferences: UserPreferences.shared)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
