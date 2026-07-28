@@ -23,6 +23,9 @@ targets:
         COMBINE_HIDPI_IMAGES: YES
         ENABLE_HARDENED_RUNTIME: YES
         CODE_SIGN_IDENTITY: "-"
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+        ALWAYS_SEARCH_USER_PATHS: NO
+        CLANG_ENABLE_OBJC_ARC: YES
 
   DuckSortTests:
     type: bundle.unit-test

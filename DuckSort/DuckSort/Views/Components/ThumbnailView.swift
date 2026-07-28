@@ -190,7 +190,7 @@ final class ThumbnailService {
         }
     }
 
-    private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) -> CGImage? {
+    nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) -> CGImage? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return nil }
         guard !Task.isCancelled else { return nil }
@@ -206,7 +206,7 @@ final class ThumbnailService {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
     }
 
-    private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) -> CGImage? {
+    nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) -> CGImage? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return nil }
         
