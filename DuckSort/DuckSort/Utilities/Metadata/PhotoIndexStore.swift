@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Accelerate
 
 final class PhotoIndexStore: @unchecked Sendable {
     private let lock = NSLock()
@@ -15,6 +16,7 @@ final class PhotoIndexStore: @unchecked Sendable {
     private var byRating: [Int: Set<UUID>] = [:]
     private var byPick: [Int: Set<UUID>] = [:]
     private var geohashBins: [String: Set<UUID>] = [:]
+    private var featurePrints: [UUID: [Float]] = [:]
     
     func index(_ photoSets: [PhotoSet]) {
         lock.lock()
@@ -30,6 +32,50 @@ final class PhotoIndexStore: @unchecked Sendable {
                 byPick[pick, default: []].insert(photo.id)
             }
         }
+    }
+
+    func indexFeaturePrint(id: UUID, vector: [Float]) {
+        guard !vector.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        featurePrints[id] = vector
+    }
+
+    /// Computes cosine similarity between two float vectors using Accelerate vDSP.
+    private func cosineSimilarity(_ v1: [Float], _ v2: [Float]) -> Float {
+        guard v1.count == v2.count, !v1.isEmpty else { return 0.0 }
+        var dot: Float = 0.0
+        var norm1: Float = 0.0
+        var norm2: Float = 0.0
+
+        vDSP_dotpr(v1, 1, v2, 1, &dot, vDSP_Length(v1.count))
+        vDSP_svesq(v1, 1, &norm1, vDSP_Length(v1.count))
+        vDSP_svesq(v2, 1, &norm2, vDSP_Length(v2.count))
+
+        let denom = sqrt(norm1) * sqrt(norm2)
+        guard denom > 0 else { return 0.0 }
+        return dot / denom
+    }
+
+    /// Finds indexed photos matching or exceeding a visual similarity threshold.
+    func findSimilarPhotos(to id: UUID, similarityThreshold: Float = 0.85) -> [PhotoSet] {
+        lock.lock()
+        guard let targetVector = featurePrints[id] else {
+            lock.unlock()
+            return []
+        }
+        let allPrints = featurePrints
+        let allPhotos = byID
+        lock.unlock()
+
+        var results: [PhotoSet] = []
+        for (otherID, otherVector) in allPrints where otherID != id {
+            let similarity = cosineSimilarity(targetVector, otherVector)
+            if similarity >= similarityThreshold, let photo = allPhotos[otherID] {
+                results.append(photo)
+            }
+        }
+        return results
     }
     
     func photo(for id: UUID) -> PhotoSet? {
@@ -67,6 +113,7 @@ final class PhotoIndexStore: @unchecked Sendable {
         byRating.removeAll()
         byPick.removeAll()
         geohashBins.removeAll()
+        featurePrints.removeAll()
     }
     
     // MARK: - Geohash Helper

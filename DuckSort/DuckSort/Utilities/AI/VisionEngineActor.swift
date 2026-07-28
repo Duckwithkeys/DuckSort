@@ -28,6 +28,7 @@ final class VisionEngineActor {
     private let cache = NSCache<NSURL, NSArray>()
     private let classifyRequest: VNClassifyImageRequest
     private let bodyPoseRequest: VNDetectHumanBodyPoseRequest
+    private let featurePrintRequest: VNGenerateImageFeaturePrintRequest
 
     private init() {
         cache.countLimit = 500
@@ -38,6 +39,10 @@ final class VisionEngineActor {
         let bodyPose = VNDetectHumanBodyPoseRequest()
         bodyPose.preferBackgroundProcessing = true
         self.bodyPoseRequest = bodyPose
+
+        let featurePrint = VNGenerateImageFeaturePrintRequest()
+        featurePrint.preferBackgroundProcessing = true
+        self.featurePrintRequest = featurePrint
     }
 
     /// Classifies the content of an image file asynchronously with Neural Engine acceleration.
@@ -89,5 +94,37 @@ final class VisionEngineActor {
         try handler.perform([bodyPoseRequest])
 
         return bodyPoseRequest.results?.count ?? 0
+    }
+
+    /// Generates a Vision feature print embedding vector for similarity and burst culling lookups.
+    func generateFeaturePrint(at url: URL) async throws -> [Float] {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: 512,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false
+        ]
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+            return []
+        }
+
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([featurePrintRequest])
+
+        guard let observation = featurePrintRequest.results?.first as? VNFeaturePrintObservation else {
+            return []
+        }
+
+        var vector = [Float](repeating: 0, count: observation.elementCount)
+        let data = observation.data
+        data.withUnsafeBytes { rawBuffer in
+            if let floatBuffer = rawBuffer.bindMemory(to: Float.self).baseAddress {
+                for i in 0..<observation.elementCount {
+                    vector[i] = floatBuffer[i]
+                }
+            }
+        }
+        return vector
     }
 }

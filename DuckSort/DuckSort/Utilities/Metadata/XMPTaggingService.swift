@@ -30,6 +30,30 @@ import ImageIO
 
 struct XMPTaggingService: Sendable {
 
+    /// Reads extended attribute metadata digest from file to validate sidecar freshness without full XML parse.
+    static func validateFreshness(for url: URL, expectedHash: String) -> Bool {
+        let name = "com.ducksort.metadata.hash"
+        let path = url.path
+        let length = getxattr(path, name, nil, 0, 0, 0)
+        guard length > 0 else { return false }
+        var data = Data(count: length)
+        let result = data.withUnsafeMutableBytes {
+            getxattr(path, name, $0.baseAddress, length, 0, 0)
+        }
+        guard result >= 0, let hashStr = String(data: data, encoding: .utf8) else { return false }
+        return hashStr == expectedHash
+    }
+
+    /// Stamps the extended attribute hash digest onto an XMP sidecar file.
+    static func stampExtendedAttributeHash(_ hashStr: String, to url: URL) {
+        let name = "com.ducksort.metadata.hash"
+        guard let data = hashStr.data(using: .utf8) else { return }
+        let path = url.path
+        data.withUnsafeBytes {
+            setxattr(path, name, $0.baseAddress, data.count, 0, 0)
+        }
+    }
+
     /// Apply the given tag names to every XMP sidecar belonging to the photo set.
     /// Tag names are written as <dc:subject> <rdf:li> entries so apps like
     /// Photomator, Lightroom, and Bridge can read them.
@@ -38,6 +62,7 @@ struct XMPTaggingService: Sendable {
         guard !urls.isEmpty else { return }
         for url in urls {
             try writeSidecar(tagNames: tagNames, to: url)
+            Self.stampExtendedAttributeHash("\(tagNames.hashValue)", to: url)
         }
     }
 

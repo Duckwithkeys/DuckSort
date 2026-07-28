@@ -10,6 +10,16 @@ import Foundation
 import Metal
 import CoreVideo
 import AppKit
+import Accelerate
+
+struct ImageHistogramResult: Sendable {
+    let red: [vImagePixelCount]
+    let green: [vImagePixelCount]
+    let blue: [vImagePixelCount]
+    let alpha: [vImagePixelCount]
+    let highlightClippingPercent: Float
+    let shadowClippingPercent: Float
+}
 
 final class IOSurfaceMetalRenderer: @unchecked Sendable {
     static let shared = IOSurfaceMetalRenderer()
@@ -32,6 +42,70 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
         if let cache = textureCache {
             CVMetalTextureCacheFlush(cache, 0)
         }
+    }
+
+    /// Computes 256-bin RGB luminance histograms and clipping metrics using Accelerate vImage.
+    func computeHistogram(from cgImage: CGImage) -> ImageHistogramResult? {
+        var format = vImage_CGImageFormat(
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            colorSpace: nil,
+            bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.first.rawValue),
+            version: 0,
+            decode: nil,
+            renderingIntent: .defaultIntent
+        )
+
+        var srcBuffer = vImage_Buffer()
+        guard vImageBuffer_InitWithCGImage(&srcBuffer, &format, nil, cgImage, vImage_Flags(kvImageNoFlags)) == kvImageNoError else {
+            return nil
+        }
+        defer { free(srcBuffer.data) }
+
+        let r = UnsafeMutablePointer<vImagePixelCount>.allocate(capacity: 256)
+        let g = UnsafeMutablePointer<vImagePixelCount>.allocate(capacity: 256)
+        let b = UnsafeMutablePointer<vImagePixelCount>.allocate(capacity: 256)
+        let a = UnsafeMutablePointer<vImagePixelCount>.allocate(capacity: 256)
+
+        defer {
+            r.deallocate()
+            g.deallocate()
+            b.deallocate()
+            a.deallocate()
+        }
+
+        r.initialize(repeating: 0, count: 256)
+        g.initialize(repeating: 0, count: 256)
+        b.initialize(repeating: 0, count: 256)
+        a.initialize(repeating: 0, count: 256)
+
+        var histogram: [UnsafeMutablePointer<vImagePixelCount>?] = [r, g, b, a]
+        let error = histogram.withUnsafeMutableBufferPointer { ptr in
+            vImageHistogramCalculation_ARGB8888(&srcBuffer, ptr.baseAddress!, vImage_Flags(kvImageNoFlags))
+        }
+
+        guard error == kvImageNoError else { return nil }
+
+        let redBins = Array(UnsafeBufferPointer(start: r, count: 256))
+        let greenBins = Array(UnsafeBufferPointer(start: g, count: 256))
+        let blueBins = Array(UnsafeBufferPointer(start: b, count: 256))
+        let alphaBins = Array(UnsafeBufferPointer(start: a, count: 256))
+
+        let totalPixels = Float(cgImage.width * cgImage.height)
+        let overexposedPixels = Float(redBins[255] + greenBins[255] + blueBins[255]) / 3.0
+        let underexposedPixels = Float(redBins[0] + greenBins[0] + blueBins[0]) / 3.0
+
+        let highlightClip = totalPixels > 0 ? (overexposedPixels / totalPixels) * 100.0 : 0.0
+        let shadowClip = totalPixels > 0 ? (underexposedPixels / totalPixels) * 100.0 : 0.0
+
+        return ImageHistogramResult(
+            red: redBins,
+            green: greenBins,
+            blue: blueBins,
+            alpha: alphaBins,
+            highlightClippingPercent: highlightClip,
+            shadowClippingPercent: shadowClip
+        )
     }
 
     /// Wraps a CVPixelBuffer backed by an IOSurface into a Metal texture without CPU copy memory overhead.
