@@ -1,0 +1,768 @@
+//
+//  ContentView.swift
+//  DuckSort
+//
+
+import SwiftUI
+import AppKit
+
+struct ContentView: View {
+    @StateObject private var viewModel = PhotoLibraryViewModel()
+    @State private var showOnboarding: Bool = false
+    @State private var showFilterPopover: Bool = false
+    @State private var showTagsPopover: Bool = false
+    @State private var showInsights: Bool = false
+
+    var body: some View {
+        MainLayout(viewModel: viewModel)
+            .background(WindowConfigurator())
+            .frame(minWidth: 920, minHeight: 640)
+            .navigationTitle("")
+            .toolbar { mainToolbar }
+            .overlay {
+                if viewModel.isLargeImageViewerOpen {
+                    LargeImageViewer(viewModel: viewModel)
+                        .transition(.opacity)
+                }
+            }
+            .overlay {
+                if showOnboarding {
+                    OnboardingFlow(viewModel: viewModel) {
+                        showOnboarding = false
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                    .zIndex(100)
+                }
+            }
+            .animation(.easeInOut(duration: 0.22), value: showOnboarding)
+            .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
+            .alert("DuckSort", isPresented: errorBinding) {
+                Button("OK", role: .cancel) { viewModel.errorMessage = nil }
+            } message: {
+                Text(viewModel.errorMessage ?? "")
+            }
+            .sheet(item: $viewModel.pendingRoutedPlan) { plan in
+                PreFlightVisualizerView(
+                    plan: plan,
+                    viewModel: viewModel,
+                    onConfirm: {
+                        viewModel.pendingRoutedPlan = nil
+                        viewModel.executeRoutedPlan(plan)
+                    },
+                    onCancel: {
+                        viewModel.pendingRoutedPlan = nil
+                    }
+                )
+                .frame(minWidth: 800, minHeight: 500)
+            }
+            .sheet(isPresented: $showInsights) {
+                InsightsView(
+                    report: viewModel.computeInsights(),
+                    onDismiss: { showInsights = false }
+                )
+                .frame(width: 900, height: 680)
+            }
+            .onAppear {
+                FloatingWindowManager.shared.activeViewModel = viewModel
+                viewModel.registerKeyboardMonitor { event in
+                    handleGlobalKeyPress(event)
+                }
+                // Show the first-launch wizard unless the user has already
+                // completed it (or dismissed it) in a previous session.
+                if !UserPreferences.shared.hasCompletedOnboarding {
+                    showOnboarding = true
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ducksortShowOnboarding)) { _ in
+                showOnboarding = true
+            }
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        if viewModel.isLargeImageViewerOpen {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    viewModel.closeLargeImageViewer()
+                } label: {
+                    Label("Close Viewer", systemImage: "xmark")
+                }
+                .help("Close viewer (Esc)")
+            }
+        } else {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    viewModel.isSidebarHidden.toggle()
+                } label: {
+                    Label("Toggle Sidebar", systemImage: "sidebar.leading")
+                }
+                .help("Show or hide the sidebar")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.addSourceDirectory()
+                } label: {
+                    Label {
+                        Text("Add Source")
+                    } icon: {
+                        Image(systemName: "plus.rectangle.on.folder")
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                }
+                .help("Add a source folder (⇧⌘O)")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showFilterPopover.toggle()
+                } label: {
+                    Label {
+                        Text("Filters")
+                    } icon: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                            .foregroundStyle(viewModel.activeFilterCount > 0 && viewModel.isFilterPopoverEnabled ? Theme.Color.accent : Theme.Color.textSecondary)
+                    }
+                }
+                .help("Filter Options")
+                .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
+                    FilterPopoverContent(viewModel: viewModel)
+                }
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    ForEach(viewModel.ruleStore.rules) { rule in
+                        Button {
+                            viewModel.ruleStore.selectRule(id: rule.id)
+                        } label: {
+                            if viewModel.ruleStore.selectedRuleID == rule.id {
+                                Label(rule.name, systemImage: "checkmark")
+                            } else {
+                                Text(rule.name)
+                            }
+                        }
+                    }
+                } label: {
+                    Label {
+                        Text(viewModel.ruleStore.selectedRule?.name ?? "No Rule")
+                    } icon: {
+                        Image(systemName: "folder.badge.gearshape")
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                }
+                .help("Select Export Routing Rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.chooseDestinationDirectory()
+                } label: {
+                    Label {
+                        if let dest = viewModel.destinationDirectory {
+                            Text(dest.lastPathComponent)
+                        } else {
+                            Text("Destination…")
+                        }
+                    } icon: {
+                        Image(systemName: "tray.and.arrow.down")
+                            .foregroundStyle(viewModel.destinationDirectory != nil ? Theme.Color.accent : Theme.Color.textSecondary)
+                    }
+                }
+                .help(viewModel.destinationDirectory?.path ?? "Choose Destination Directory")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.performRoutedOperation(.copyOriginals)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .disabled(!viewModel.canTransfer)
+                .help("Copy originals to destination using selected rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    viewModel.performRoutedOperation(.moveOriginals)
+                } label: {
+                    Label("Move", systemImage: "folder")
+                }
+                .disabled(!viewModel.canTransfer)
+                .help("Move originals to destination using selected rule")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showInsights = true
+                } label: {
+                    Label("Insights", systemImage: "chart.bar.xaxis")
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .help("Camera & Lens Performance Insights")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: Theme.Space.s6) {
+                    Image(systemName: "photo.stack")
+                        .foregroundStyle(Theme.Color.textSecondary)
+
+                    let total = viewModel.filteredPhotoSets.count
+                    let selected = viewModel.selectedCount
+
+                    Text("\(total)")
+                        .font(Theme.Font.callout)
+                        .foregroundStyle(Theme.Color.textSecondary)
+
+                    if selected > 0 {
+                        Text("•")
+                            .font(Theme.Font.caption)
+                            .foregroundStyle(Theme.Color.textSecondary)
+
+                        HStack(spacing: 3) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(Theme.Color.success)
+                            Text("\(selected)")
+                                .font(Theme.Font.callout)
+                                .foregroundStyle(Theme.Color.textPrimary)
+                        }
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: true)
+                .padding(.trailing, 16)
+                .help("Library status (\(viewModel.filterRule.rawValue))")
+            }
+        }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { if !$0 { viewModel.errorMessage = nil } }
+        )
+    }
+
+    private func isFirstResponderTextField(in window: NSWindow?) -> Bool {
+        guard let firstResponder = window?.firstResponder else { return false }
+        if let textView = firstResponder as? NSTextView {
+            return textView.isEditable
+        }
+        if let textField = firstResponder as? NSTextField {
+            return textField.isEditable
+        }
+        return false
+    }
+
+    // MARK: - Global Key Handling
+
+    private func eventMatchesShortcut(_ event: NSEvent, shortcut: KeyboardShortcutInfo) -> Bool {
+        guard let chars = event.charactersIgnoringModifiers?.lowercased(),
+              chars.count == 1,
+              let char = chars.first else { return false }
+
+        if String(char) != shortcut.key.lowercased() { return false }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return flags.contains(.shift)    == shortcut.shift &&
+               flags.contains(.control)  == shortcut.control &&
+               flags.contains(.option)   == shortcut.option &&
+               flags.contains(.command)  == shortcut.command
+    }
+
+    private func handleGlobalKeyPress(_ event: NSEvent) -> Bool {
+        if let keyWindow = NSApp.keyWindow, keyWindow.isFloatingPanel {
+            return false
+        }
+        if isFirstResponderTextField(in: NSApp.keyWindow) {
+            return false
+        }
+
+        if let chars = event.charactersIgnoringModifiers?.lowercased(),
+           chars == "a",
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
+            viewModel.selectVisiblePhotoSets()
+            return true
+        }
+
+        // Pack hotkey activation runs before any other keypress handling
+        // so a user-assigned pack swap works from the grid, the large
+        // viewer, or anywhere else the global monitor is active. If no
+        // pack claims this combo we fall through to the normal handler.
+        if let autoAdvanceHotkeyStr = UserPreferences.shared.autoAdvanceToggleHotkey,
+           !autoAdvanceHotkeyStr.isEmpty {
+            let autoAdvanceShortcut = KeyboardShortcutInfo.parse(autoAdvanceHotkeyStr)
+            if !autoAdvanceShortcut.key.isEmpty && eventMatchesShortcut(event, shortcut: autoAdvanceShortcut) {
+                UserPreferences.shared.speedCullingEnabled.toggle()
+                viewModel.triggerHapticFeedback()
+                viewModel.setStatusMessage("Speed Culling (Auto-Advance): \(UserPreferences.shared.speedCullingEnabled ? "Enabled" : "Disabled")")
+                return true
+            }
+        }
+
+        if let photomatorHotkeyStr = UserPreferences.shared.photomatorHotkey,
+           !photomatorHotkeyStr.isEmpty {
+            let photomatorShortcut = KeyboardShortcutInfo.parse(photomatorHotkeyStr)
+            if !photomatorShortcut.key.isEmpty && eventMatchesShortcut(event, shortcut: photomatorShortcut) {
+                viewModel.openFocusedPhotoInPhotomator()
+                return true
+            }
+        }
+
+        if handlePackHotkey(event) {
+            return true
+        }
+
+        return viewModel.isLargeImageViewerOpen
+            ? handleViewerKeyPress(event)
+            : handleGridKeyPress(event)
+    }
+
+    /// Look up the user's pressed combo in the pack library's hotkey
+    /// index. If a pack claims this combo, activate it and return true.
+    /// Returns false (so the caller falls through) when no pack matches.
+    private func handlePackHotkey(_ event: NSEvent) -> Bool {
+        guard let chars = event.charactersIgnoringModifiers, chars.count == 1,
+              let char = chars.first else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let info = KeyboardShortcutInfo(
+            key: String(char).lowercased(),
+            shift: flags.contains(.shift),
+            control: flags.contains(.control),
+            option: flags.contains(.option),
+            command: flags.contains(.command)
+        )
+        guard info.key.count == 1 else { return false }
+        if let packID = viewModel.packLibrary.packID(for: info) {
+            viewModel.switchTagPack(id: packID)
+            return true
+        }
+        return false
+    }
+
+    private func handleViewerKeyPress(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 53: // Esc
+            viewModel.closeLargeImageViewer()
+            return true
+
+        case 123, 126:
+            viewModel.navigateFocusedPhoto(delta: -1)
+            return true
+
+        case 124, 125:
+            viewModel.navigateFocusedPhoto(delta: 1)
+            return true
+
+        case 36, 49: // Return / Space
+            viewModel.closeLargeImageViewer()
+            return true
+
+        case 33, 30: // [ / ]
+            let direction = event.keyCode == 33 ? 1 : -1
+            viewModel.cycleCurrentCategory(direction: direction)
+            return true
+
+        default:
+            guard let chars = event.charactersIgnoringModifiers, chars.count == 1 else {
+                return false
+            }
+            return handlePlainViewerKey(char: chars.first!, event: event)
+        }
+    }
+
+    private func handlePlainViewerKey(char: Character, event: NSEvent) -> Bool {
+        let isPlainKey = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+
+        if isPlainKey, char == "s" || char == "S" {
+            if let photo = viewModel.currentFocusedPhotoSet {
+                viewModel.toggleSelection(for: photo.id)
+            }
+            return true
+        }
+
+        if isPlainKey, char == "i" || char == "I" {
+            viewModel.isInspectorOpen.toggle()
+            return true
+        }
+
+        if let rating = Int(String(char)), (0...5).contains(rating) {
+            let ids = viewModel.batchTargetPhotoSets.map(\.id)
+            if !ids.isEmpty {
+                if rating == 0 {
+                    viewModel.clearTags(forIDs: ids)
+                    viewModel.setRating(nil, forIDs: ids)
+                    viewModel.setPick(0, forIDs: ids)
+                } else {
+                    viewModel.setRating(rating, forIDs: ids)
+                }
+                if viewModel.speedCullingEnabled {
+                    viewModel.triggerHapticFeedback()
+                    viewModel.advanceToNext()
+                }
+            }
+            return true
+        }
+
+        switch char.lowercased() {
+        case "z":
+            // Pick-flag is a culling workflow; stays single-photo.
+            if let photo = viewModel.currentFocusedPhotoSet {
+                viewModel.setPick(1, for: photo.id)
+                if viewModel.speedCullingEnabled {
+                    viewModel.triggerHapticFeedback()
+                    viewModel.advanceToNext()
+                }
+            }
+            return true
+        case "x":
+            if let photo = viewModel.currentFocusedPhotoSet { viewModel.rejectAndAdvance(for: photo.id) }
+            return true
+        case "u":
+            let hasTargets = !viewModel.batchTargetPhotoSets.isEmpty
+            viewModel.clearPickFlagOnSelection()
+            if hasTargets && viewModel.speedCullingEnabled {
+                viewModel.triggerHapticFeedback()
+                viewModel.advanceToNext()
+            }
+            return true
+        default:
+            break
+        }
+
+        for tag in viewModel.tagStore.tags {
+            if let shortcut = tag.shortcutInfo, eventMatchesShortcut(event, shortcut: shortcut) {
+                let hasTargets = !viewModel.batchTargetPhotoSets.isEmpty
+                viewModel.applyTagToSelection(tag)
+                if hasTargets && viewModel.speedCullingEnabled {
+                    viewModel.triggerHapticFeedback()
+                    viewModel.advanceToNext()
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    private func handleGridKeyPress(_ event: NSEvent) -> Bool {
+        let count = viewModel.filteredPhotoSets.count
+        guard count > 0 else { return false }
+
+        let cols = max(1, viewModel.gridColumnCount)
+
+        switch event.keyCode {
+        case 123: // Left
+            viewModel.focusedPhotoIndex = max(0, viewModel.focusedPhotoIndex - 1)
+            return true
+        case 124: // Right
+            viewModel.focusedPhotoIndex = min(count - 1, viewModel.focusedPhotoIndex + 1)
+            return true
+        case 126: // Up
+            viewModel.focusedPhotoIndex = max(0, viewModel.focusedPhotoIndex - cols)
+            return true
+        case 125: // Down
+            viewModel.focusedPhotoIndex = min(count - 1, viewModel.focusedPhotoIndex + cols)
+            return true
+
+        case 53: // Esc
+            if viewModel.selectedCount > 0 {
+                viewModel.clearSelection()
+                return true
+            }
+            return false
+
+        case 51, 117: // Backspace / Forward Delete
+            if viewModel.selectedCount > 0 {
+                viewModel.clearSelection()
+                return true
+            }
+            return false
+
+        case 36, 49: // Return / Space
+            viewModel.openLargeImageViewer()
+            return true
+
+        default:
+            guard let chars = event.charactersIgnoringModifiers, chars.count == 1 else {
+                return false
+            }
+            return handlePlainGridKey(char: chars.first!, event: event)
+        }
+    }
+
+    private func handlePlainGridKey(char: Character, event: NSEvent) -> Bool {
+        let count = viewModel.filteredPhotoSets.count
+        let isPlainKey = event.modifierFlags.intersection([.command, .control, .option]).isEmpty
+
+        if isPlainKey, char == "s" || char == "S" {
+            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
+                let photo = viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex]
+                viewModel.toggleSelection(for: photo.id)
+            }
+            return true
+        }
+
+        if isPlainKey, char == "i" || char == "I" {
+            // Open the large image viewer for the focused photo. Matches the
+            // double-click / Return / Space behavior so the user has one
+            // muscle-memory key for "inspect the photo at full size".
+            viewModel.openLargeImageViewer()
+            return true
+        }
+
+        if let rating = Int(String(char)), (0...5).contains(rating) {
+            let targets = viewModel.batchTargetPhotoSets
+            guard !targets.isEmpty else { return true }
+            let ids = targets.map(\.id)
+            if rating == 0 {
+                viewModel.clearTags(forIDs: ids)
+                viewModel.setRating(nil, forIDs: ids)
+                viewModel.setPick(0, forIDs: ids)
+            } else {
+                viewModel.setRating(rating, forIDs: ids)
+            }
+            return true
+        }
+
+        switch char.lowercased() {
+        case "z":
+            // Pick-flag is culling workflow: always on focused photo only,
+            // even if a multi-selection exists. Rejecting N photos at once
+            // would surprise users mid-cull.
+            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
+                viewModel.setPick(1, for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
+            }
+            return true
+        case "x":
+            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
+                viewModel.rejectAndAdvance(for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
+            }
+            return true
+        case "u":
+            viewModel.clearPickFlagOnSelection()
+            return true
+        default:
+            break
+        }
+
+        for tag in viewModel.tagStore.tags {
+            if let shortcut = tag.shortcutInfo, eventMatchesShortcut(event, shortcut: shortcut) {
+                viewModel.applyTagToSelection(tag)
+                return true
+            }
+        }
+        return false
+    }
+}
+
+// MARK: - Keyboard Shortcuts Reference & Configuration Popover
+
+struct ShortcutsPopoverView: View {
+    @ObservedObject var viewModel: PhotoLibraryViewModel
+    var onClose: () -> Void = {}
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: Theme.Space.s14) {
+                VStack(alignment: .leading, spacing: Theme.Space.s8) {
+                    sectionHeader("APP ACTIONS")
+
+                    HStack {
+                        Text("Add Source Folder")
+                        Spacer()
+                        ShortcutRecorderView(hotkey: $viewModel.openSourceHotkey)
+                    }
+                    HStack {
+                        Text("Open Tag Manager")
+                        Spacer()
+                        ShortcutRecorderView(hotkey: $viewModel.tagManagerHotkey)
+                    }
+                    HStack {
+                        Text("Open Routing Rules")
+                        Spacer()
+                        ShortcutRecorderView(hotkey: $viewModel.ruleEditorHotkey)
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                    sectionHeader("CULLING CONTROL")
+
+                    shortcutRow(label: "Toggle Selection", shortcut: "S")
+                    shortcutRow(label: "Clear All Tags", shortcut: "0")
+                    shortcutRow(label: "Close Large Viewer", shortcut: "Esc")
+                    shortcutRow(label: "Navigate Photos", shortcut: "← / → / ↑ / ↓")
+                    shortcutRow(label: "Next/Prev Category", shortcut: "[ / ]")
+                    shortcutRow(label: "Select Visible (Grid)", shortcut: "⌘A")
+                }
+
+                if !viewModel.tagStore.tags.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                        sectionHeader("TAG HOTKEYS")
+
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: Theme.Space.s6) {
+                                ForEach(viewModel.tagStore.tags) { tag in
+                                    if let shortcut = tag.shortcutInfo {
+                                        HStack {
+                                            HStack(spacing: Theme.Space.s6) {
+                                                Circle()
+                                                    .fill(tag.color)
+                                                    .frame(width: 6, height: 6)
+                                                Text(tag.name)
+                                                    .font(Theme.Font.subheadline)
+                                            }
+                                            Spacer()
+                                            Text(shortcut.displayString)
+                                                .font(Theme.Font.monoBody)
+                                                .foregroundStyle(Theme.Color.textSecondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(Theme.Space.s20)
+
+            Divider()
+            HStack {
+                Spacer()
+                Button("Done", action: onClose)
+                    .keyboardShortcut(.defaultAction)
+                Button("", action: onClose)
+                    .keyboardShortcut(.cancelAction)
+                    .hidden()
+            }
+            .padding(Theme.Space.s12)
+        }
+        .frame(width: 340)
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(Theme.Font.subheadline)
+            .foregroundStyle(Theme.Color.textSecondary)
+    }
+
+    private func shortcutRow(label: String, shortcut: String) -> some View {
+        HStack {
+            Text(label)
+                .font(Theme.Font.subheadline)
+            Spacer()
+            Text(shortcut)
+                .font(Theme.Font.monoBody)
+                .foregroundStyle(Theme.Color.textSecondary)
+        }
+    }
+}
+
+// MARK: - Main Layout
+
+struct MainLayout: View {
+    @ObservedObject var viewModel: PhotoLibraryViewModel
+    @State private var isDropTargeted = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            if !viewModel.isSidebarHidden {
+                SidebarView(viewModel: viewModel)
+            }
+
+            mainCenter
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Theme.Color.background)
+            .dropDestination(for: URL.self) { urls, _ in
+                viewModel.importURLs(urls)
+                return !urls.isEmpty
+            } isTargeted: { targeted in
+                isDropTargeted = targeted
+            }
+            .overlay {
+                if isDropTargeted {
+                    PulsingDropTargetOverlay()
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+        }
+    }
+
+    @ViewBuilder
+    private var mainCenter: some View {
+        switch (viewModel.photoSets.isEmpty, viewModel.isScanning) {
+        case (true, false):
+            EmptyLibraryView(isScanning: false) {
+                viewModel.importItems()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case (true, true):
+            EmptyLibraryView(isScanning: true) {
+                viewModel.importItems()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case (false, _):
+            PhotoGridView(viewModel: viewModel)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+// MARK: - Pulsing Drop Target Overlay
+
+struct PulsingDropTargetOverlay: View {
+    @State private var pulseScale = 1.0
+    @State private var phase = 0.0
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: Theme.Radius.l)
+            .strokeBorder(
+                LinearGradient(
+                    colors: [Theme.Color.accent, Theme.Color.success, Theme.Color.accent],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                style: StrokeStyle(lineWidth: 3.5, dash: [10, 5], dashPhase: phase)
+            )
+            .scaleEffect(pulseScale)
+            .padding(Theme.Space.s8)
+            .allowsHitTesting(false)
+            .onAppear {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    phase = 30.0
+                }
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    pulseScale = 0.98
+                }
+            }
+    }
+}
+
+// MARK: - Window Configurator
+struct WindowConfigurator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            configure(view.window)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            configure(nsView.window)
+        }
+    }
+
+    private func configure(_ window: NSWindow?) {
+        guard let window else { return }
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.backgroundColor = NSColor(Theme.Color.background)
+    }
+}

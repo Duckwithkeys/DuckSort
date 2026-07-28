@@ -1,0 +1,2479 @@
+//
+//  PhotoLibraryViewModel.swift
+//  PhotomatorSort
+//
+//  Main-actor state container. Owns the photo library, tag store, export
+//  rule store, and the routed copy/move/export workflow. File-system work
+//  runs through actors so scans and transfers never block SwiftUI updates.
+//
+
+import Combine
+import Foundation
+import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+
+@MainActor
+final class PhotoLibraryViewModel: ObservableObject {
+    
+    // MARK: - Stores
+    
+    let tagStore: TagStore
+    let ruleStore: ExportRuleStore
+    let packLibrary: TagPackLibrary
+    
+    private var isInitializing = true
+    
+    // MARK: - Published state
+    
+    @Published private(set) var sourceDirectories: [URL] = []
+    /// Individually imported files (via drag-and-drop or Import…) that live
+    /// outside of a scanned source directory.
+    @Published private(set) var looseFiles: [URL] = []
+    @Published private(set) var failedSources: Set<URL> = []
+    @Published private(set) var destinationDirectory: URL?
+    @Published var photoSets: [PhotoSet] = [] {
+        didSet {
+            rebuildPhotoSetIndex()
+            updateGlobalCounts()
+            setNeedsDerivedUpdate()
+        }
+    }
+
+    /// O(1) lookup of a photo set's index in `photoSets` by its ID. Rebuilt
+    /// inside the `photoSets` didSet so it stays in sync with the published
+    /// array. Every method that previously did `photoSets.firstIndex(where:)`
+    /// should go through this index instead.
+    private var photoSetIndex: [UUID: Int] = [:]
+    private var suppressDerivedUpdates = false
+    private var derivedStateDirty = false
+
+    private func setNeedsDerivedUpdate() {
+        guard !suppressDerivedUpdates else { return }
+        guard !derivedStateDirty else { return }
+        derivedStateDirty = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.derivedStateDirty = false
+            self.updateDerivedState()
+        }
+    }
+
+    func batchUpdate(_ body: () -> Void) {
+        suppressDerivedUpdates = true
+        body()
+        suppressDerivedUpdates = false
+        updateDerivedState()
+    }
+
+    private func rebuildPhotoSetIndex() {
+        photoSetIndex = Dictionary(uniqueKeysWithValues: photoSets.enumerated().map { ($1.id, $0) })
+    }
+    @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:] {
+        didSet {
+            photoDateCache.removeAll(keepingCapacity: true)
+        }
+    }
+    @Published private(set) var photoCaptions: [UUID: String] = [:]
+    /// XMP tag names read from on-disk sidecars that have no matching tag
+    /// in the currently active pack. Populated during metadata loading so
+    /// the Settings → XMP Tags pane can offer to import them.
+    @Published private(set) var orphanedXmpTagNames: Set<String> = []
+
+    /// Called by the Settings XMP Tags pane after the user imports a batch
+    /// of orphaned names into the active pack, so they disappear from the list.
+    func removeOrphanedXmpTagNames(_ names: Set<String>) {
+        orphanedXmpTagNames.subtract(names)
+    }
+    @Published private(set) var visionSuggestionsCache: [UUID: [AutoTagSuggestion]] = [:]
+    @Published var filterRule: PhotoFilterRule = .allPhotos {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.lastFilterRule = filterRule
+            UserPreferences.shared.save()
+            setNeedsDerivedUpdate()
+        }
+    }
+    @Published var selectedTagFilters: Set<UUID> = [] {
+        didSet {
+            setNeedsDerivedUpdate()
+        }
+    }
+    @Published var selectedFlags: Set<Int> = [] {
+        didSet {
+            setNeedsDerivedUpdate()
+        }
+    }
+    @Published var selectedRatings: Set<Int> = [] {
+        didSet {
+            setNeedsDerivedUpdate()
+        }
+    }
+
+
+    @Published var isInspectorOpen: Bool = false {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.isInspectorOpen = isInspectorOpen
+            UserPreferences.shared.save()
+        }
+    }
+
+    @Published var speedCullingEnabled: Bool = false {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.speedCullingEnabled = speedCullingEnabled
+            UserPreferences.shared.save()
+        }
+    }
+
+    // MARK: - Sorting and Filtering State
+    
+    enum SortOrder: String, CaseIterable {
+        case name = "Name"
+        case date = "Date"
+    }
+
+    enum SortDirection: String, CaseIterable {
+        case ascending = "Ascending"
+        case descending = "Descending"
+    }
+
+    enum BinaryFilter: String, CaseIterable {
+        case include = "Include"
+        case exclude = "Exclude"
+    }
+
+    enum RatingCondition: String, CaseIterable {
+        case equalTo = "Equal to"
+        case greaterThanOrEqualTo = "Greater than or equal to"
+        case lessThanOrEqualTo = "Less than or equal to"
+    }
+
+    enum FlagFilter: String, CaseIterable {
+        case all = "All Flags"
+        case flagged = "Flagged"
+        case rejected = "Rejected"
+        case unflagged = "Unflagged"
+    }
+
+    enum NameCondition: String, CaseIterable {
+        case contains = "Contains"
+        case matches = "Matches"
+        case startsWith = "Starts with"
+        case endsWith = "Ends with"
+    }
+
+    @Published var sortOrder: SortOrder = .name {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var sortDirection: SortDirection = .ascending {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var isFilterPopoverEnabled: Bool = true {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterEditedActive: Bool = false {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterEdited: BinaryFilter = .include {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterRawActive: Bool = false {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterRaw: BinaryFilter = .include {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterRatingActive: Bool = false {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterRatingValue: Int = 0 {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterRatingCondition: RatingCondition = .equalTo {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterFlagActive: Bool = false {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterFlag: FlagFilter = .all {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterNameActive: Bool = false {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var nameFilterQuery: String = "" {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var nameFilterCondition: NameCondition = .contains {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterDateActive: Bool = false {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterStartDate: Date = Date() {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published var filterEndDate: Date = Date() {
+        didSet { setNeedsDerivedUpdate() }
+    }
+    @Published private(set) var isScanning = false
+    @Published private(set) var isTransferring = false
+    @Published private(set) var operationProgress: FileOperationProgress?
+    @Published private(set) var statusMessage = "Choose a photoshoot folder to begin."
+    @Published var errorMessage: String?
+    
+    /// Dismissed auto-tag suggestions: (photoSetID, tagName) pairs.
+    /// Ephemeral — cleared when the photo changes.
+    private var dismissedSuggestions: Set<DismissedSuggestionKey> = []
+    
+    /// Large image viewer state
+    @Published var focusedPhotoIndex: Int = 0 {
+        didSet {
+            // Clear dismissed suggestions when the photo changes
+            // (ephemeral per-session, per-photo).
+            dismissedSuggestions.removeAll()
+            preloadNeighbors(around: focusedPhotoIndex)
+        }
+    }
+    @Published var isLargeImageViewerOpen: Bool = false
+    @Published var currentTagCategoryID: UUID? = nil
+
+    /// Memoized counts & UI state
+    @Published var searchText = ""
+    @Published var nearFocusedIds: Set<UUID> = []
+    
+    @Published var selectedSubfolderFilter: URL? = nil {
+        didSet {
+            updateDerivedState()
+        }
+    }
+    @Published var pendingRoutedPlan: RoutedPlan? = nil
+    @Published var cachedSubfolders: [URL: [URL]] = [:]
+    @Published var cachedSubfolderCounts: [URL: Int] = [:]
+
+    // Folder tree index for the recursive sidebar. Built once when
+    // photoSets changes (not on every read), so the sidebar can render
+    // any node in O(1). Both maps are keyed by the standardized URL
+    // path string so lookups don't allocate.
+    //
+    //   childSubfoldersIndex[parentPath]  -> sorted immediate children paths
+    //   recursivePhotoCountIndex[folderPath] -> photo set count anywhere at or below folder
+    //
+    // Invalidated by `rebuildFolderIndex()`, which is called from the
+    // photoSets didSet (after updateGlobalCounts + updateDerivedState).
+    @Published private(set) var childSubfoldersIndex: [String: [String]] = [:]
+    @Published private(set) var recursivePhotoCountIndex: [String: Int] = [:]
+    @Published private(set) var childFolderURLs: [String: [URL]] = [:]
+
+    // Memoized sidebar counts
+    var cachedAllPhotosCount: Int = 0
+    var cachedEditedCount: Int = 0
+    var cachedUneditedCount: Int = 0
+    var cachedTagCounts: [UUID: Int] = [:]
+    var cachedFlagCounts: [Int: Int] = [:]
+    var cachedRatingCounts: [Int: Int] = [:]
+
+    /// Number of columns the photo grid is currently rendering. Kept in sync by
+    /// PhotoGridView so arrow-key navigation matches the visible layout.
+    var gridColumnCount: Int = 1
+    
+    // MARK: - Services
+    
+    private let scanner = FileScanner()
+    private let xmpTagging = XMPTaggingService()         // new custom tag keywords
+    private let transferService = FileTransferService()
+    private let routedTransfer = RoutedTransferService()
+    private let metadataReader = MetadataReader()
+    private var scanTask: Task<Void, Never>?
+    private var transferTask: Task<Void, Never>?
+    private var tagTask: Task<Void, Never>?
+    private var metadataTask: Task<Void, Never>?
+    
+    private var cancellables = Set<AnyCancellable>()
+    
+    // MARK: - Init
+    
+    init(
+        tagStore: TagStore? = nil,
+        ruleStore: ExportRuleStore? = nil,
+        packLibrary: TagPackLibrary? = nil
+    ) {
+        self.tagStore = tagStore ?? TagStore()
+        self.ruleStore = ruleStore ?? ExportRuleStore()
+        self.packLibrary = packLibrary ?? TagPackLibrary()
+        
+        UserPreferences.shared.objectWillChange
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.speedCullingEnabled != UserPreferences.shared.speedCullingEnabled {
+                        self.speedCullingEnabled = UserPreferences.shared.speedCullingEnabled
+                    }
+                    self.updateDerivedState()
+                }
+            }
+            .store(in: &cancellables)
+        
+        self.tagStore.objectWillChange
+            // Coalesce multiple `objectWillChange` fires from a batch tag
+            // operation into a single MainActor pass per runloop cycle.
+            // Previously a batch setTagsBatch could trigger 4 separate
+            // updateGlobalCounts + updateDerivedState cycles; dispatching
+            // through Task hops onto MainActor asynchronously and folds
+            // multiple notifications queued in the same runloop cycle.
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.updateGlobalCounts()
+                    self.updateDerivedState()
+                    self.objectWillChange.send()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Every change to the live tag/category lists should snapshot back
+        // into the active pack's saved state so the user's edits survive
+        // switching packs and relaunching the app.
+        self.tagStore.$tags
+            .dropFirst()
+            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.syncActivePackFromStore()
+            }
+            .store(in: &cancellables)
+        self.tagStore.$categories
+            .dropFirst()
+            .debounce(for: .milliseconds(200), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.syncActivePackFromStore()
+            }
+            .store(in: &cancellables)
+        
+        $searchText
+            .dropFirst()
+            .removeDuplicates()
+            .debounce(for: .milliseconds(120), scheduler: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateDerivedState()
+            }
+            .store(in: &cancellables)
+        
+        self.filterRule = UserPreferences.shared.lastFilterRule
+
+
+        self.isInspectorOpen = UserPreferences.shared.isInspectorOpen
+        self.speedCullingEnabled = UserPreferences.shared.speedCullingEnabled
+        
+        let urls = UserPreferences.shared.lastSourceDirectoryIDs.map { URL(fileURLWithPath: $0) }
+        self.sourceDirectories = urls
+        self.looseFiles = UserPreferences.shared.lastLooseFilePaths.map { URL(fileURLWithPath: $0) }
+
+        if let destID = UserPreferences.shared.lastDestinationDirectoryID {
+            self.destinationDirectory = URL(fileURLWithPath: destID)
+        }
+
+        self.tagManagerHotkey = UserPreferences.shared.tagManagerHotkey
+        self.ruleEditorHotkey = UserPreferences.shared.ruleEditorHotkey
+        self.openSourceHotkey = UserPreferences.shared.openSourceHotkey
+        self.photomatorHotkey = UserPreferences.shared.photomatorHotkey
+
+        
+        self.isInitializing = false
+        
+        updateGlobalCounts()
+        updateDerivedState()
+        
+        if !sourceDirectories.isEmpty || !looseFiles.isEmpty {
+            Task { [weak self] in
+                self?.scanSourceDirectories(urls)
+            }
+        }
+    }
+    
+    deinit {
+        scanTask?.cancel()
+        transferTask?.cancel()
+        tagTask?.cancel()
+        metadataTask?.cancel()
+        
+        // Clean up keyboard monitor if registered
+        if let keyboardMonitor = keyboardMonitor {
+            NSEvent.removeMonitor(keyboardMonitor)
+        }
+    }
+    
+    // MARK: - Derived state
+    
+    @Published private(set) var filteredPhotoSets: [PhotoSet] = []
+    
+    var selectedPhotoSets: [PhotoSet] {
+        photoSets.filter(\.isSelected)
+    }
+
+    /// O(1) read of the cached selection count. Updated inside
+    /// `updateGlobalCounts()` so the per-frame toolbar and footer don't
+    /// trigger an O(n) filter every body re-evaluation.
+    var selectedCount: Int { cachedSelectedCount }
+
+    /// O(1) read of the cached selected file count. Same caching strategy as
+    /// `selectedCount`.
+    var selectedFileCount: Int { cachedSelectedFileCount }
+
+    private var cachedSelectedCount: Int = 0
+    private var cachedSelectedFileCount: Int = 0
+
+    var editedCount: Int { photoSets.filter(\.hasEdit).count }
+    var uneditedCount: Int { photoSets.count - editedCount }
+    
+    var canTransfer: Bool {
+        destinationDirectory != nil && !selectedPhotoSets.isEmpty && !isTransferring
+    }
+    
+    var currentFocusedPhotoSet: PhotoSet? {
+        let list = filteredPhotoSets
+        guard !list.isEmpty else { return nil }
+        let safe = max(0, min(focusedPhotoIndex, list.count - 1))
+        return list[safe]
+    }
+    
+    func metadata(for photoSet: PhotoSet) -> MetadataSnapshot {
+        var snapshot = photoMetadata[photoSet.id] ?? MetadataSnapshot()
+        if let caption = photoCaptions[photoSet.id] {
+            snapshot.caption = caption
+        }
+        return snapshot
+    }
+
+    func caption(for photoSet: PhotoSet) -> String? {
+        photoCaptions[photoSet.id]
+    }
+
+    /// Write a caption (description) to the photo set's XMP sidecars and update
+    /// the in-memory cache. Pass an empty/whitespace-only string to clear it.
+    func setCaption(_ caption: String?, for photoSetID: UUID) {
+        guard let idx = photoSetIndex[photoSetID] else { return }
+        let photo = photoSets[idx]
+        let trimmed = caption?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized: String? = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        let previous = photoCaptions[photoSetID]
+        if previous == normalized { return }
+
+        if normalized == nil {
+            photoCaptions.removeValue(forKey: photoSetID)
+        } else {
+            photoCaptions[photoSetID] = normalized
+        }
+
+        tagTask = Task { @MainActor [xmpTagging] in
+            do {
+                try xmpTagging.updateCaption(normalized, for: photo)
+            } catch {
+                self.errorMessage = error.localizedDescription
+            }
+        }
+
+        updateDerivedState()
+    }
+    
+    func assignedTags(for photoSet: PhotoSet) -> [CustomTag] {
+        tagStore.assignedTags(for: photoSet.id)
+    }
+    
+    func tags(in categoryID: UUID) -> [CustomTag] {
+        tagStore.tags(in: categoryID)
+    }
+    
+    // MARK: - Directory selection
+    
+    func addSourceDirectory() {
+        guard let url = FolderPanel.chooseDirectory(title: "Add Source Folder") else { return }
+        let standardized = url.standardizedFileURL
+        if !sourceDirectories.contains(standardized) {
+            var updated = sourceDirectories
+            updated.append(standardized)
+            sourceDirectories = updated
+            persistSources()
+            scanSourceDirectories(updated)
+        }
+    }
+
+    /// Open a panel that accepts both files and folders, then import the result.
+    func importItems() {
+        let urls = FolderPanel.chooseItems(title: "Import Photos")
+        guard !urls.isEmpty else { return }
+        importURLs(urls)
+    }
+
+    /// Import a mix of dropped/selected files and folders. Folders become source
+    /// directories (scanned recursively); files are grouped directly into sets.
+    func importURLs(_ urls: [URL]) {
+        let fm = FileManager.default
+        var newDirs: [URL] = []
+        var newFiles: [URL] = []
+
+        for url in urls {
+            let standardized = url.standardizedFileURL
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: standardized.path, isDirectory: &isDir) else { continue }
+            if isDir.boolValue {
+                newDirs.append(standardized)
+            } else {
+                newFiles.append(standardized)
+            }
+        }
+
+        var dirs = sourceDirectories
+        var files = looseFiles
+        var changed = false
+
+        for dir in newDirs where !dirs.contains(dir) {
+            dirs.append(dir)
+            changed = true
+        }
+        for file in newFiles where !files.contains(file) {
+            files.append(file)
+            changed = true
+        }
+
+        guard changed else { return }
+
+        sourceDirectories = dirs
+        looseFiles = files
+        persistSources()
+        scanSourceDirectories(dirs)
+    }
+
+    private func persistSources() {
+        UserPreferences.shared.lastSourceDirectoryIDs = sourceDirectories.map(\.path)
+        UserPreferences.shared.lastLooseFilePaths = looseFiles.map(\.path)
+        UserPreferences.shared.save()
+    }
+    
+    func removeSourceDirectory(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        var updated = sourceDirectories
+        updated.removeAll { $0.standardizedFileURL == standardized }
+        sourceDirectories = updated
+        persistSources()
+        scanSourceDirectories(updated)
+    }
+
+    func removeLooseFile(_ url: URL) {
+        let standardized = url.standardizedFileURL
+        var updated = looseFiles
+        updated.removeAll { $0.standardizedFileURL == standardized }
+        looseFiles = updated
+        persistSources()
+        scanSourceDirectories(sourceDirectories)
+    }
+
+    func clearSourceDirectories() {
+        sourceDirectories = []
+        looseFiles = []
+        photoSets = []
+        photoMetadata = [:]
+        persistSources()
+        statusMessage = "Choose a photoshoot folder to begin."
+    }
+    
+    func chooseDestinationDirectory() {
+        guard let url = FolderPanel.chooseDirectory(title: "Choose Destination Folder") else { return }
+        UserPreferences.shared.lastDestinationDirectoryID = url.standardizedFileURL.path
+        UserPreferences.shared.save()
+        destinationDirectory = url
+        statusMessage = "Destination set to \(url.lastPathComponent)."
+    }
+    
+    // MARK: - Scan
+    
+    func scanSourceDirectories(_ urls: [URL]) {
+        scanTask?.cancel()
+        metadataTask?.cancel()
+        sourceDirectories = urls
+        photoSets = []
+        photoMetadata = [:]
+        failedSources = []
+        errorMessage = nil
+        isScanning = true
+        
+        let looseFiles = self.looseFiles
+
+        if urls.isEmpty && looseFiles.isEmpty {
+            self.statusMessage = "No sources selected."
+            self.isScanning = false
+            return
+        }
+
+        let foldersText = urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) folders"
+        statusMessage = urls.isEmpty
+            ? "Scanning \(looseFiles.count) imported files..."
+            : "Scanning \(foldersText) and subfolders..."
+
+        scanTask = Task { @MainActor [scanner] in
+            var photoSets: [PhotoSet] = []
+            var scannedFileCount = 0
+            var failed: Set<URL> = []
+
+            if !urls.isEmpty {
+                let dirResult = await scanner.scanDirectories(urls)
+                photoSets.append(contentsOf: dirResult.photoSets)
+                scannedFileCount += dirResult.scannedFileCount
+                failed.formUnion(dirResult.failedDirectories)
+            }
+
+            if !looseFiles.isEmpty {
+                let fileResult = await scanner.scanFiles(looseFiles)
+                photoSets.append(contentsOf: fileResult.photoSets)
+                scannedFileCount += fileResult.scannedFileCount
+                failed.formUnion(fileResult.failedDirectories)
+            }
+
+            photoSets.sort {
+                $0.baseName.localizedStandardCompare($1.baseName) == .orderedAscending
+            }
+
+            self.photoSets = photoSets
+            self.failedSources = failed
+            let sourceLabel = urls.map(\.lastPathComponent).joined(separator: ", ")
+            let scope = looseFiles.isEmpty ? sourceLabel
+                : (urls.isEmpty ? "imported files" : "\(sourceLabel) + imported files")
+            
+            if failed.isEmpty {
+                self.statusMessage = "Found \(photoSets.count) photo sets across [\(scope)], \(scannedFileCount) matching files."
+            } else {
+                self.statusMessage = "Found \(photoSets.count) photo sets, \(scannedFileCount) matching files. Warning: \(failed.count) source(s) failed to load."
+            }
+            
+            self.loadMetadataAndTags(for: photoSets)
+            self.isScanning = false
+        }
+    }
+    
+    private func loadMetadata(for photoSets: [PhotoSet]) {
+        // Replaced by loadMetadataAndTags. Kept as an internal entry point so
+        // other call sites still compile while we transition.
+        metadataTask?.cancel()
+        tagTask?.cancel()
+        loadMetadataAndTags(for: photoSets)
+    }
+
+    /// Single-pass loader: reads EXIF + XMP for every photo in one task group,
+    /// in two phases (visible ~100 first, then the rest), and applies all
+    /// results in ONE `photoSets` assignment so `updateGlobalCounts` and
+    /// `updateDerivedState` only fire twice instead of four times.
+    private func loadMetadataAndTags(for photoSets: [PhotoSet]) {
+        metadataTask?.cancel()
+        tagTask?.cancel()
+
+        let sets = photoSets
+        let allTags = tagStore.tags
+        let nameToID: [String: UUID] = Dictionary(
+            allTags.map { ($0.name.lowercased(), $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        metadataTask = Task { @MainActor [metadataReader, xmpTagging] in
+            // ----- Phase 1: visible-first (first 100) -----
+            let firstBatch = Array(sets.prefix(100))
+            let firstResults = await Self.loadBatchMetadataAndTags(
+                firstBatch, metadataReader: metadataReader, xmpTagging: xmpTagging
+            )
+            if Task.isCancelled { return }
+            self.applyMetadataAndTagResults(firstResults, nameToID: nameToID)
+
+            // ----- Phase 2: the remaining sets -----
+            let remaining = Array(sets.dropFirst(100))
+            guard !remaining.isEmpty else { return }
+            let restResults = await Self.loadBatchMetadataAndTags(
+                remaining, metadataReader: metadataReader, xmpTagging: xmpTagging
+            )
+            if Task.isCancelled { return }
+            self.applyMetadataAndTagResults(restResults, nameToID: nameToID)
+        }
+    }
+
+    /// Read EXIF metadata + XMP sidecar for every photo in `batch` in parallel.
+    /// One task per photo so each set's I/O runs concurrently.
+    private static func loadBatchMetadataAndTags(
+        _ batch: [PhotoSet],
+        metadataReader: MetadataReader,
+        xmpTagging: XMPTaggingService
+    ) async -> [LoadedPhotoInfo] {
+        await withTaskGroup(of: LoadedPhotoInfo.self) { group in
+            let maxConcurrency = 16
+            var inFlight = 0
+            var out: [LoadedPhotoInfo] = []
+            out.reserveCapacity(batch.count)
+            for photo in batch {
+                if inFlight >= maxConcurrency {
+                    if let result = await group.next() {
+                        out.append(result)
+                        inFlight -= 1
+                    }
+                }
+                inFlight += 1
+                group.addTask {
+                    let metadata: MetadataSnapshot
+                    if let url = photo.preferredPreviewURL {
+                        metadata = metadataReader.metadata(for: url)
+                    } else {
+                        metadata = MetadataSnapshot()
+                    }
+                    let sidecar = xmpTagging.readSidecarData(from: photo)
+                    return LoadedPhotoInfo(
+                        id: photo.id,
+                        metadata: metadata,
+                        sidecarTags: sidecar.tags,
+                        sidecarRating: sidecar.rating,
+                        sidecarPick: sidecar.pick,
+                        sidecarDescription: sidecar.description
+                    )
+                }
+            }
+            for await result in group { out.append(result) }
+            return out
+        }
+    }
+
+    private func applyMetadataAndTagResults(
+        _ results: [LoadedPhotoInfo],
+        nameToID: [String: UUID]
+    ) {
+        guard !results.isEmpty else { return }
+        
+        suppressDerivedUpdates = true
+        var metadataCache = self.photoMetadata
+        metadataCache.reserveCapacity(metadataCache.count + results.count)
+        var batchTags: [UUID: Set<UUID>] = [:]
+        var batchCaptions: [UUID: String] = [:]
+
+        var updatedSets = self.photoSets
+
+        for info in results {
+            metadataCache[info.id] = info.metadata
+
+            if !info.sidecarTags.isEmpty {
+                let tagIDs = Set(info.sidecarTags.compactMap { nameToID[$0.lowercased()] })
+                if !tagIDs.isEmpty {
+                    batchTags[info.id] = tagIDs
+                }
+                // Collect any names that don't map to an active-pack tag
+                let unmatched = info.sidecarTags.filter { nameToID[$0.lowercased()] == nil }
+                if !unmatched.isEmpty {
+                    self.orphanedXmpTagNames.formUnion(unmatched)
+                }
+            }
+
+            if let description = info.sidecarDescription, !description.isEmpty {
+                batchCaptions[info.id] = description
+            }
+
+            if let idx = photoSetIndex[info.id] {
+                // Prefer sidecar rating/pick over EXIF — the sidecar is what
+                // the user's editor wrote last, EXIF is whatever the camera
+                // baked in. Only fill in when the photo set doesn't already
+                // have a value (preserves any in-memory user state).
+                let rating = info.sidecarRating ?? info.metadata.rating
+                let pick = info.sidecarPick ?? info.metadata.pick
+                if updatedSets[idx].rating == nil, let rating {
+                    updatedSets[idx].rating = rating
+                }
+                if updatedSets[idx].pick == nil, let pick {
+                    updatedSets[idx].pick = pick
+                }
+            }
+        }
+
+        self.photoMetadata = metadataCache
+        if !batchTags.isEmpty {
+            tagStore.setTagsBatch(batchTags)
+        }
+        if !batchCaptions.isEmpty {
+            for (id, caption) in batchCaptions {
+                self.photoCaptions[id] = caption
+            }
+        }
+        self.photoSets = updatedSets
+        suppressDerivedUpdates = false
+        updateGlobalCounts()
+        updateDerivedState()
+    }
+
+    /// Compact value type used by `loadMetadataAndTags` to ferry per-photo
+    /// results out of the task group without depending on the sidecar tuple
+    /// type alias.
+    fileprivate struct LoadedPhotoInfo: Sendable {
+        let id: UUID
+        let metadata: MetadataSnapshot
+        let sidecarTags: Set<String>
+        let sidecarRating: Int?
+        let sidecarPick: Int?
+        let sidecarDescription: String?
+    }
+    
+    func toggleFlagFilter(_ flag: Int) {
+        if selectedFlags.contains(flag) {
+            selectedFlags.remove(flag)
+        } else {
+            selectedFlags.insert(flag)
+        }
+    }
+
+    func toggleRatingFilter(_ rating: Int) {
+        if selectedRatings.contains(rating) {
+            selectedRatings.remove(rating)
+        } else {
+            selectedRatings.insert(rating)
+        }
+    }
+
+    // MARK: - Selection
+    
+    /// The photo set that the user last single-clicked (without shift). This
+    /// is the anchor used for shift-click range selection and for showing the
+    /// "active focus" highlight ring distinct from the broader selection.
+    @Published var selectionAnchorID: PhotoSet.ID? = nil
+
+    func toggleSelection(for id: PhotoSet.ID) {
+        guard let index = photoSetIndex[id] else { return }
+        photoSets[index].isSelected.toggle()
+        // Every toggle updates the anchor to this cell so a subsequent
+        // shift-click extends from it.
+        selectionAnchorID = id
+    }
+
+    func setSelection(_ isSelected: Bool, for id: PhotoSet.ID) {
+        guard let index = photoSetIndex[id] else { return }
+        photoSets[index].isSelected = isSelected
+    }
+
+    /// Select every visible photo set between the anchor (or ``id`` if no
+    /// anchor exists) and ``id``, inclusive. If the anchor is missing, the
+    /// anchor is set to ``id`` and only that cell is selected.
+    func selectRange(to id: PhotoSet.ID, additive: Bool = false) {
+        let visibleIDs = filteredPhotoSets.map(\.id)
+        guard let endIndex = visibleIDs.firstIndex(of: id) else {
+            statusMessage = "Shift-click target not found in current view."
+            return
+        }
+
+        let anchorID = selectionAnchorID ?? id
+        guard let startIndex = visibleIDs.firstIndex(of: anchorID) else {
+            // Anchor was lost (e.g., the anchor photo is filtered out).
+            // Treat the current click as the new anchor.
+            setSelection(true, for: id)
+            selectionAnchorID = id
+            statusMessage = "Set new selection anchor at \(filteredPhotoSets[endIndex].baseName)."
+            return
+        }
+
+        let lower = min(startIndex, endIndex)
+        let upper = max(startIndex, endIndex)
+        let rangeIDs = Set(visibleIDs[lower...upper])
+
+        if additive {
+            // Build a new array with the range merged into the existing
+            // selection in one assignment so the `photoSets` didSet fires
+            // exactly once. Per-subscript mutation would call
+            // updateDerivedState() once per photo — that's what produced
+            // the beach-ball spinner on large libraries.
+            var updated = photoSets
+            for index in updated.indices where rangeIDs.contains(updated[index].id) {
+                updated[index].isSelected = true
+            }
+            photoSets = updated
+        } else {
+            let replaced = photoSets.map { photoSet -> PhotoSet in
+                var copy = photoSet
+                copy.isSelected = rangeIDs.contains(photoSet.id)
+                return copy
+            }
+            photoSets = replaced
+        }
+
+        let direction = startIndex < endIndex ? "forward" : "backward"
+        statusMessage = "Selected \(rangeIDs.count) photo set\(rangeIDs.count == 1 ? "" : "s") in range (\(direction))."
+    }
+
+    /// Replace the entire selection with the given IDs in one batch update.
+    func replaceSelection(with ids: [PhotoSet.ID]) {
+        let idSet = Set(ids)
+        photoSets = photoSets.map { photoSet in
+            var copy = photoSet
+            copy.isSelected = idSet.contains(photoSet.id)
+            return copy
+        }
+    }
+
+    /// Target photo sets for batch metadata operations: the current selection
+    /// if non-empty, otherwise just the focused photo. Used so that pressing
+    /// "1-5 / X / tag hotkey" applies to the user's selection automatically.
+    var batchTargetPhotoSets: [PhotoSet] {
+        let selected = selectedPhotoSets
+        return selected.isEmpty ? (currentFocusedPhotoSet.map { [$0] } ?? []) : selected
+    }
+    
+    // MARK: - Permanent Tags (Rating & Pick)
+
+    func setRating(_ rating: Int?, for id: PhotoSet.ID) {
+        setRating(rating, forIDs: [id])
+    }
+
+    /// Apply the same rating to every photo in ``ids``. Pass an empty array
+    /// to no-op (used when no photo is in scope).
+    func setRating(_ rating: Int?, forIDs ids: [PhotoSet.ID]) {
+        guard !ids.isEmpty else { return }
+        var updated = photoSets
+        var targets: [PhotoSet] = []
+        for id in ids {
+            if let index = photoSetIndex[id] {
+                updated[index].rating = rating
+                targets.append(updated[index])
+            }
+        }
+        photoSets = updated
+
+        if let rating {
+            statusMessage = "Rated \(ids.count) photo set\(ids.count == 1 ? "" : "s") ★\(rating)."
+        } else {
+            statusMessage = "Cleared rating on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
+        }
+
+        Task { [xmpTagging] in
+            for photo in targets {
+                do {
+                    try xmpTagging.updatePermanentTags(rating: rating, pick: photo.pick, for: photo)
+                } catch {
+                    await MainActor.run { self.errorMessage = "Failed to write rating: \(error.localizedDescription)" }
+                    return
+                }
+            }
+        }
+    }
+
+    func setPick(_ pick: Int?, for id: PhotoSet.ID) {
+        setPick(pick, forIDs: [id])
+    }
+
+    /// Apply the same pick flag to every photo in ``ids``.
+    func setPick(_ pick: Int?, forIDs ids: [PhotoSet.ID]) {
+        guard !ids.isEmpty else { return }
+        var updated = photoSets
+        var targets: [PhotoSet] = []
+        for id in ids {
+            if let index = photoSetIndex[id] {
+                updated[index].pick = pick
+                targets.append(updated[index])
+            }
+        }
+        photoSets = updated
+
+        if let pick {
+            statusMessage = "Set pick flag (\(pick)) on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
+        } else {
+            statusMessage = "Cleared pick flag on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
+        }
+
+        Task { [xmpTagging] in
+            for photo in targets {
+                do {
+                    try xmpTagging.updatePermanentTags(rating: photo.rating, pick: pick, for: photo)
+                } catch {
+                    await MainActor.run { self.errorMessage = "Failed to write pick flag: \(error.localizedDescription)" }
+                    return
+                }
+            }
+        }
+    }
+
+    func triggerHapticFeedback() {
+        let prefs = UserPreferences.shared
+        #if os(macOS)
+        if prefs.autoAdvanceHapticEnabled {
+            // Fire multiple haptic clicks in rapid succession to create
+            // a noticeably more forceful physical pulse.
+            let performer = NSHapticFeedbackManager.defaultPerformer
+            performer.perform(.levelChange, performanceTime: .now)
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+                performer.perform(.alignment, performanceTime: .now)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+                performer.perform(.alignment, performanceTime: .now)
+            }
+        }
+        if prefs.autoAdvanceSoundEnabled {
+            // System "Tink" is short, neutral, and built into every macOS
+            // install — no asset bundling required. Loudness respects the
+            // user's system volume / "Play sound effects" preference.
+            NSSound.beep()
+        }
+        #endif
+    }
+
+    func setStatusMessage(_ message: String) {
+        self.statusMessage = message
+    }
+
+    func advanceToNext() {
+        guard focusedPhotoIndex < filteredPhotoSets.count - 1 else { return }
+        focusedPhotoIndex += 1
+    }
+
+    /// Clear pick flag on every photo in the current selection (or focused
+    /// photo if nothing is selected). Bound to the "U" hotkey.
+    func clearPickFlagOnSelection() {
+        let ids = batchTargetPhotoSets.map(\.id)
+        guard !ids.isEmpty else { return }
+        setPick(0, forIDs: ids)
+    }
+
+    /// Reject the given photo and, if it is the currently focused one,
+    /// advance ``focusedPhotoIndex`` to the next visible photo so culling
+    /// flows continue smoothly. Rejected photos are filtered out of the
+    /// default view (see ``updateDerivedState``) and only reappear when
+    /// the user selects the "Rejected" filter in the sidebar.
+    func rejectAndAdvance(for id: PhotoSet.ID) {
+        // Snapshot the visible position *before* mutating pick, because
+        // setPick triggers updateDerivedState, which removes rejected
+        // photos from filteredPhotoSets.
+        let priorIndex = filteredPhotoSets.firstIndex(where: { $0.id == id })
+ 
+        setPick(-1, for: id)
+        triggerHapticFeedback()
+
+        guard speedCullingEnabled else { return }
+
+        guard !filteredPhotoSets.isEmpty else { return }
+        guard let currentIndex = priorIndex else { return }
+        // The rejected photo is now hidden, so the photo at the same
+        // index in the refreshed list is the next visible one.
+        if currentIndex < filteredPhotoSets.count {
+            focusedPhotoIndex = currentIndex
+        } else {
+            focusedPhotoIndex = filteredPhotoSets.count - 1
+        }
+    }
+    
+    func selectVisiblePhotoSets() {
+        let visibleIDs = Set(filteredPhotoSets.map(\.id))
+        var updated = photoSets
+        for index in updated.indices where visibleIDs.contains(updated[index].id) {
+            updated[index].isSelected = true
+        }
+        self.photoSets = updated
+    }
+    
+    func clearSelection() {
+        var updated = photoSets
+        for index in updated.indices {
+            updated[index].isSelected = false
+        }
+        self.photoSets = updated
+        self.selectionAnchorID = nil
+    }
+
+    // MARK: - Tag pack management
+
+    /// Snapshot the currently-active tags into the outgoing pack's saved
+    /// state, then load the incoming pack's state into the live tag
+    /// store. Each pack has its own persistent state, so the user can
+    /// edit Wedding, switch to Cars, then come back to Wedding and find
+    /// their edits.
+    func switchTagPack(id: String) {
+        let incomingID = id
+        let outgoingID = packLibrary.activePackID
+
+        if incomingID == outgoingID { return }
+
+        if let outgoing = packLibrary.state(for: outgoingID) {
+            packLibrary.snapshotActivePack(from: tagStore, packID: outgoing.id)
+            _ = outgoing
+        }
+
+        packLibrary.activePackID = incomingID
+        packLibrary.applyPack(incomingID, to: tagStore)
+
+        if let pack = packLibrary.state(for: incomingID) {
+            statusMessage = "Switched to \(pack.name) tag pack."
+        }
+    }
+
+    func switchTagPack(_ template: TagPackTemplate) {
+        switchTagPack(id: template.id)
+    }
+
+    /// The currently active tag pack state. Falls back to the default
+    /// template's factory state if the persisted id is unknown.
+    var activeTagPack: TagPackState {
+        packLibrary.activePack
+    }
+
+    // MARK: - Custom pack management (UI-facing wrappers)
+
+    /// Create a new user pack. If `basedOnTemplateID` is provided, the
+    /// new pack starts with that template's categories and tags. Otherwise
+    /// it starts empty.
+    @discardableResult
+    func createPack(named name: String,
+                    basedOnTemplateID: String? = nil,
+                    copyFromPackID: String? = nil,
+                    systemImage: String? = nil,
+                    accentColor: String? = nil) -> TagPackState? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let newID = makeUniquePackID(basedOn: trimmed)
+
+        var state: TagPackState
+        if let fromID = copyFromPackID, let original = packLibrary.state(for: fromID) {
+            state = TagPackState(
+                id: newID,
+                name: trimmed,
+                tagline: original.tagline,
+                systemImage: systemImage ?? original.systemImage,
+                accentColor: accentColor ?? original.accentColor,
+                isBuiltIn: false,
+                categories: original.categories,
+                tags: original.tags
+            )
+        } else if let templateID = basedOnTemplateID,
+                  let template = TagPackTemplate.template(id: templateID) {
+            state = TagPackState(
+                id: newID,
+                name: trimmed,
+                tagline: template.tagline,
+                systemImage: systemImage ?? template.systemImage,
+                accentColor: accentColor ?? template.accentColor,
+                isBuiltIn: false,
+                categories: template.categories.map { TagPackState.CategoryEntry(name: $0) },
+                tags: template.tags.map {
+                    TagPackState.TagEntry(category: $0.category, name: $0.name,
+                                          hotkey: $0.hotkey, colorHex: $0.colorHex)
+                }
+            )
+        } else {
+            state = TagPackState.empty(id: newID, name: trimmed)
+            if systemImage != nil || accentColor != nil {
+                state.systemImage = systemImage ?? state.systemImage
+                state.accentColor = accentColor ?? state.accentColor
+            }
+        }
+        packLibrary.upsert(state)
+        return state
+    }
+
+    func renamePack(id: String, to newName: String) {
+        packLibrary.renamePack(id: id, to: newName)
+    }
+
+    func restylePack(id: String, systemImage: String, accentColor: String) {
+        packLibrary.restylePack(id: id, systemImage: systemImage, accentColor: accentColor)
+    }
+
+    // MARK: - XMP vs active pack diff
+
+    /// Snapshot of tags that live in XMP sidecars but aren't defined in the
+    /// currently active pack. Used by the View menu overlay so the user can
+    /// see which keywords are being silently ignored.
+    struct XMPTagDiff: Equatable {
+        var activePackName: String
+        /// Tags present in at least one XMP sidecar but absent from the active pack.
+        var orphanTags: [String]
+        /// `photoSetID → tag names` for each orphan tag (so the overlay can
+        /// show which photos are affected).
+        var orphanUsage: [UUID: [String]]
+        var totalPhotosScanned: Int
+    }
+
+    /// Scan every loaded photo set's XMP sidecars and produce a diff against
+    /// the active pack's known tag names. Returns an empty diff if there is
+    /// no active pack, or if no XMP sidecars exist.
+    func computeXMPTagDiff() async -> XMPTagDiff {
+        let activePack = packLibrary.activePack
+        let activePackName = activePack.name
+        let knownNames = Set(tagStore.tags.map { $0.name.lowercased() })
+
+        let sets = self.photoSets
+        let total = sets.count
+
+        return await Task.detached(priority: .userInitiated) { () -> XMPTagDiff in
+            let service = XMPTaggingService()
+            var usage: [String: [UUID]] = [:]
+            var seenInXMP: Set<String> = []
+            for set in sets {
+                let (xmpTags, _, _, _) = service.readSidecarData(from: set)
+                for raw in xmpTags {
+                    let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !key.isEmpty else { continue }
+                    seenInXMP.insert(key)
+                    if !knownNames.contains(key.lowercased()) {
+                        usage[key, default: []].append(set.id)
+                    }
+                }
+            }
+            let orphans = seenInXMP
+                .filter { !knownNames.contains($0.lowercased()) }
+                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+            var bySet: [UUID: [String]] = [:]
+            for (name, ids) in usage {
+                for id in ids {
+                    bySet[id, default: []].append(name)
+                }
+            }
+            return XMPTagDiff(
+                activePackName: activePackName,
+                orphanTags: orphans,
+                orphanUsage: bySet,
+                totalPhotosScanned: total
+            )
+        }.value
+    }
+
+    func resetPack(id: String) {
+        // Snapshot the current edits first so the user doesn't lose work
+        // for the *other* packs they might want to revisit.
+        if id == packLibrary.activePackID {
+            packLibrary.snapshotActivePack(from: tagStore, packID: id)
+        }
+        packLibrary.resetPack(id: id)
+        if id == packLibrary.activePackID {
+            packLibrary.applyPack(id, to: tagStore)
+        }
+        statusMessage = "Reset \(packLibrary.state(for: id)?.name ?? id)."
+    }
+
+    func duplicatePack(id: String, newName: String) -> TagPackState? {
+        packLibrary.duplicatePack(id: id, newName: newName)
+    }
+
+    func deletePack(id: String) {
+        guard !packLibrary.isBuiltIn(id) else { return }
+        // If the user deletes the active pack, switch to the default first
+        // so we always have something loaded.
+        if id == packLibrary.activePackID {
+            let fallback = TagPackTemplate.defaultTemplateID
+            packLibrary.snapshotActivePack(from: tagStore, packID: id)
+            packLibrary.activePackID = fallback
+            packLibrary.applyPack(fallback, to: tagStore)
+        }
+        packLibrary.deletePack(id: id)
+    }
+
+    /// Persist the user's current edits to the tags into the active pack's
+    /// saved state. Called automatically after tag/category mutations when
+    /// the live tags differ from the last snapshot.
+    func syncActivePackFromStore() {
+        let id = packLibrary.activePackID
+        packLibrary.snapshotActivePack(from: tagStore, packID: id)
+    }
+
+    // MARK: - Import / Export
+
+    /// Prompt the user for a destination file and write the pack as a
+    /// JSON document the user can share or back up.
+    func exportPack(id: String) {
+        guard let state = packLibrary.state(for: id) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType.tagPack]
+        panel.nameFieldStringValue = "\(state.name).tagpack.json"
+        panel.canCreateDirectories = true
+        panel.title = "Export Tag Pack"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try state.encodedForExport().write(to: url, options: .atomic)
+            statusMessage = "Exported \(state.name) to \(url.lastPathComponent)."
+        } catch {
+            self.errorMessage = "Couldn't export pack: \(error.localizedDescription)"
+        }
+    }
+
+    /// Prompt the user for a `.tagpack.json` file and add it as a new
+    /// user pack.
+    func importPack() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType.tagPack]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.title = "Import Tag Pack"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            let incoming = try TagPackState.decodedFromImport(data)
+            let stored = packLibrary.importPack(incoming)
+            statusMessage = "Imported \(stored.name)."
+        } catch {
+            self.errorMessage = "Couldn't import pack: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Helpers
+
+    private func makeUniquePackID(basedOn name: String) -> String {
+        let slug = name
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let base = slug.isEmpty ? "pack" : slug
+        var candidate = "user-" + base
+        var counter = 2
+        while packLibrary.packs.contains(where: { $0.id == candidate }) {
+            candidate = "user-\(base)-\(counter)"
+            counter += 1
+        }
+        return candidate
+    }
+
+    // MARK: - Sidebar filter state
+
+    @Published var isSidebarHidden: Bool = false
+
+    var activeFilterCount: Int {
+        var count = selectedTagFilters.count
+            + (selectedSubfolderFilter == nil ? 0 : 1)
+        
+        if isFilterPopoverEnabled {
+            if filterEditedActive { count += 1 }
+            if filterRawActive { count += 1 }
+            if filterRatingActive { count += 1 }
+            if filterFlagActive { count += 1 }
+            if filterNameActive && !nameFilterQuery.isEmpty { count += 1 }
+            if filterDateActive { count += 1 }
+        }
+        return count
+    }
+
+    func resetFilterPopover() {
+        filterEditedActive = false
+        filterEdited = .include
+        filterRawActive = false
+        filterRaw = .include
+        filterRatingActive = false
+        filterRatingValue = 0
+        filterRatingCondition = .equalTo
+        filterFlagActive = false
+        filterFlag = .all
+        filterNameActive = false
+        nameFilterQuery = ""
+        nameFilterCondition = .contains
+        filterDateActive = false
+        filterStartDate = Date()
+        filterEndDate = Date()
+    }
+
+    func clearAllFilters() {
+        selectedTagFilters.removeAll()
+        selectedSubfolderFilter = nil
+        searchText = ""
+        resetFilterPopover()
+    }
+
+
+    // MARK: - Large image viewer navigation
+    
+    func openLargeImageViewer() {
+        guard !filteredPhotoSets.isEmpty else {
+            errorMessage = "Load a photoshoot before opening the viewer."
+            return
+        }
+        let count = filteredPhotoSets.count
+        if focusedPhotoIndex < 0 || focusedPhotoIndex >= count {
+            focusedPhotoIndex = 0
+        }
+        isLargeImageViewerOpen = true
+        currentTagCategoryID = tagStore.categories.first?.id
+        statusMessage = "Viewer mode — use ←/→ to navigate, hotkeys to tag, Esc to close."
+        preloadNeighbors(around: focusedPhotoIndex)
+    }
+    
+    func closeLargeImageViewer() {
+        isLargeImageViewerOpen = false
+        statusMessage = "Exited viewer mode."
+    }
+    
+    func navigateFocusedPhoto(delta: Int) {
+        let count = filteredPhotoSets.count
+        guard count > 0 else { return }
+        focusedPhotoIndex = max(0, min(count - 1, focusedPhotoIndex + delta))
+    }
+    
+    func preloadNeighbors(around index: Int) {
+        let sets = filteredPhotoSets
+        guard !sets.isEmpty else { return }
+        
+        let neighbors = [index - 1, index + 1, index + 2]
+        for neighborIndex in neighbors {
+            if neighborIndex >= 0 && neighborIndex < sets.count {
+                let neighborSet = sets[neighborIndex]
+                if let url = neighborSet.preferredPreviewURL {
+                    LargeImageLoader.preload(url: url)
+                    if visionSuggestionsCache[neighborSet.id] == nil && UserPreferences.shared.autoTaggingEnabled {
+                        Task { @MainActor in
+                            if self.visionSuggestionsCache[neighborSet.id] == nil {
+                                let mlSuggestions = await AutoTagEngine.shared.visionSuggestions(for: url)
+                                self.visionSuggestionsCache[neighborSet.id] = mlSuggestions
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    func cycleCurrentCategory(direction: Int) {
+        guard !tagStore.categories.isEmpty else { return }
+        
+        let cats = tagStore.categories
+        guard let index = cats.firstIndex(where: { $0.id == (currentTagCategoryID ?? UUID()) }) else {
+            currentTagCategoryID = cats.first?.id
+            return
+        }
+        let next = (index + direction + cats.count) % cats.count
+        currentTagCategoryID = cats[next].id
+    }
+    
+    // MARK: - Tag application (focused photo, no auto-advance)
+    
+    func applyTagToFocusedPhoto(_ tag: CustomTag) {
+        guard let photo = currentFocusedPhotoSet else { return }
+        applyTag(tag, toPhotoSets: [photo])
+    }
+
+    /// Apply a tag to one or more photo sets with selection-aware toggle
+    /// semantics: if any photo in ``photos`` lacks the tag, it is added to
+    /// every photo that lacks it; if all photos already have the tag, it is
+    /// removed from every photo.
+    func applyTag(_ tag: CustomTag, toPhotoSets photos: [PhotoSet]) {
+        guard !photos.isEmpty else { return }
+        let tagID = tag.id
+
+        // Snapshot whether each target already has the tag, then mutate the
+        // store synchronously in one pass so we don't repeatedly hit
+        // tagStore.assignedTagIDs(for:) inside a hot loop.
+        var targets: [(photo: PhotoSet, hasTag: Bool)] = []
+        targets.reserveCapacity(photos.count)
+        var anyMissing = false
+        for photo in photos {
+            let hasTag = tagStore.assignedTagIDs(for: photo.id).contains(tagID)
+            if !hasTag { anyMissing = true }
+            targets.append((photo, hasTag))
+        }
+
+        if anyMissing {
+            for entry in targets where !entry.hasTag {
+                let current = tagStore.assignedTagIDs(for: entry.photo.id)
+                commitTagChange(current.union([tagID]),
+                                for: entry.photo,
+                                remove: false)
+            }
+            statusMessage = "Applied \(tag.name) to \(photos.count) photo set\(photos.count == 1 ? "" : "s")."
+        } else {
+            for entry in targets {
+                let current = tagStore.assignedTagIDs(for: entry.photo.id).subtracting([tagID])
+                commitTagChange(current,
+                                for: entry.photo,
+                                remove: current.isEmpty)
+            }
+            if photos.count == 1 {
+                statusMessage = "Removed \(tag.name) from \(photos[0].baseName)."
+            } else {
+                statusMessage = "Removed \(tag.name) from \(photos.count) photo sets."
+            }
+        }
+    }
+
+    /// Apply a tag to every photo in the current selection (or focused photo
+    /// if nothing is selected). Used by tag hotkeys.
+    func applyTagToSelection(_ tag: CustomTag) {
+        let targets = batchTargetPhotoSets
+        applyTag(tag, toPhotoSets: targets)
+    }
+    
+    func applyTag(_ tag: CustomTag, to photoSetID: UUID) {
+        guard let idx = photoSetIndex[photoSetID] else { return }
+        let photo = photoSets[idx]
+        var current = tagStore.assignedTagIDs(for: photoSetID)
+        let alreadyApplied = current.contains(tag.id)
+        if !alreadyApplied { current.insert(tag.id) }
+        commitTagChange(current, for: photo, remove: false)
+    }
+    
+    func removeTag(_ tag: CustomTag, from photoSetID: UUID) {
+        guard let idx = photoSetIndex[photoSetID] else { return }
+        let photo = photoSets[idx]
+        var current = tagStore.assignedTagIDs(for: photoSetID)
+        current.remove(tag.id)
+        commitTagChange(current, for: photo, remove: current.isEmpty)
+    }
+    
+    // MARK: - Auto-tagging
+    
+    /// Returns auto-tag suggestions for the given photo set, based on
+    /// the user's enabled rules, EXIF metadata, and Vision ML classifications.
+    func suggestedTags(for photoSet: PhotoSet) -> [AutoTagSuggestion] {
+        guard UserPreferences.shared.autoTaggingEnabled else { return [] }
+        
+        // Trigger background Vision ML classification if not already cached
+        if visionSuggestionsCache[photoSet.id] == nil, let previewURL = photoSet.preferredPreviewURL {
+            Task { @MainActor in
+                if self.visionSuggestionsCache[photoSet.id] == nil {
+                    let mlSuggestions = await AutoTagEngine.shared.visionSuggestions(for: previewURL)
+                    self.visionSuggestionsCache[photoSet.id] = mlSuggestions
+                }
+            }
+        }
+
+        var combined: [AutoTagSuggestion] = []
+
+        if let visionML = visionSuggestionsCache[photoSet.id] {
+            combined.append(contentsOf: visionML)
+        }
+
+        // Get currently assigned tags to exclude them from suggestions
+        let assignedNames = Set(assignedTags(for: photoSet).map { $0.name.lowercased() })
+
+        // Filter out dismissed suggestions and already assigned tags, with deduplication
+        var deduplicated: [AutoTagSuggestion] = []
+        var seenTagNames = Set<String>()
+
+        for suggestion in combined {
+            let lowerName = suggestion.tagName.lowercased()
+            guard !assignedNames.contains(lowerName) else { continue }
+            guard !seenTagNames.contains(lowerName) else { continue }
+            guard !dismissedSuggestions.contains(DismissedSuggestionKey(photoSetID: photoSet.id, tagName: suggestion.tagName)) else { continue }
+
+            seenTagNames.insert(lowerName)
+            deduplicated.append(suggestion)
+        }
+
+        return deduplicated
+    }
+    
+    /// Accepts a suggestion: applies the tag to the photo (or creates it
+    /// if it doesn't exist) and writes to the XMP sidecar.
+    func acceptSuggestion(_ suggestion: AutoTagSuggestion) {
+        guard let photo = currentFocusedPhotoSet else { return }
+        let tagName = suggestion.tagName
+        
+        // 1. Check if a tag with that name already exists (case-insensitive).
+        if let existingTag = tagStore.tags.first(where: {
+            $0.name.lowercased() == tagName.lowercased()
+        }) {
+            applyTag(existingTag, toPhotoSets: [photo])
+            statusMessage = "Applied \(tagName) to \(photo.baseName)."
+        } else {
+            // 2. Tag doesn't exist — create it.
+            let newTag: CustomTag
+            if let categoryID = suggestion.categoryID {
+                // Create in existing category.
+                newTag = tagStore.addTag(name: tagName, categoryID: categoryID)
+            } else {
+                // Create a new "Auto-Tagged" category.
+                let autoCategory: TagCategory
+                if let existingCategory = tagStore.categories.first(where: {
+                    $0.name.lowercased() == "auto-tagged"
+                }) {
+                    autoCategory = existingCategory
+                } else {
+                    autoCategory = tagStore.addCategory(name: "Auto-Tagged")
+                }
+                newTag = tagStore.addTag(name: tagName, categoryID: autoCategory.id)
+            }
+            applyTag(newTag, toPhotoSets: [photo])
+            statusMessage = "Created and applied \(tagName) to \(photo.baseName)."
+        }
+        
+        // Clear from dismissed set so it won't reappear.
+        dismissedSuggestions.remove(DismissedSuggestionKey(photoSetID: photo.id, tagName: tagName))
+    }
+    
+    /// Dismisses a suggestion. Ephemeral — not persisted.
+    func dismissSuggestion(_ suggestion: AutoTagSuggestion) {
+        guard let photo = currentFocusedPhotoSet else { return }
+        dismissedSuggestions.insert(DismissedSuggestionKey(photoSetID: photo.id, tagName: suggestion.tagName))
+    }
+    
+    func clearTags(for photoSetID: UUID) {
+        clearTags(forIDs: [photoSetID])
+    }
+
+    /// Clear custom tags for every photo in ``ids``. Used by the "0" hotkey
+    /// so users can reset all tags on the selection in a single action.
+    func clearTags(forIDs ids: [PhotoSet.ID]) {
+        guard !ids.isEmpty else { return }
+        let targets: [PhotoSet] = photoSets.filter { ids.contains($0.id) }
+        for photo in targets {
+            commitTagChange([], for: photo, remove: true)
+        }
+        statusMessage = "Cleared tags on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
+    }
+    
+    private func commitTagChange(_ tagIDs: Set<UUID>, for photo: PhotoSet, remove: Bool) {
+        tagStore.setTags(tagIDs, for: photo.id)
+        
+        let names = tagIDs.compactMap { tagStore.tag(id: $0)?.name }
+        let nameSet = Set(names)
+        let previousTask = tagTask
+        tagTask = Task { @MainActor [xmpTagging] in
+            _ = await previousTask?.result
+            do {
+                if remove {
+                    try xmpTagging.clear(for: photo)
+                } else {
+                    try xmpTagging.applyTagNames(nameSet, to: photo)
+                }
+            } catch {
+                self.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func clearTagsForSelection() {
+        let selected = selectedPhotoSets
+        guard !selected.isEmpty else {
+            errorMessage = "Select at least one photo set before clearing tags."
+            return
+        }
+        tagTask?.cancel()
+        statusMessage = "Clearing tags for \(selected.count) selected photo sets..."
+        tagTask = Task { @MainActor [xmpTagging] in
+            do {
+                for photo in selected {
+                    try Task.checkCancellation()
+                    try xmpTagging.clear(for: photo)
+                }
+                for photo in selected {
+                    self.tagStore.clearTags(for: photo.id)
+                }
+                self.statusMessage = "Cleared tags for \(selected.count) photo sets."
+            } catch is CancellationError {
+                self.statusMessage = "Tag clearing cancelled."
+            } catch {
+                self.errorMessage = error.localizedDescription
+                self.statusMessage = "Could not clear tags."
+            }
+        }
+    }
+    
+    // MARK: - Plain transfer (no routing)
+    
+    func transferSelectedPhotoSets(operation: TransferOperation) {
+        guard let destinationDirectory else { return }
+        let selected = selectedPhotoSets
+        guard !selected.isEmpty else {
+            errorMessage = TransferError.noSelection.localizedDescription
+            return
+        }
+        transferTask?.cancel()
+        isTransferring = true
+        operationProgress = nil
+        errorMessage = nil
+        statusMessage = "\(operation.progressTitle) \(selected.count) selected photo sets (\(selectedFileCount) files)..."
+        let tagNameMap: [UUID: Set<String>] = Dictionary(
+            uniqueKeysWithValues: selected.map { set in
+                (set.id, Set(tagStore.assignedTags(for: set.id).map(\.name)))
+            }
+        )
+        let plan = TransferPlan(
+            operation: operation,
+            destinationDirectory: destinationDirectory,
+            photoSets: selected,
+            tagNames: tagNameMap,
+            metadata: photoMetadata
+        )
+        let currentSources = sourceDirectories
+        transferTask = Task { @MainActor [transferService, currentSources] in
+            do {
+                let summary = try await transferService.execute(plan) { progress in
+                    Task { @MainActor in
+                        self.operationProgress = progress
+                        self.statusMessage = "\(operation.progressTitle) \(progress.displayText)"
+                    }
+                }
+                self.statusMessage = "\(summary.operation.rawValue) complete: \(summary.fileCount) files to \(summary.destinationDirectory.lastPathComponent)."
+                if summary.sidecarFailures > 0 {
+                    self.statusMessage += " (\(summary.sidecarFailures) sidecar(s) could not be written)"
+                }
+                self.clearSelection()
+                if operation == .move {
+                    self.scanSourceDirectories(currentSources)
+                }
+            } catch is CancellationError {
+                self.statusMessage = "Transfer cancelled."
+            } catch {
+                self.errorMessage = error.localizedDescription
+                self.statusMessage = "Transfer failed."
+            }
+            self.operationProgress = nil
+            self.isTransferring = false
+        }
+    }
+    
+    // MARK: - Routed transfer (copy / move / export JPEG with rule)
+    
+    func performRoutedOperation(_ operation: RoutedOperation) {
+        guard let destinationDirectory else {
+            errorMessage = "Choose a destination folder first."
+            return
+        }
+        let selected = selectedPhotoSets
+        guard !selected.isEmpty else {
+            errorMessage = TransferError.noSelection.localizedDescription
+            return
+        }
+        guard let rule = ruleStore.selectedRule else {
+            errorMessage = "Create an export routing rule first."
+            return
+        }
+        
+        let routedPhotos: [RoutedPhoto] = selected.map { photo in
+            RoutedPhoto(
+                photoSet: photo,
+                metadata: photoMetadata[photo.id] ?? MetadataSnapshot(),
+                tags: tagStore.assignedTags(for: photo.id)
+            )
+        }
+        
+        let plan = RoutedPlan(
+            operation: operation,
+            baseDestination: destinationDirectory,
+            rule: rule.components,
+            photos: routedPhotos
+        )
+        
+        self.pendingRoutedPlan = plan
+    }
+
+    func executeRoutedPlan(_ plan: RoutedPlan) {
+        let categoryNames = Dictionary(
+            uniqueKeysWithValues: tagStore.categories.map { ($0.id, $0.name) }
+        )
+        let categoryNameProvider: @Sendable (UUID) -> String? = { id in
+            categoryNames[id]
+        }
+        
+        let operation = plan.operation
+        let selectedCount = plan.photos.count
+        
+        transferTask?.cancel()
+        isTransferring = true
+        operationProgress = nil
+        errorMessage = nil
+        statusMessage = "\(operation.progressTitle) \(selectedCount) photo sets into routed folders..."
+        
+        let currentSources = sourceDirectories
+        transferTask = Task { @MainActor [routedTransfer, currentSources] in
+            do {
+                let summary = try await routedTransfer.execute(
+                    plan,
+                    categoryNameProvider: categoryNameProvider
+                ) { progress in
+                    Task { @MainActor in
+                        self.operationProgress = progress
+                        self.statusMessage = "\(operation.progressTitle) \(progress.displayText)"
+                    }
+                }
+                let foldersText = summary.foldersCreated == 1 ? "1 folder" : "\(summary.foldersCreated) folders"
+                self.statusMessage = "\(operation.displayName) complete: \(summary.fileCount) files across \(foldersText) under \(summary.baseDestination.lastPathComponent)."
+                if summary.sidecarFailures > 0 {
+                    self.statusMessage += " (\(summary.sidecarFailures) sidecar(s) could not be written)"
+                }
+                self.clearSelection()
+                if operation == .moveOriginals {
+                    self.scanSourceDirectories(currentSources)
+                }
+            } catch is CancellationError {
+                self.statusMessage = "Operation cancelled."
+            } catch {
+                self.errorMessage = error.localizedDescription
+                self.statusMessage = "Routed operation failed."
+            }
+            self.operationProgress = nil
+            self.isTransferring = false
+        }
+    }
+    
+    // MARK: - Tag loading (now merged into loadMetadataAndTags)
+
+    // MARK: - Keyboard Monitor Retention
+    nonisolated(unsafe) private var keyboardMonitor: Any? = nil
+
+    func registerKeyboardMonitor(_ handler: @escaping (NSEvent) -> Bool) {
+        if let existing = keyboardMonitor {
+            NSEvent.removeMonitor(existing)
+        }
+        keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if handler(event) {
+                return nil
+            }
+            return event
+        }
+    }
+
+    @Published var tagManagerHotkey: String? = "cmd+t" {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.tagManagerHotkey = tagManagerHotkey ?? ""
+            UserPreferences.shared.save()
+        }
+    }
+
+    @Published var ruleEditorHotkey: String? = "cmd+r" {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.ruleEditorHotkey = ruleEditorHotkey ?? ""
+            UserPreferences.shared.save()
+        }
+    }
+
+    @Published var openSourceHotkey: String? = "cmd+o" {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.openSourceHotkey = openSourceHotkey ?? ""
+            UserPreferences.shared.save()
+        }
+    }
+
+    @Published var photomatorHotkey: String? = "e" {
+        didSet {
+            guard !isInitializing else { return }
+            UserPreferences.shared.photomatorHotkey = photomatorHotkey ?? ""
+            UserPreferences.shared.save()
+        }
+    }
+
+
+
+    var tagManagerShortcutInfo: KeyboardShortcutInfo? {
+        guard let hotkey = tagManagerHotkey, !hotkey.isEmpty else { return nil }
+        return KeyboardShortcutInfo.parse(hotkey)
+    }
+
+    var ruleEditorShortcutInfo: KeyboardShortcutInfo? {
+        guard let hotkey = ruleEditorHotkey, !hotkey.isEmpty else { return nil }
+        return KeyboardShortcutInfo.parse(hotkey)
+    }
+
+    var openSourceShortcutInfo: KeyboardShortcutInfo? {
+        guard let hotkey = openSourceHotkey, !hotkey.isEmpty else { return nil }
+        return KeyboardShortcutInfo.parse(hotkey)
+    }
+
+
+
+    // MARK: - Count Memoization & Index Clamping
+    
+    private var photoDateCache: [UUID: Date] = [:]
+
+    func photoDate(for photoSet: PhotoSet) -> Date {
+        if let cached = photoDateCache[photoSet.id] {
+            return cached
+        }
+        if let captureDate = photoMetadata[photoSet.id]?.captureDate {
+            photoDateCache[photoSet.id] = captureDate
+            return captureDate
+        }
+        if let fileURL = photoSet.mediaFiles.first,
+           let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
+           let modDate = values.contentModificationDate {
+            photoDateCache[photoSet.id] = modDate
+            return modDate
+        }
+        let fallback = Date.distantPast
+        photoDateCache[photoSet.id] = fallback
+        return fallback
+    }
+
+    func updateDerivedState() {
+        guard !suppressDerivedUpdates else { return }
+
+        let hasTagFilter = !selectedTagFilters.isEmpty
+        let subfolderPath = selectedSubfolderFilter?.standardizedFileURL.path
+        let textQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasSearchQuery = !textQuery.isEmpty
+
+        // Header Name filter
+        let nameQuery = nameFilterQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasNameFilter = !nameQuery.isEmpty
+
+        // Date range boundaries
+        let startOfDay: Date
+        let endOfDay: Date
+        if isFilterPopoverEnabled && filterDateActive {
+            startOfDay = Calendar.current.startOfDay(for: filterStartDate)
+            endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: filterEndDate)
+                .map { Calendar.current.startOfDay(for: $0) } ?? filterEndDate
+        } else {
+            startOfDay = .distantPast
+            endOfDay = .distantFuture
+        }
+
+        var list: [PhotoSet] = []
+        list.reserveCapacity(photoSets.count)
+
+        for photoSet in photoSets {
+            // Hide rejected photos by default, unless the user specifically filters by Rejected flag
+            let isFilteringRejected = isFilterPopoverEnabled && filterFlagActive && filterFlag == .rejected
+            if !isFilteringRejected && photoSet.pick == -1 {
+                continue
+            }
+
+            // Library sidebar filter rule (All / Edited / Unedited)
+            if !filterRule.matches(photoSet) {
+                continue
+            }
+
+            // 1. Sidebar subfolder filter (if selected)
+            if let subfolderPath {
+                var matches = false
+                for fileURL in photoSet.mediaFiles {
+                    let filePath = fileURL.standardizedFileURL.path
+                    if filePath == subfolderPath
+                        || (filePath.count > subfolderPath.count
+                            && filePath.hasPrefix(subfolderPath)
+                            && filePath[subfolderPath.endIndex] == "/") {
+                        matches = true
+                        break
+                    }
+                }
+                if !matches { continue }
+            }
+
+            // 2. Sidebar Tag Filter (stacks with everything)
+            if hasTagFilter {
+                let assigned = tagStore.assignedTagIDs(for: photoSet.id)
+                if selectedTagFilters.isDisjoint(with: assigned) { continue }
+            }
+
+            // 3. Header: Edited Filter (Include/Exclude)
+            if isFilterPopoverEnabled && filterEditedActive {
+                if filterEdited == .exclude && photoSet.hasEdit {
+                    continue
+                }
+                if filterEdited == .include && !photoSet.hasEdit {
+                    continue
+                }
+            }
+
+            // 4. Header: RAW Filter (Include/Exclude)
+            if isFilterPopoverEnabled && filterRawActive {
+                if filterRaw == .exclude && photoSet.mediaFormats.isRaw {
+                    continue
+                }
+                if filterRaw == .include && !photoSet.mediaFormats.isRaw {
+                    continue
+                }
+            }
+
+            // 5. Header: Rating Filter with condition modifier
+            if isFilterPopoverEnabled && filterRatingActive {
+                let ratingVal = photoSet.rating ?? 0
+                let filterVal = filterRatingValue // 0 is Unrated, 1-5 is stars
+                switch filterRatingCondition {
+                case .equalTo:
+                    if ratingVal != filterVal { continue }
+                case .greaterThanOrEqualTo:
+                    if ratingVal < filterVal { continue }
+                case .lessThanOrEqualTo:
+                    if ratingVal > filterVal { continue }
+                }
+            }
+
+            // 6. Header: Flag Filter
+            if isFilterPopoverEnabled && filterFlagActive {
+                switch filterFlag {
+                case .flagged:
+                    if photoSet.pick != 1 { continue }
+                case .rejected:
+                    if photoSet.pick != -1 { continue }
+                case .unflagged:
+                    if (photoSet.pick ?? 0) != 0 { continue }
+                case .all:
+                    break
+                }
+            }
+
+            // 7. Header: File Name search with conditions
+            if isFilterPopoverEnabled && filterNameActive && hasNameFilter {
+                let baseName = photoSet.baseName.lowercased()
+                switch nameFilterCondition {
+                case .contains:
+                    if !baseName.contains(nameQuery) { continue }
+                case .matches:
+                    if baseName != nameQuery { continue }
+                case .startsWith:
+                    if !baseName.hasPrefix(nameQuery) { continue }
+                case .endsWith:
+                    if !baseName.hasSuffix(nameQuery) { continue }
+                }
+            }
+
+            // 8. Header: Date Range Filter
+            if isFilterPopoverEnabled && filterDateActive {
+                let captureDate = photoDate(for: photoSet)
+                if captureDate < startOfDay || captureDate >= endOfDay {
+                    continue
+                }
+            }
+
+            // 9. Standard search bar filter (caption / baseName)
+            if hasSearchQuery {
+                if !photoSet.baseName.lowercased().contains(textQuery),
+                   !(photoCaptions[photoSet.id]?.lowercased().contains(textQuery) ?? false) {
+                    continue
+                }
+            }
+
+            list.append(photoSet)
+        }
+
+        // Apply Sorting dynamically based on Top Header rules
+        list.sort { lhs, rhs in
+            let ascending = (sortDirection == .ascending)
+            switch sortOrder {
+            case .name:
+                let result = lhs.baseName.localizedStandardCompare(rhs.baseName)
+                return ascending ? (result == .orderedAscending) : (result == .orderedDescending)
+            case .date:
+                let d1 = photoDate(for: lhs)
+                let d2 = photoDate(for: rhs)
+                if d1 == d2 {
+                    return lhs.baseName.localizedStandardCompare(rhs.baseName) == .orderedAscending
+                }
+                return ascending ? (d1 < d2) : (d1 > d2)
+            }
+        }
+
+        // Reshuffle grid animates automatically via SwiftUI spring transition
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            self.filteredPhotoSets = list
+        }
+
+        // Clamp focusedPhotoIndex first to valid range of filteredPhotoSets
+        let clamped: Int
+        if !list.isEmpty {
+            clamped = max(0, min(focusedPhotoIndex, list.count - 1))
+        } else {
+            clamped = 0
+        }
+
+        if focusedPhotoIndex != clamped {
+            focusedPhotoIndex = clamped
+        }
+
+        let index = clamped
+        let start = max(0, index - 10)
+        let end = min(list.count - 1, index + 10)
+        var newSet = Set<UUID>()
+        newSet.reserveCapacity(end - start + 1)
+        if !list.isEmpty && start <= end {
+            for i in start...end {
+                newSet.insert(list[i].id)
+            }
+        }
+        self.nearFocusedIds = newSet
+    }
+
+    func updateGlobalCounts() {
+        let totalPhotos = photoSets.count
+        self.cachedAllPhotosCount = totalPhotos
+
+        var editedCount = 0
+        var pick1Count = 0
+        var pickMinus1Count = 0
+        var pick0Count = 0
+        var ratingCounts = [Int: Int]()
+        for r in 0...5 { ratingCounts[r] = 0 }
+
+        var tagHistogram = [UUID: Int]()
+        for tag in tagStore.tags { tagHistogram[tag.id] = 0 }
+
+        var photoSetsBySubfolder = [URL: Set<UUID>]()
+
+        // Reset selection counters before the loop so they stay consistent
+        // with `photoSets` even when individual sets flip isSelected mid-loop
+        // (which they don't, but the invariant is easier to reason about).
+        cachedSelectedCount = 0
+        cachedSelectedFileCount = 0
+
+        for photoSet in photoSets {
+            if photoSet.hasEdit {
+                editedCount += 1
+            }
+
+            if photoSet.isSelected {
+                cachedSelectedCount += 1
+                cachedSelectedFileCount += photoSet.mediaFiles.count + (photoSet.editPath != nil ? 1 : 0)
+            }
+            
+            let pick = photoSet.pick ?? 0
+            if pick == 1 {
+                pick1Count += 1
+            } else if pick == -1 {
+                pickMinus1Count += 1
+            } else {
+                pick0Count += 1
+            }
+            
+            let rating = photoSet.rating ?? 0
+            if rating >= 0 && rating <= 5 {
+                ratingCounts[rating, default: 0] += 1
+            }
+            
+            let assignedIDs = tagStore.assignedTagIDs(for: photoSet.id)
+            for tagID in assignedIDs {
+                tagHistogram[tagID, default: 0] += 1
+            }
+            
+            for file in photoSet.mediaFiles {
+                let parentDir = file.deletingLastPathComponent().standardizedFileURL
+                photoSetsBySubfolder[parentDir, default: []].insert(photoSet.id)
+            }
+        }
+        
+        self.cachedEditedCount = editedCount
+        self.cachedUneditedCount = totalPhotos - editedCount
+        
+        self.cachedTagCounts = tagHistogram
+        self.cachedFlagCounts = [1: pick1Count, -1: pickMinus1Count, 0: pick0Count]
+        self.cachedRatingCounts = ratingCounts
+        
+        var subfoldersMap: [URL: [URL]] = [:]
+        var subfolderPhotoCounts: [URL: Int] = [:]
+
+        let allSubfolders = Array(photoSetsBySubfolder.keys)
+
+        for sourceURL in sourceDirectories {
+            let standardizedSource = sourceURL.standardizedFileURL.path
+            var subfoldersSet = Set<URL>()
+
+            for parentDir in allSubfolders {
+                let parentPath = parentDir.path
+                if parentPath.hasPrefix(standardizedSource) && parentPath != standardizedSource {
+                    subfoldersSet.insert(parentDir)
+                }
+            }
+
+            let sorted = subfoldersSet.sorted { $0.path < $1.path }
+            subfoldersMap[sourceURL] = sorted
+        }
+        self.cachedSubfolders = subfoldersMap
+
+        for subfolders in subfoldersMap.values {
+            for subfolder in subfolders {
+                subfolderPhotoCounts[subfolder] = photoSetsBySubfolder[subfolder]?.count ?? 0
+            }
+        }
+        self.cachedSubfolderCounts = subfolderPhotoCounts
+
+        // Build the recursive folder tree index in the same pass. The
+        // sidebar reads this on every render, so keeping it as a
+        // pre-computed dictionary turns an O(n × m) per-render scan
+        // into an O(1) lookup.
+        rebuildFolderIndex(from: photoSetsBySubfolder)
+    }
+
+    /// Builds the full folder tree index for the recursive sidebar in a
+    /// single O(n × m) pass over `photoSetsBySubfolder`. After this runs,
+    /// every `childSubfolders(of:)` / `recursivePhotoCount(in:)` query is
+    /// O(1). Keyed by `URL.standardizedFileURL.path` so lookups don't
+    /// have to reconstruct URL objects every time the sidebar re-renders.
+    private func rebuildFolderIndex(from photoSetsBySubfolder: [URL: Set<UUID>]) {
+        // Map: parent path -> set of child folder paths observed via
+        // `photoSets`.
+        var childAccum: [String: Set<String>] = [:]
+        var photoCountByPath: [String: Int] = [:]
+        childAccum.reserveCapacity(photoSetsBySubfolder.count * 2)
+        photoCountByPath.reserveCapacity(photoSetsBySubfolder.count)
+
+        for (folder, sets) in photoSetsBySubfolder {
+            let folderPath = folder.path
+            photoCountByPath[folderPath, default: 0] += sets.count
+
+            // Walk up ancestors to build recursive counts and parent-child relations
+            var current = folder
+            let rootURL = URL(fileURLWithPath: "/")
+            while current.path != "/" && current.path != rootURL.path {
+                let parent = current.deletingLastPathComponent()
+                let parentPath = parent.path
+                
+                // Only register child under its immediate parent
+                if parentPath != "/" && parentPath != rootURL.path {
+                    var bucket = childAccum[parentPath, default: Set()]
+                    bucket.insert(current.path)
+                    childAccum[parentPath] = bucket
+                }
+                
+                // Accumulate counts for all ancestors
+                if current != folder {
+                    photoCountByPath[current.path, default: 0] += sets.count
+                }
+                
+                current = parent
+            }
+        }
+
+        // Materialise the sorted child paths and the URL array. Sorting
+        // upfront means the sidebar never re-sorts on render.
+        var childPaths: [String: [String]] = [:]
+        var childURLs: [String: [URL]] = [:]
+        childPaths.reserveCapacity(childAccum.count)
+        childURLs.reserveCapacity(childAccum.count)
+        for (parentPath, kids) in childAccum {
+            let sortedPaths = kids.sorted()
+            childPaths[parentPath] = sortedPaths
+            childURLs[parentPath] = sortedPaths.map { URL(fileURLWithPath: $0) }
+        }
+
+        self.childSubfoldersIndex = childPaths
+        self.recursivePhotoCountIndex = photoCountByPath
+        self.childFolderURLs = childURLs
+    }
+
+    
+    func relativePath(of subfolderURL: URL, relativeTo sourceURL: URL) -> String {
+        let sourcePath = sourceURL.standardizedFileURL.path
+        let subfolderPath = subfolderURL.standardizedFileURL.path
+        if subfolderPath.hasPrefix(sourcePath) {
+            let startIdx = subfolderPath.index(subfolderPath.startIndex, offsetBy: sourcePath.count)
+            var rel = String(subfolderPath[startIdx...])
+            if rel.hasPrefix("/") {
+                rel.removeFirst()
+            }
+            return rel
+        }
+        return subfolderURL.lastPathComponent
+    }
+
+    // MARK: - Recursive folder tree (O(1) lookups against the index)
+
+    /// Returns the immediate child subfolders of `folder` that contain
+    /// at least one photo set in the loaded library. Returns `[]` for
+    /// folders with no photo-bearing children or for the library root.
+    ///
+    /// Backed by `childFolderURLs`, populated inside `rebuildFolderIndex`
+    /// every time `photoSets` changes. O(1) per call.
+    func childSubfolders(of folder: URL) -> [URL] {
+        let path = folder.standardizedFileURL.path
+        guard path != "/" else { return [] }
+        return childFolderURLs[path] ?? []
+    }
+
+    /// Total photo sets that live anywhere at or below `folder`. Includes
+    /// the folder itself, its direct children, and all deeper
+    /// descendants. O(1) per call.
+    func recursivePhotoCount(in folder: URL) -> Int {
+        let path = folder.standardizedFileURL.path
+        guard path != "/" else { return photoSets.count }
+        return recursivePhotoCountIndex[path] ?? 0
+    }
+
+    /// True if `folder` is known to contain any photo sets anywhere in
+    /// its subtree. Used by the tree row to decide whether to show the
+    /// expand chevron. O(1) per call.
+    func hasAnyPhotos(in folder: URL) -> Bool {
+        let path = folder.standardizedFileURL.path
+        return (recursivePhotoCountIndex[path] ?? 0) > 0
+    }
+
+    /// True if `folder` contains any photo set directly (the photo set's
+    /// parent directory equals `folder`). O(n) but typically only called
+    /// once per row when first expanding; cheap because the typical
+    /// sub-tree size is small.
+    func hasPhotosDirectly(in folder: URL) -> Bool {
+        let folderPath = folder.standardizedFileURL.path
+        for set in photoSets {
+            for file in set.mediaFiles {
+                if file.deletingLastPathComponent().standardizedFileURL.path == folderPath {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Returns photo sets whose media files are directly inside `folder`
+    /// (not inside a subfolder of `folder`). Used by the file-level tree
+    /// leaf nodes so users can drill down to individual photos.
+    ///
+    /// When a folder is expanded in the sidebar, this method is called once
+    /// and the result is cached in `@State` so expanding/collapsing doesn't
+    /// re-scan on every render.
+    func photoSetsDirectlyIn(folder: URL) -> [PhotoSet] {
+        let folderPath = folder.standardizedFileURL.path
+        return photoSets.filter { set in
+            set.mediaFiles.contains { file in
+                file.deletingLastPathComponent().standardizedFileURL.path == folderPath
+            }
+        }
+    }
+
+    // MARK: - Insights
+
+    func computeInsights() -> InsightReport {
+        let metadata = Array(photoMetadata.values)
+        let total = metadata.count
+
+        // Unique cameras and lenses
+        let cameras = Set(metadata.compactMap { $0.cameraModel }).count
+        let lenses = Set(metadata.compactMap { $0.lensModel }).count
+
+        // Date range
+        let dates = metadata.compactMap { $0.captureDate }
+        let earliest = dates.min()
+        let latest = dates.max()
+
+        // Focal length buckets: ≤24, 25–35, 36–50, 51–85, 86–135, 135+
+        let focalBucketLabels = ["≤24mm", "25–35mm", "36–50mm", "51–85mm", "86–135mm", "135mm+"]
+        var focalCounts = [0, 0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let fl = m.focalLength else { continue }
+            switch fl {
+            case ...24:        focalCounts[0] += 1
+            case 25...35:      focalCounts[1] += 1
+            case 36...50:      focalCounts[2] += 1
+            case 51...85:      focalCounts[3] += 1
+            case 86...135:     focalCounts[4] += 1
+            default:           focalCounts[5] += 1
+            }
+        }
+        let focalTotal = focalCounts.reduce(0, +)
+        let focalBuckets = zip(focalBucketLabels, focalCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: focalTotal > 0 ? Double(count) / Double(focalTotal) : 0)
+        }
+
+        // Aperture buckets
+        let apertureBucketLabels = ["f/1.4", "f/1.8–f/2", "f/2.8", "f/4", "f/5.6–f/8", "f/11+"]
+        var apertureCounts = [0, 0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let ap = m.aperture else { continue }
+            switch ap {
+            case ..<1.5:       apertureCounts[0] += 1
+            case 1.5..<3.0:   apertureCounts[1] += 1
+            case 3.0..<3.5:   apertureCounts[2] += 1
+            case 3.5..<4.5:   apertureCounts[3] += 1
+            case 4.5..<9:     apertureCounts[4] += 1
+            default:           apertureCounts[5] += 1
+            }
+        }
+        let apTotal = apertureCounts.reduce(0, +)
+        let apertureBuckets = zip(apertureBucketLabels, apertureCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: apTotal > 0 ? Double(count) / Double(apTotal) : 0)
+        }
+
+        // ISO buckets
+        let isoBucketLabels = ["ISO 100–400", "ISO 400–800", "ISO 800–1600", "ISO 1600–3200", "ISO 3200+"]
+        var isoCounts = [0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let iso = m.iso else { continue }
+            switch iso {
+            case ...399:       isoCounts[0] += 1
+            case 400...799:    isoCounts[1] += 1
+            case 800...1599:   isoCounts[2] += 1
+            case 1600...3199:  isoCounts[3] += 1
+            default:           isoCounts[4] += 1
+            }
+        }
+        let isoTotal = isoCounts.reduce(0, +)
+        let isoBuckets = zip(isoBucketLabels, isoCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: isoTotal > 0 ? Double(count) / Double(isoTotal) : 0)
+        }
+
+        // Shutter speed buckets
+        let shutterBucketLabels = ["1/4000+", "1/1000–1/4000", "1/250–1/1000", "1/60–1/250", "<1/60"]
+        var shutterCounts = [0, 0, 0, 0, 0]
+        for m in metadata {
+            guard let ss = m.shutterSpeed, ss > 0 else { continue }
+            switch ss {
+            case ..<(1.0 / 4000):              shutterCounts[0] += 1
+            case (1.0 / 4000)..<(1.0 / 1000): shutterCounts[1] += 1
+            case (1.0 / 1000)..<(1.0 / 250):  shutterCounts[2] += 1
+            case (1.0 / 250)..<(1.0 / 60):    shutterCounts[3] += 1
+            default:                           shutterCounts[4] += 1
+            }
+        }
+        let shutterTotal = shutterCounts.reduce(0, +)
+        let shutterBuckets = zip(shutterBucketLabels, shutterCounts).map { label, count in
+            InsightBucket(label: label, count: count, percentage: shutterTotal > 0 ? Double(count) / Double(shutterTotal) : 0)
+        }
+
+        // Top gear combos: group by (camera, lens) pair
+        struct ComboKey: Hashable { let camera: String; let lens: String }
+        struct ComboData { var count: Int; var picks: Int; var apertures: [Double] }
+        var comboMap: [ComboKey: ComboData] = [:]
+
+        for (id, meta) in photoMetadata {
+            guard let cam = meta.cameraModel, let lens = meta.lensModel else { continue }
+            let key = ComboKey(camera: cam, lens: lens)
+            let isPick = photoSetIndex[id].map { photoSets[$0].pick == 1 } ?? false
+            if comboMap[key] == nil { comboMap[key] = ComboData(count: 0, picks: 0, apertures: []) }
+            comboMap[key]!.count += 1
+            if isPick { comboMap[key]!.picks += 1 }
+            if let ap = meta.aperture { comboMap[key]!.apertures.append(ap) }
+        }
+
+        let topCombos = comboMap
+            .sorted { $0.value.count > $1.value.count }
+            .prefix(8)
+            .map { (key, data) in
+                GearCombo(
+                    camera: key.camera,
+                    lens: key.lens,
+                    totalShots: data.count,
+                    pickRatio: data.count > 0 ? Double(data.picks) / Double(data.count) : 0,
+                    avgAperture: data.apertures.isEmpty ? nil : data.apertures.reduce(0, +) / Double(data.apertures.count)
+                )
+            }
+
+        return InsightReport(
+            totalPhotos: total,
+            uniqueCameras: cameras,
+            uniqueLenses: lenses,
+            earliestDate: earliest,
+            latestDate: latest,
+            focalLengthBuckets: focalBuckets,
+            apertureBuckets: apertureBuckets,
+            isoBuckets: isoBuckets,
+            shutterBuckets: shutterBuckets,
+            topGearCombos: topCombos
+        )
+    }
+
+    // MARK: - External Editor Handoff
+
+    func openFocusedPhotoInPhotomator() {
+        guard focusedPhotoIndex >= 0 && focusedPhotoIndex < filteredPhotoSets.count else { return }
+        let photo = filteredPhotoSets[focusedPhotoIndex]
+        
+        // Choose the raw file if present (Photomator prefers editing RAWs), otherwise fallback to JPEG/HEIF
+        let rawExtensions: Set<String> = ["raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"]
+        guard let targetURL = photo.mediaFiles.first(where: { rawExtensions.contains($0.pathExtension.lowercased()) })
+               ?? photo.preferredPreviewURL else { return }
+
+        let workspace = NSWorkspace.shared
+        
+        // Attempt to launch Photomator explicitly
+        if let photomatorURL = workspace.urlForApplication(withBundleIdentifier: "com.pixelmatorteam.pixelmator.touch.x.photo") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            workspace.open([targetURL], withApplicationAt: photomatorURL, configuration: configuration) { _, error in
+                if let error {
+                    print("Failed to launch Photomator: \(error.localizedDescription)")
+                }
+            }
+        } else {
+            // Fallback: Open with default application
+            workspace.open(targetURL)
+        }
+    }
+
+}
+
+/// Key for tracking dismissed auto-tag suggestions.
+private struct DismissedSuggestionKey: Hashable {
+    let photoSetID: UUID
+    let tagName: String
+}

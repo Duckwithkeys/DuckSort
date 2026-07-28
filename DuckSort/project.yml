@@ -1,0 +1,39 @@
+name: DuckSort
+options:
+  bundleIdPrefix: com.oliver
+  deploymentTarget:
+    macOS: "27.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+targets:
+  DuckSort:
+    type: application
+    platform: macOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: DuckSort
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oliver.DuckSort
+        PRODUCT_NAME: DuckSort
+        INFOPLIST_FILE: DuckSort/Info.plist
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        SWIFT_VERSION: "6.0"
+        COMBINE_HIDPI_IMAGES: YES
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+
+  DuckSortTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: Tests/DuckSortTests
+    dependencies:
+      - target: DuckSort
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.oliver.DuckSortTests
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        SWIFT_VERSION: "6.0"
