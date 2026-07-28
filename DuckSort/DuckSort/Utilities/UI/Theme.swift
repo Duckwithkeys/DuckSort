@@ -135,8 +135,13 @@ enum Theme {
         }
         static let rowHoverFill      = SwiftUI.Color.primary.opacity(0.06)
 
-        // Image-pane scrim (the photo viewer sits on a near-black scrim).
-        static let scrim             = SwiftUI.Color.black
+        // Image-pane scrim (the photo viewer sits on a white canvas in light mode and black scrim in dark mode).
+        static var scrim: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark ? .black : .white
+            })
+        }
 
         // Overlays (capsules behind badges, captions).
         static var overlayDim: SwiftUI.Color {
