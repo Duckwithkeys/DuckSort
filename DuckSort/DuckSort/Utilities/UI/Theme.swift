@@ -22,49 +22,67 @@ enum Theme {
     @MainActor
     enum Color {
 
-        static let background = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(red: 0.176, green: 0.176, blue: 0.176, alpha: 1.0)
-                : NSColor(red: 0.96,  green: 0.96,  blue: 0.96,  alpha: 1.0)
-        })
+        static var background: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark
+                    ? NSColor(red: 0.176, green: 0.176, blue: 0.176, alpha: 1.0)
+                    : NSColor(red: 0.96,  green: 0.96,  blue: 0.96,  alpha: 1.0)
+            })
+        }
 
-        static let sidebarBackground = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(red: 0.110, green: 0.110, blue: 0.110, alpha: 1.0)
-                : NSColor(red: 0.92,  green: 0.92,  blue: 0.92,  alpha: 1.0)
-        })
+        static var sidebarBackground: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark
+                    ? NSColor(red: 0.110, green: 0.110, blue: 0.110, alpha: 1.0)
+                    : NSColor(red: 0.92,  green: 0.92,  blue: 0.92,  alpha: 1.0)
+            })
+        }
 
-        static let toolbarBackground = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(red: 0.200, green: 0.200, blue: 0.200, alpha: 1.0)
-                : NSColor(red: 0.94,  green: 0.94,  blue: 0.94,  alpha: 1.0)
-        })
+        static var toolbarBackground: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark
+                    ? NSColor(red: 0.200, green: 0.200, blue: 0.200, alpha: 1.0)
+                    : NSColor(red: 0.94,  green: 0.94,  blue: 0.94,  alpha: 1.0)
+            })
+        }
 
-        static let cellBackground = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(red: 0.160, green: 0.160, blue: 0.160, alpha: 1.0)
-                : NSColor(white: 1.0, alpha: 1.0)
-        })
+        static var cellBackground: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark
+                    ? NSColor(red: 0.160, green: 0.160, blue: 0.160, alpha: 1.0)
+                    : NSColor(white: 1.0, alpha: 1.0)
+            })
+        }
 
-        static let footerBackground = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(red: 0.125, green: 0.125, blue: 0.125, alpha: 1.0)
-                : NSColor(red: 0.88,  green: 0.88,  blue: 0.88,  alpha: 1.0)
-        })
+        static var footerBackground: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark
+                    ? NSColor(red: 0.125, green: 0.125, blue: 0.125, alpha: 1.0)
+                    : NSColor(red: 0.88,  green: 0.88,  blue: 0.88,  alpha: 1.0)
+            })
+        }
 
-        static let separator = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(red: 0.227, green: 0.227, blue: 0.227, alpha: 1.0)
-                : NSColor(red: 0.82,  green: 0.82,  blue: 0.82,  alpha: 1.0)
-        })
+        static var separator: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                return isDark
+                    ? NSColor(red: 0.227, green: 0.227, blue: 0.227, alpha: 1.0)
+                    : NSColor(red: 0.82,  green: 0.82,  blue: 0.82,  alpha: 1.0)
+            })
+        }
 
-        // Settings-window surfaces (darker than the main app, by design).
-        static let surfaceBase        = SwiftUI.Color(red: 0.118, green: 0.118, blue: 0.118) // #1E1E1E
-        static let surfaceSidebar     = SwiftUI.Color(red: 0.086, green: 0.086, blue: 0.086) // #161616
-        static let surfaceSidebarList = SwiftUI.Color(red: 0.137, green: 0.137, blue: 0.137) // #232323
-        static let surfaceRaised      = SwiftUI.Color(red: 0.173, green: 0.173, blue: 0.180) // #2C2C2E
-        static let surfaceDivider     = SwiftUI.Color(red: 0.196, green: 0.196, blue: 0.196) // #323232
-        static let surfaceStroke      = SwiftUI.Color(red: 0.235, green: 0.235, blue: 0.243) // #3C3C3E
+        // Settings-window surfaces (adaptive for light + dark mode).
+        static var surfaceBase: SwiftUI.Color        { SwiftUI.Color(nsColor: .windowBackgroundColor) }
+        static var surfaceSidebar: SwiftUI.Color     { SwiftUI.Color(nsColor: .underPageBackgroundColor) }
+        static var surfaceSidebarList: SwiftUI.Color { SwiftUI.Color(nsColor: .controlBackgroundColor) }
+        static var surfaceRaised: SwiftUI.Color      { SwiftUI.Color(nsColor: .controlBackgroundColor) }
+        static var surfaceDivider: SwiftUI.Color     { SwiftUI.Color(nsColor: .separatorColor) }
+        static var surfaceStroke: SwiftUI.Color      { SwiftUI.Color(nsColor: .gridColor) }
 
         // Accent — respects user-selected custom accent color highlight
         static var accent: SwiftUI.Color {
@@ -83,35 +101,33 @@ enum Theme {
         // Text (adaptive - boosted contrast when highContrastEnabled is active)
         static var textPrimary: SwiftUI.Color {
             if UserPreferences.shared.highContrastEnabled {
-                return .white
+                return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .white : .black
+                })
             }
-            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? NSColor(white: 1.0, alpha: 0.95)
-                    : NSColor(white: 0.0, alpha: 0.90)
-            })
+            return SwiftUI.Color(nsColor: .labelColor)
         }
         static var textSecondary: SwiftUI.Color {
             if UserPreferences.shared.highContrastEnabled {
-                return SwiftUI.Color(white: 0.90)
+                return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? NSColor(white: 0.90, alpha: 1) : NSColor(white: 0.15, alpha: 1)
+                })
             }
-            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? NSColor(white: 1.0, alpha: 0.75)
-                    : NSColor(white: 0.0, alpha: 0.70)
-            })
+            return SwiftUI.Color(nsColor: .secondaryLabelColor)
         }
         static var textTertiary: SwiftUI.Color {
             if UserPreferences.shared.highContrastEnabled {
-                return SwiftUI.Color(white: 0.75)
+                return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.30, alpha: 1)
+                })
             }
-            return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                    ? NSColor(white: 1.0, alpha: 0.55)
-                    : NSColor(white: 0.0, alpha: 0.50)
+            return SwiftUI.Color(nsColor: .tertiaryLabelColor)
+        }
+        static var textInverse: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .white : .black
             })
         }
-        static let textInverse  = SwiftUI.Color.white
 
         // Selection / row hover tints (over any background).
         static var rowSelectedFill: SwiftUI.Color {
@@ -123,22 +139,46 @@ enum Theme {
         static let scrim             = SwiftUI.Color.black
 
         // Overlays (capsules behind badges, captions).
-        static let overlayDim        = SwiftUI.Color.black.opacity(0.60)
-        static let overlayScrim      = SwiftUI.Color.black.opacity(0.30)
-        static let overlaySoft       = SwiftUI.Color.white.opacity(0.06)
-        static let overlaySofter     = SwiftUI.Color.white.opacity(0.04)
+        static var overlayDim: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                    ? NSColor(white: 0.0, alpha: 0.60)
+                    : NSColor(white: 1.0, alpha: 0.85)
+            })
+        }
+        static var overlayScrim: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                    ? NSColor(white: 0.0, alpha: 0.30)
+                    : NSColor(white: 0.9, alpha: 0.50)
+            })
+        }
+        static var overlaySoft: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                    ? NSColor(white: 1.0, alpha: 0.06)
+                    : NSColor(white: 0.0, alpha: 0.06)
+            })
+        }
+        static var overlaySofter: SwiftUI.Color {
+            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                    ? NSColor(white: 1.0, alpha: 0.04)
+                    : NSColor(white: 0.0, alpha: 0.04)
+            })
+        }
 
-        // File-role chip colors. Shared between the grid cell's format pill
-        // and the large viewer's "Files in Set" panel so both surfaces
-        // agree on what colour means "RAW", "JPEG", "HEIF". The edit
-        // wand uses `Theme.Color.warning` (yellow) for consistency with
-        // the filmstrip's existing edit indicator. Hard-coded high-
-        // contrast tones keep the chips readable on any system accent.
         enum FileColor {
             static let raw   = SwiftUI.Color(red: 0.85, green: 0.20, blue: 0.20) // red
             static let jpeg  = SwiftUI.Color(red: 0.18, green: 0.55, blue: 0.30) // green
             static let heif  = SwiftUI.Color(red: 0.20, green: 0.35, blue: 0.85) // indigo
-            static let other = SwiftUI.Color.black.opacity(0.78)
+            static var other: SwiftUI.Color {
+                SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                        ? NSColor(white: 0.0, alpha: 0.78)
+                        : NSColor(white: 0.9, alpha: 0.85)
+                })
+            }
         }
     }
 
