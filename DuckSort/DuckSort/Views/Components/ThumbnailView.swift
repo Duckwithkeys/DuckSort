@@ -190,7 +190,7 @@ final class ThumbnailService {
         }
     }
 
-    nonisolated private static let decodeQueue = DispatchQueue(label: "com.ducksort.imageio.decode", qos: .userInitiated, attributes: .concurrent)
+    nonisolated private static let decodeQueue = DispatchQueue(label: "com.ducksort.imageio.decode", qos: .utility, attributes: .concurrent)
 
     nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
         await withCheckedContinuation { continuation in
