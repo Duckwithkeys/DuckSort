@@ -267,7 +267,7 @@ struct LargeImageViewerSidebar: View {
                     .foregroundStyle(Theme.Color.textSecondary.opacity(0.6))
                 Text(value)
                     .font(Theme.Font.caption)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.Color.textPrimary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
