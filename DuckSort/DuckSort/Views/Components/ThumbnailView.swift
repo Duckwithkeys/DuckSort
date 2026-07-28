@@ -149,7 +149,7 @@ final class ThumbnailService {
         let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
 
         // 1. Fast path: ImageIO
-        if let cgImage = decodeWithImageIO(url: url, maxPixels: maxPixels, alwaysCreate: alwaysCreate) {
+        if let cgImage = await decodeWithImageIO(url: url, maxPixels: maxPixels, alwaysCreate: alwaysCreate) {
             try Task.checkCancellation()
             let ns = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             ThumbnailCache.global.insert(ns, for: url, size: size)
@@ -158,7 +158,7 @@ final class ThumbnailService {
 
         // 1b. HEIF / HEIC fallback using optimized load
         if FileExtension.heifLikeExtensions.contains(ext) {
-            if let cg = loadWithImageIOFallback(url: url, maxPixels: maxPixels) {
+            if let cg = await loadWithImageIOFallback(url: url, maxPixels: maxPixels) {
                 try Task.checkCancellation()
                 let ns = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
                 ThumbnailCache.global.insert(ns, for: url, size: size)
@@ -190,60 +190,90 @@ final class ThumbnailService {
         }
     }
 
-    nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) -> CGImage? {
-        let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return nil }
-        guard !Task.isCancelled else { return nil }
-        let decodeOptions: [CFString: Any] = [
-            (alwaysCreate
-                ? kCGImageSourceCreateThumbnailFromImageAlways
-                : kCGImageSourceCreateThumbnailFromImageIfAbsent): true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceShouldAllowFloat: true
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
+    nonisolated private static let decodeQueue = DispatchQueue(label: "com.ducksort.imageio.decode", qos: .userInitiated, attributes: .concurrent)
+
+    nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let options = [kCGImageSourceShouldCache: false] as CFDictionary
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let decodeOptions: [CFString: Any] = [
+                    (alwaysCreate
+                        ? kCGImageSourceCreateThumbnailFromImageAlways
+                        : kCGImageSourceCreateThumbnailFromImageIfAbsent): true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceShouldAllowFloat: true
+                ]
+                let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
+                continuation.resume(returning: thumb)
+            }
+        }
     }
 
-    nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) -> CGImage? {
-        let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return nil }
-        
-        let decodeOptions: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) {
-            return thumb
-        }
+    nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let options = [kCGImageSourceShouldCache: false] as CFDictionary
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                let decodeOptions: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true
+                ]
+                if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) {
+                    continuation.resume(returning: thumb)
+                    return
+                }
 
-        guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-        
-        let width = CGFloat(cgImage.width)
-        let height = CGFloat(cgImage.height)
-        let scale = min(maxPixels / max(width, height), 1.0)
-        guard scale < 1.0 else { return cgImage }
-        
-        let targetW = Int(width * scale)
-        let targetH = Int(height * scale)
-        
-        guard let colorSpace = cgImage.colorSpace,
-              let context = CGContext(
-                  data: nil,
-                  width: targetW,
-                  height: targetH,
-                  bitsPerComponent: cgImage.bitsPerComponent,
-                  bytesPerRow: 0,
-                  space: colorSpace,
-                  bitmapInfo: cgImage.bitmapInfo.rawValue
-              ) else { return cgImage }
-              
-        context.interpolationQuality = .high
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
-        return context.makeImage()
+                guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                
+                let width = CGFloat(cgImage.width)
+                let height = CGFloat(cgImage.height)
+                let scale = min(maxPixels / max(width, height), 1.0)
+                guard scale < 1.0 else {
+                    continuation.resume(returning: cgImage)
+                    return
+                }
+                
+                let targetW = Int(width * scale)
+                let targetH = Int(height * scale)
+                
+                guard let colorSpace = cgImage.colorSpace,
+                      let context = CGContext(
+                          data: nil,
+                          width: targetW,
+                          height: targetH,
+                          bitsPerComponent: cgImage.bitsPerComponent,
+                          bytesPerRow: 0,
+                          space: colorSpace,
+                          bitmapInfo: cgImage.bitmapInfo.rawValue
+                      ) else {
+                    continuation.resume(returning: cgImage)
+                    return
+                }
+                      
+                context.interpolationQuality = .high
+                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
+                continuation.resume(returning: context.makeImage())
+            }
+        }
     }
 }
 
