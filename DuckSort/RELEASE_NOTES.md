@@ -6,26 +6,24 @@ Because v1.3.5 was a development tag, **v1.4** serves as the official release co
 
 ---
 
-## 📥 How to Download & Run
+## 📥 Download & Installation
 
-You can download and run **DuckSort** in a few simple steps:
+1. Download the **`DuckSort.dmg`** file from the assets on our [GitHub Releases page](https://github.com/Duckwithkeys/DuckSort/releases).
+2. Double-click the downloaded `.dmg` file to mount it.
+3. Drag the **DuckSort** app into your `Applications` folder.
+4. Launch the app from Launchpad or your Applications folder!
 
-### 1. Clone via Git (For Developers)
-If you have Git installed, run the following command in your terminal to download the codebase:
-```bash
-git clone https://github.com/Duckwithkeys/DuckSort.git
-```
+### 🛠️ Developer Setup & Builds
+If you'd like to build the project from source:
+* **Clone via Git**:
+  ```bash
+  git clone https://github.com/Duckwithkeys/DuckSort.git
+  ```
+* **Xcode**: Open **`DuckSort.xcodeproj`** and press `Cmd + R` to build and run.
+* **Terminal**: Run `swift run` in the root project directory.
 
-### 2. Download as a ZIP Archive
-If you do not have Git:
-1. Visit the [DuckSort GitHub Repository](https://github.com/Duckwithkeys/DuckSort).
-2. Click the green **Code** button at the top right.
-3. Choose **Download ZIP** and extract the downloaded file.
-
-### 🚀 Getting Started
-Once downloaded:
-* **Xcode**: Double-click **`DuckSort.xcodeproj`** in the `DuckSort` directory to open the project in Xcode. Click the **Run** button (`Cmd + R`) to build and start.
-* **Terminal**: Open the `DuckSort` folder in terminal and run `swift run`.
+## 🛠️ Requirements
+* **macOS 14.0 (Sonoma)** or newer.
 
 ---
 
