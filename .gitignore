@@ -21,3 +21,8 @@ tmp_iconset/
 # Xcode user settings
 xcuserdata/
 *.xcuserstate
+
+# Local temporary/scratch files
+Ai.txt
+*.log
+
