@@ -74,3 +74,28 @@ If you'd like to build the project from source:
 * **Standalone Project Configuration**: Added a standalone `DuckSort.xcodeproj` Xcode project (generated via XcodeGen `project.yml`) alongside an explicit `Info.plist` app bundle manifest.
 * Supports building, testing, and debugging directly via Xcode or using standard command-line `xcodebuild` tools.
 
+### 9. 🎨 Tag Packs Settings Overhaul
+* **Single-Column Tag Editor**: Re-engineered the settings layout into a resizable single-column view (960×720) so the pack selection strip sits cleanly above the tag editor.
+* **Inline Swatch Color Picker**: Integrated a direct color picker on every `TagChip` pill to open the native macOS color panel instantly without nested menus.
+* **SF Symbol Logo Catalog**: Integrated a curated catalog of 50+ SF Symbols grouped by category (Moments, Tech, Activities, etc.) for customized tag pack icons, with support for typing any system SF Symbol identifier.
+
+### 10. 📁 Files-in-Set Inspector & HEIF Previews
+* **Files-in-Set Sidebar**: The large photo viewer details sidebar contains a detailed file-role breakdown list (RAW, JPEG, HEIF, and Sidecars) with custom color chips. Right-click any file row to instantly Reveal in Finder or Copy Filename.
+* **Orientation-Aware HEIF Previews**: Built a system codec fallback (`NSImage(contentsOf:)`) for HEIC/HEIF files that fail standard ImageIO downsampling (due to multi-frame bursts or orientation tags), ensuring HEIF previews render correctly on the first attempt.
+
+### 11. 🔍 XMP Tag Inspector Overlay (⌘⇧X)
+* **Keyword Detection overlay**: A floating scan panel (`⌘⇧X`) reads undocumented keywords stored inside photo XMP sidecars and displays them with matching occurrences and filenames.
+* **Optimistic Tag Import**: One-click tag creation injects custom keywords directly into active packs with immediate local UI updates.
+
+### 12. 🏷️ Smart Photo Grouping & Metadata Preservation
+* **Dynamic Sidecar Pairs**: Automatically pairs RAW files, JPEGs, HEIFs, and custom `.photo-edit` files into unified sets.
+* **Automatic XMP Exports**: Automatically writes sidecars when copying/moving files, saving tags, rating/flag, EXIF parameters (camera, lens, focal length), and custom IPTC copyright profiles.
+
+### 13. ⚙️ Performance Optimizations & Engine Retuning
+* **O(1) Memory Lookups**: Replaced linear index scanning with O(1) dictionary subscripts (`photoSetIndex`) to accelerate selection toggles.
+* **Precompiled Regular Expressions**: Precompiled common patterns in `XMPSchema.Regex` to eliminate inline regex compiler cycles during file reads.
+* **Single-Pass Filters**: Collapsed multi-stage filter queries inside `updateDerivedState()` into a single loop with early short-circuiting.
+* **Concurrency Task Limits**: Capped concurrent file tasks at 16, preventing file descriptor exhaustion.
+* **Zero-Memory EXIF Scans**: Passed `kCGImageSourceShouldCache: false` during scans to extract EXIF properties without allocating pixel memory.
+
+
