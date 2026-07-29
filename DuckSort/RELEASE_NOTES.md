@@ -1,8 +1,6 @@
-# DuckSort v1.4 Release Notes
+# DuckSort v1.0.0 Release Notes
 
-Welcome to version **1.4** of **DuckSort**! Since our last major release (v1.3), we have completely re-engineered the application's core health, UI layout, cache handling, error recovery, on-device AI Neural Engine inference, and Metal graphics acceleration pipelines. This version also ships with native Xcode project integration (`DuckSort.xcodeproj`).
-
-Because v1.3.5 was a development tag, **v1.4** serves as the official release containing all updates, features, and optimizations developed since v1.3.
+Welcome to version **1.0.0** of **DuckSort**! This is the first official release of the application, introducing comprehensive performance optimizations across on-device AI Neural Engine inference and photo rendering pipelines, native Xcode project integration (`DuckSort.xcodeproj`), and robust file organization, tagging, and routing controls.
 
 ---
 
@@ -27,7 +25,8 @@ If you'd like to build the project from source:
 
 ---
 
-## ✨ What's New in v1.4 (Including All Updates Since v1.3)
+## ✨ Features & What's New in v1.0.0
+
 
 
 ### 1. 🛡️ Resilient Error Handling & Core Health
@@ -75,37 +74,3 @@ If you'd like to build the project from source:
 * **Standalone Project Configuration**: Added a standalone `DuckSort.xcodeproj` Xcode project (generated via XcodeGen `project.yml`) alongside an explicit `Info.plist` app bundle manifest.
 * Supports building, testing, and debugging directly via Xcode or using standard command-line `xcodebuild` tools.
 
-
----
-
-# DuckSort v1.3 (Tag Packs Redesign, Files-in-Set Inspector, HEIF Previews, Major Performance Pass)
-
-Welcome to version 1.3 of **DuckSort**! This release overhauls the Tag Packs settings UI, introduces a "Files in Set" inspector in the large viewer, brings full HEIF/HEIC preview support, adds an XMP tag inspector overlay, and ships a sweeping performance pass that retunes 25 hot paths across the codebase for O(1) lookups, single-pass filters, and pre-compiled regexes.
-
-## ✨ What's New in v1.3
-* **Tag Packs Settings Overhaul**:
-  - Removed the left "Categories" sidebar — the Tags pane is now a single full-width column so the pack strip sits cleanly above the inline editor.
-  - Settings window is resizable and starts at 960×720 (was 720×480) so multi-monitor users can keep the pack library visible while editing.
-  - **Per-tag inline color picker** on every `TagChip` — click the swatch and the native macOS color panel opens directly, no nested menu.
-  - **SF Symbol picker for tag-pack logos** — choose from a curated catalog of 50+ symbols grouped by People, Moments, Activities, Objects, and Tech, or type any SF Symbol name to use one not in the catalog.
-* **Large Viewer "Files in Set" Inspector**:
-  - Replaces the old "N files + edit" summary with a real per-file list showing every file that belongs to the set.
-  - Each row shows the actual filename (e.g. `DSCF0142.RAF`, `DSCF0142.JPG`, `DSCF0142.HEIC`, `DSCF0142.photo-edit`) with a colour-coded role chip — red for RAW, green for JPEG, indigo for HEIF, yellow for the edit sidecar.
-  - Right-click any row to **Reveal in Finder** or **Copy Filename**.
-  - **Format bug fix**: A RAW + HEIF set now correctly reports `formatLabel = "RAW + HEIF"` (it was silently classified as RAW-only before, because HEIF extensions also live in `rawLikeExtensions` and the `if/else if` chain checked RAW first).
-* **HEIF/HEIC Preview Support**:
-  - `CGImageSourceCreateThumbnailAtIndex` returns nil for some HEIC bursts and unusual orientation metadata — added a `NSImage(contentsOf:)` fallback path that uses the system codec, then down-samples to the requested pixel budget.
-  - HEIF files now reliably decode on first try, and the thumbnail `previewRank` puts them ahead of RAW so a set without a JPEG sibling shows the HEIF as its preview.
-* **XMP Tag Inspector Overlay**:
-  - **View → "XMP Tags Not in Active Pack…"** opens a floating overlay window (`⌘⇧X`) that scans every loaded photo's sidecar and lists any `dc:subject` keywords not defined as a tag in the active pack.
-  - Each row shows the orphan keyword, the count of photos using it, and example filenames.
-  - One-click **Add to Pack** writes a new tag into the active pack (preferring the `Subject` category) and rescans. The row disappears immediately via optimistic local update — no waiting for the full rescan.
-* **Sidebar Tag Filter Refinements**:
-  - The "Active Filters" bar is now permanent at the top of the sidebar's filter stack (under the search field), so the layout doesn't shift when filters are toggled.
-  - When zero filters are active, the bar renders a grayed-out "No active filters" state with a disabled Clear button.
-* **Keyboard Improvements**:
-  - **Press `I` in the grid** to open the large image viewer (was: toggled the Inspector panel).
-  - All other shortcuts unchanged.
-* **Tag Chip Visual Improvements**:
-  - Per-tag color picker styled as a prominent pill so it reads as the primary action, not a hidden nested menu.
-  - Format pills on grid cells use a consistent palette (`RAW` = red, `JPEG` = green, `HEIF` = indigo, `EDIT` = yellow) shared with the large viewer so both surfaces agree on what each colour means.

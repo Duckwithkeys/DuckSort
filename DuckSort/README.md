@@ -6,7 +6,7 @@ DuckSort matches the flat, dark professional aesthetic of modern photo editors l
 
 ---
 
-## ✨ Features (v1.4)
+## ✨ Features (v1.0.0)
 
 - **🛡️ Core Health & Resilient UI**:
   - **Two-Tier Disk Caching**: Stores decoded thumbnails as JPEGs inside a persistent `DiskThumbnailCache` (`~/Library/Caches/com.ducksort/thumbnails/`), enforcing a strict 500 MB limit to prevent RAM bloat.
