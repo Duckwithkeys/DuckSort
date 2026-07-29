@@ -6,7 +6,31 @@ Because v1.3.5 was a development tag, **v1.4** serves as the official release co
 
 ---
 
+## 📥 How to Download & Run
+
+You can download and run **DuckSort** in a few simple steps:
+
+### 1. Clone via Git (For Developers)
+If you have Git installed, run the following command in your terminal to download the codebase:
+```bash
+git clone https://github.com/Duckwithkeys/DuckSort.git
+```
+
+### 2. Download as a ZIP Archive
+If you do not have Git:
+1. Visit the [DuckSort GitHub Repository](https://github.com/Duckwithkeys/DuckSort).
+2. Click the green **Code** button at the top right.
+3. Choose **Download ZIP** and extract the downloaded file.
+
+### 🚀 Getting Started
+Once downloaded:
+* **Xcode**: Double-click **`DuckSort.xcodeproj`** in the `DuckSort` directory to open the project in Xcode. Click the **Run** button (`Cmd + R`) to build and start.
+* **Terminal**: Open the `DuckSort` folder in terminal and run `swift run`.
+
+---
+
 ## ✨ What's New in v1.4 (Including All Updates Since v1.3)
+
 
 ### 1. 🛡️ Resilient Error Handling & Core Health
 * **Two-Tier Cache System**: Introduced `DiskThumbnailCache` to provide a robust two-tier (memory LRU + disk) thumbnail cache. Thumbnails are cached to the disk (`~/Library/Caches/com.ducksort/thumbnails/`) as JPEG formats, managing a strict 500 MB budget to prevent high-res uncompressed image RAM bloat.
