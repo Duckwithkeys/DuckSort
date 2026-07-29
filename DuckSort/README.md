@@ -6,47 +6,32 @@ DuckSort matches the flat, dark professional aesthetic of modern photo editors l
 
 ---
 
-## ✨ Features (v1.3.5)
+## ✨ Features (v1.4)
 
-- **Camera & Lens Performance Insights (EXIF Analytics)**: View Canvas-based, fluidly animated breakdowns of Focal Length, Aperture, ISO, and Shutter Speed parameters, plus "Top Gear Combinations" with average apertures and pick ratio analytics.
-- **Photomator Handoff Integration**: Launch Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) directly with the active RAW/image file via a customizable hotkey (defaults to `E`) or a glassmorphic floating edit button on the viewer canvas.
-- **Speed Culling (Auto-Advance) Settings**: Real-time culling preferences, sound effects, haptic physical clicks, and custom shortcut recording, managed under the Mode Switching Settings tab.
-- **Triple-Pulse Tactile Haptics**: Delivers a distinct mechanical triple-click tactile vibration using a sequence of `.levelChange` and double `.alignment` trackpad triggers.
-- **Integrated XMP Tag Importer Settings**: Import orphaned XMP subjects directly into your active pack via the new "XMP Tags" settings pane.
-- **Horizontal Mouse Scroll on Tag Packs**: Smoothly scroll the templates list in settings using standard mouse horizontal scroll gestures.
-- **CryptoKit File Checksums**: Secure, modern SHA-256 file comparison hash checks migrating away from deprecated `CC_MD5` configurations.
-- **Unified Header Controls & Edge-to-Edge Grid**: Integrated Destination Selection (`tray.and.arrow.down`), Export Routing Rule Selection (`folder.badge.gearshape`), and Copy/Move operations directly into the top window toolbar alongside real-time photo and selection count indicators with vibrant green checkmarks. Bottom footers and redundant grid headers are removed for a clean edge-to-edge view.
-- **Metal GPU Zoom & Instant Memory Release**: `.drawingGroup(opaque: false)` Metal-accelerated pan/zoom gestures with automatic instant memory release of previous high-res image buffers on view swap (~36MB memory saved per swap).
-- **Ultra-Sharp Retina Previews & Extended Dynamic Ceiling**: 600px Retina grid thumbnails, 3072px 5K-ready large viewer previews, immediate zero-hitch GPU bitmap caching, and Display P3 wide-gamut float color precision.
-- **On-Device AI Neural Engine Auto-Tagging**: 299px tensor-matched Vision ML scene classification, synchronous `@VisionActor` execution, 0ms in-memory result caching, and predictive neighbor classification preloading.
-- **Full-Window Overlay Large Viewer**: Full `.ignoresSafeArea()` support on `LargeImageViewer` with 54pt viewport top clearance, native macOS titlebar navigation (`xmark`), and consolidated metadata inspection (Aperture, Shutter Speed, ISO, Camera, Lens, Date).
-- **Inline Tag Category Editing**: Click and rename tag categories directly on section headers in Tag Packs settings.
+- **🛡️ Core Health & Resilient UI**:
+  - **Two-Tier Disk Caching**: Stores decoded thumbnails as JPEGs inside a persistent `DiskThumbnailCache` (`~/Library/Caches/com.ducksort/thumbnails/`), enforcing a strict 500 MB limit to prevent RAM bloat.
+  - **Structured Subsystem Logging**: Scoped loggers (`AppLogger.thumbnails`, `.metadata`, `.transfer`, `.ui`) built on Apple's unified `os.Logger` framework with `OSSignposter` intervals for profiling.
+  - **Resilient UI Error Boundaries**: Gracefully catches child task failures and renders interactive retry banners via `ErrorBoundaryView` and `GridErrorBannerView` rather than crashing the interface.
+  - **Memory & Scroll Tuning**: Monitors OS memory pressure warning levels to auto-evict caches, and skips neighbor preloading during active scroll states to eliminate rendering hitching.
+- **🧠 On-Device AI Neural Engine (ANE) Auto-Tagging**:
+  - **Persistent Request Warmups**: Reuses `VNClassifyImageRequest` and `VNDetectHumanBodyPoseRequest` in `VisionEngineActor` to eliminate graph compile overhead and keep model weights warm in VRAM.
+  - **Direct ANE Execution**: Enforces background execution priorities (`preferBackgroundProcessing = true`) to dispatch Vision inference directly to Neural Engine cores.
+  - **Optimized Face Clustering**: Throttles clustering queues with an `AsyncSemaphore(limit: 8)` and processes downsampled 1024px face crops instead of full 80MP RAW files, saving over 140MB RAM per image and boosting throughput by 5x.
+- **⚡ Metal GPU Graphics & Photo Rendering**:
+  - **Persistent Metal Cache**: Initializes `CVMetalTextureCache` once at startup in `IOSurfaceMetalRenderer`, eliminating allocations during frame updates.
+  - **High-DPI Retina Scaling**: Computes thumbnail sizes based on screen scale (`maxPixels = size * scale`) to yield sharp 1200px thumbnails on 2x/3x Retina displays.
+  - **Adaptive RAM Cache**: Adjusts high-resolution canvas memory budgets dynamically based on physical system RAM (up to 600MB on 32GB+ configurations).
+- **📊 Camera & Lens Insights (EXIF Analytics)**: Canvas-based fluidly animated charts depicting Focal Length, Aperture, ISO, and Shutter Speed distributions, plus "Top Gear" lens pairing efficiency metrics.
+- **🎨 Photomator Integration**: Instantly launch Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) and load the active RAW/image directly via global hotkey `E` or the viewer's glassmorphic edit button.
+- **🎛️ Speed Culling & Strong Haptics**: Auto-advance culling speed preferences, custom global hotkeys, and triple-pulse trackpad haptic triggers (`.levelChange` + two `.alignment` pulses).
+- **🧭 Unified Toolbar Navigation & Edge-to-Edge Grid**: Toolbar-integrated routing rules, destinations, and selections with green status checkmarks. Complete removal of bottom footer spacing to yield an edge-to-edge layout.
+- **🛠️ Native Xcode Tooling**: Standalone `DuckSort.xcodeproj` Xcode project (generated via XcodeGen) alongside `Info.plist` bundle manifests for direct native debugging, testing, and profiling.
 - **Smart Photo Grouping**: Automatically pairs RAW files with their JPEG/HEIF derivatives and sidecar files (e.g., `.photo-edit`) into unified photo sets.
-- **Vast RAW & Image Format Support**: All major raw formats including Fuji (`.raf`), Sony (`.arw`), Canon (`.cr2`/`.cr3`), Nikon (`.nef`), Adobe (`.dng`), Olympus (`.orf`), Panasonic (`.rw2`), and Pentax (`.pef`), plus standard JPEG, HEIF (`.heic`/`.heif`/`.hif`).
-- **Native System Appearance**: Transitions fluidly between professional charcoal-dark and clean-light modes, matching your macOS system theme.
-- **HEIF Preview Decoding**: HEIC/HEIF files that previously failed `CGImageSourceCreateThumbnailAtIndex` (multi-image bursts, unusual orientation) now decode via a `NSImage(contentsOf:)` fallback.
-- **Large Viewer "Files in Set" Inspector**: Every file in the set — RAW, JPEG, HEIF, `.photo-edit` — listed by name with a colour-coded role chip. Right-click any row to Reveal in Finder or Copy Filename.
-- **XMP Tag Inspector Overlay** (`⌘⇧X`): Scans every loaded photo's sidecar and lists any `dc:subject` keywords not defined as a tag in the active pack. One-click "Add to Pack" + rescan.
-- **Tag Packs Overhaul**: Single-column settings layout with resizable window, inline per-tag color picker, SF Symbol picker for tag-pack logos (50+ curated symbols grouped by People/Moments/Activities/Objects/Tech, or any custom SF Symbol name).
-- **Sidebar Tag Filter**: Persistent "Active Filters" bar at the top of the sidebar (renders grayed-out "No active filters" when empty). Optimistic local update so adding/removing filters is instant.
-- **Smart Thumbnail Cache**: Scales to physical memory (800/120MB on 8GB, 1500/200MB on 16GB, 2500/400MB on 32GB+).
-- **Instant Startup Loading (Concurrently Optimized)**: 
-  - Two-phase metadata load — first 100 sets (visible) with high priority, then the rest in the background.
-  - Parallelized XMP sidecar reads using a concurrent `TaskGroup` fetching up to 16 files simultaneously.
-  - Memoized global counts for tags, flags, and star ratings to eliminate redundant UI redraws.
-  - Batched tag assignments to database files with zero UI freezing.
-- **Dynamic Photo Grid & Filmstrip**:
-  - Borderless, rounded thumbnail cells that align perfectly.
-  - Overlay badges (flags, star ratings, edit sidecars, and format pills) locked directly to the thumbnail frame.
-  - Format pills color-coded consistently across grid + viewer (RAW = red, JPEG = green, HEIF = indigo, EDIT = yellow).
-  - `PhotoSetCell` conforms to `Equatable` and is wrapped in `EquatableView` so unchanged cells skip body re-evaluation.
-  - Instant, smooth scrolling with safe layout loop prevention during resizing or filtering.
-- **Interactive Sidebar & Filtering**:
-  - Live folder sources management with Finder reveal, remove context actions, and scan status warnings.
-  - Subfolder dropdown navigation under each source folder.
-  - Live filters for custom Tags, Flag status (Flagged, Rejected, Unrated), and Star Ratings (0–5 stars) with real-time match counters.
-- **Live Local Search**: Instantly find photo sets by base name using the fast, dismissible search bar. Focus auto-releases when clicking outside the input.
-- **Export Routing Rules**: Define rule-based conditions (based on tags, ratings, flags, or file extensions) to automatically route files to specific destination directories.
+- **Vast RAW & Image Format Support**: All major raw formats (Fuji `.raf`, Sony `.arw`, Canon `.cr2`/`.cr3`, Nikon `.nef`, Adobe `.dng`, etc.) and standard HEIF/HEIC/JPEG files.
+- **HEIF Preview Decoding**: Falls back to native codecs when `CGImageSourceCreateThumbnailAtIndex` fails (bursts/orientations), ensuring HEIF files render correctly on the first attempt.
+- **Large Viewer "Files in Set" Inspector**: Detailed sidebar listing of RAW, JPEG, HEIF, and edit sidecars with color-coded role chips, Reveal in Finder, and Copy Filename actions.
+- **XMP Tag Inspector Overlay (`⌘⇧X`)**: Floating overlay window that detects undocumented XMP subject keywords in sidecars and imports them directly into active packs with one click.
+- **Tag Packs Overhaul**: Resizable single-column settings layout with custom color pickers and a catalog of 50+ SF Symbols for tag logos.
 - **Pre-Read Metadata Flow**: EXIF metadata read once at scan time flows through to the transfer pipeline via `TransferPlan.metadata` — no redundant per-transfer `CGImageSource` reads.
 - **Robust Metadata Preservation**: Writes an `.xmp` sidecar beside copied/moved files recording custom tags, rating, flag status, capture metadata (camera, lens, ISO, shutter, aperture), and IPTC creator/copyright/contact info when enabled.
 - **High-Resolution Viewer & Inspector**:

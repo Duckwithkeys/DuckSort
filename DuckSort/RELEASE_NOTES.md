@@ -1,84 +1,58 @@
 # DuckSort v1.4 Release Notes
 
-Welcome to version **1.4** of **DuckSort**! This major update introduces comprehensive performance optimizations across on-device AI Neural Engine inference and photo rendering pipelines, native Xcode project integration (`DuckSort.xcodeproj`), and incorporates all enhancements from v1.3.5 and v1.3.
+Welcome to version **1.4** of **DuckSort**! Since our last major release (v1.3), we have completely re-engineered the application's core health, UI layout, cache handling, error recovery, on-device AI Neural Engine inference, and Metal graphics acceleration pipelines. This version also ships with native Xcode project integration (`DuckSort.xcodeproj`).
 
-## ✨ What's New in v1.4
-
-* **On-Device AI Neural Engine & Vision Optimization Pass**:
-  * **Persistent Vision Model Requests**: `VNClassifyImageRequest` and `VNDetectHumanBodyPoseRequest` are now persistent, reusable instances inside `VisionEngineActor`. Reusing requests eliminates neural network graph re-compilation on every image frame, allowing Apple's Neural Engine to keep model weights warm in VRAM.
-  * **ANE Background Processing Route**: Enforced `preferBackgroundProcessing = true` on all Vision framework requests to direct inference work directly to hardware Neural Engine cores off the main CPU thread.
-  * **Downsampled Face Detection Inputs**: Replaced full 80MP image decodes with 1024px downsampled thumbnail extraction in `FaceClusteringService`, cutting memory usage during face detection from 150MB+ per image to ~3MB and boosting face scanning throughput by up to 5x.
-  * **Throttled Face Clustering Task Queues**: Introduced an `AsyncSemaphore(limit: 8)` task queue in `clusterPhotos` to prevent runaway memory spikes and thread pool thrashing when scanning large photo libraries.
-* **Photo Rendering & Metal Graphics Acceleration Pass**:
-  * **Persistent Metal Texture Cache**: Converted `IOSurfaceMetalRenderer` to use a persistent `CVMetalTextureCache` initialized once at startup instead of creating and destroying texture caches on every frame, eliminating texture allocation latency. Added a thread-safe `flush()` capability.
-  * **High-DPI Retina Pixel Budgeting**: Adjusted ImageIO thumbnail pixel calculations in `ThumbnailView` to explicitly account for Retina display scale factors (`maxPixels = size * scale`), rendering ultra-sharp 1200px Retina thumbnails on 2x/3x displays.
-  * **Fast ImageIO Fallback for HEIF**: Enhanced `loadWithImageIOFallback` to attempt ImageIO thumbnail generation prior to full bitmap decodes, avoiding unnecessary uncompressed image allocations for HEIF files.
-  * **Dynamic RAM-Adaptive High-Res Caching**: Configured `LargeImageCacheWrapper` in `LargeImagePane` to scale count and cost limits dynamically based on physical RAM (up to 600MB on 32GB+ systems).
-* **Native Xcode Project Integration (`DuckSort.xcodeproj`)**:
-  * Added a standalone **`DuckSort.xcodeproj`** Xcode project generated via XcodeGen (`project.yml`) alongside an explicit **`Info.plist`** app bundle manifest.
-  * You can now open, build, test, and debug DuckSort directly by double-clicking `DuckSort.xcodeproj` in Finder or via standard `xcodebuild` CLI tools.
+Because v1.3.5 was a development tag, **v1.4** serves as the official release containing all updates, features, and optimizations developed since v1.3.
 
 ---
 
-# DuckSort v1.3.5 Release Notes
+## ✨ What's New in v1.4 (Including All Updates Since v1.3)
 
-Welcome to version **1.3.5** of **DuckSort**! This release unifies the window header with comprehensive routing & transfer controls, streamlines the main photo grid, introduces inline category editing, integrates direct Photomator editing handoffs, exposes comprehensive Speed Culling (Auto-Advance) customization options, adds a multi-pulse haptic physical click sequence, and adds a brand-new EXIF Analytics dashboard.
+### 1. 🛡️ Resilient Error Handling & Core Health
+* **Two-Tier Cache System**: Introduced `DiskThumbnailCache` to provide a robust two-tier (memory LRU + disk) thumbnail cache. Thumbnails are cached to the disk (`~/Library/Caches/com.ducksort/thumbnails/`) as JPEG formats, managing a strict 500 MB budget to prevent high-res uncompressed image RAM bloat.
+* **Structured Subsystem Logging**: Added `AppLogger` wrapping Apple's unified `os.Logger`, partitioning logs cleanly into subsystems (`thumbnails`, `metadata`, `transfer`, `ui`). Includes support for `PerformanceSignpost` using `OSSignposter` intervals for detailed profiling inside Instruments.
+* **SwiftUI UI Error Boundaries**: Added `ErrorBoundaryView` to wrap child view hierarchies and gracefully handle runtime task throwing, providing a fallback retry interface rather than crashing the view.
+* **Dismissable Grid Error Banners**: Built `GridErrorBannerView` to alert users of top-level folder parsing or loading issues dynamically, replacing intrusive raw alert popups.
+* **ViewModel Memory & Layout Enhancements**:
+  * Implemented adaptive metadata batching (`metadataBatchSize = 150`) to progressively populate the UI during library load.
+  * Added system memory pressure monitoring to auto-evict caches on `.warning` or `.critical` levels.
+  * Suspended neighbor preloading when scrolling via the `ScrollStateObserver` to reserve I/O bandwidth and thread queues for active cells.
+  * Gated published changes in ViewModels to skip rendering if the filtered photo array elements remain unchanged.
 
-## ✨ What's New in v1.3.5
+### 2. 🧠 On-Device AI Neural Engine & Vision Optimization
+* **Persistent Vision Model Requests**: Reusable, persistent `VNClassifyImageRequest` and `VNDetectHumanBodyPoseRequest` in `VisionEngineActor` keep Apple Neural Engine weights warm in VRAM, eliminating neural net graph compilation overhead on each frame.
+* **ANE Processing Route**: Enforced background thread processing routes (`preferBackgroundProcessing = true`) to direct Vision inference tasks directly to dedicated Apple Silicon Neural Engine cores, avoiding CPU thrashing.
+* **Downsampled Face Detection & Clustering**:
+  * Throttled face detection scanning queues with a strict concurrent `AsyncSemaphore(limit: 8)` task coordinator.
+  * Extracted downsampled 1024px thumbnails for face detection instead of full-size RAW files, dropping RAM footprint from 150MB+ down to ~3MB per image and boosting throughput by 5x.
 
-* **Camera & Lens Performance Insights (EXIF Analytics)**:
-  * Added a dedicated "EXIF Analytics" dashboard button in the toolbar (`chart.bar.xaxis`).
-  * Features a full-screen sheet with Canvas-based, fluidly-animated bar charts showing Focal Length, Aperture, ISO Distribution, and Shutter Speed breakdowns.
-  * Displays "Top Gear Combinations" showing camera and lens pairings, occurrence count, average aperture, and pick ratios.
-* **Photomator Integration & Custom Handoff**:
-  * Added a configurable hotkey (defaults to `E`) and a glassmorphic floating **Edit** overlay button on the large viewer.
-  * Instantly launches Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) and opens the current RAW or image file directly.
-* **Speed Culling (Auto-Advance) Customizations & Hotkey**:
-  * Added a "Speed Culling (Auto-Advance)" settings card under the Mode Switching Settings tab.
-  * Allows toggling Auto-Advance sound effects, haptic clicks, and recording a custom global hotkey to toggle the feature instantly.
-* **Triple-Pulse Tactile Haptic click**:
-  * Swapped the faint `.generic` haptic pattern with a triple-pulse mechanical click sequence (`.levelChange` and double `.alignment` bursts in a 30ms queue) for a strong physical feedback tick on supported trackpads.
-* **Orphaned XMP Tags Settings Pane**:
-  * Migrated the XMP Tag Inspector directly into the Settings window as a dedicated pane for importing orphaned XMP subjects into active packs.
-* **Horizontal Mouse Scroll on Tag Packs**:
-  * Added custom horizontal mouse scroll support to the tag pack templates list in Settings.
-* **CryptoKit SHA-256 Migration**:
-  * Migrated `FileNaming.swift` from deprecated CommonCrypto `CC_MD5` to Apple's modern CryptoKit `SHA256` hashing for file checksum comparisons.
-* **Unified Window Header & Top Bar Navigation**:
-  * Moved Destination Selection (`tray.and.arrow.down`), Export Routing Rule Menu (`folder.badge.gearshape`), and Copy (`doc.on.doc`) / Move (`folder`) action buttons directly into the top window header toolbar alongside Add Source and Filters.
-  * Added a real-time photo count and active selection status item in the top toolbar with a vibrant green checkmark icon (`checkmark.circle.fill` in brand green) showing active selected photo counts.
-* **Streamlined Edge-to-Edge Grid View**:
-  * Completely removed the bottom `TransferFooter` panel for a clean, edge-to-edge photo grid experience.
-  * Removed redundant internal text headers from inside the grid view, granting photo thumbnails maximum vertical space right below the top window bar.
-* **Large Viewer & Window Edge Polishing**:
-  * Configured full-window `.ignoresSafeArea()` on `LargeImageViewer` so the overlay extends seamlessly across the entire window container without exposing underlying layout steps or titlebar color misalignments.
-  * Synchronized window background color (`window.backgroundColor = NSColor(Theme.Color.background)`), eliminating titlebar tab artifacts.
-  * Applied 54pt top clearance on the large viewer photo container so images sit comfortably below native macOS titlebar pills.
-* **Settings & Category Editing**:
-  * Introduced inline editing for categories in Tag Packs settings — click and rename category section headers directly on the page.
-  * Refined highlight sizing on Rules and Rebinds settings panes for clean alignment with the dark design system.
+### 3. ⚡ Photo Rendering & Metal Graphics Acceleration
+* **Persistent Metal Texture Cache**: Converted `IOSurfaceMetalRenderer` to use a persistent `CVMetalTextureCache` initialized once at startup instead of creating and destroying texture caches on every frame, eliminating texture allocation latency. Added a thread-safe `flush()` capability.
+* **High-DPI Retina Pixel Budgeting**: Adjusted ImageIO thumbnail pixel calculations in `ThumbnailView` to explicitly account for Retina display scale factors (`maxPixels = size * scale`), rendering ultra-sharp 1200px Retina thumbnails on 2x/3x displays.
+* **Fast ImageIO Fallback for HEIF**: Enhanced `loadWithImageIOFallback` to attempt ImageIO thumbnail generation prior to full bitmap decodes, avoiding unnecessary uncompressed image allocations for HEIF files.
+* **Dynamic RAM-Adaptive High-Res Caching**: Configured `LargeImageCacheWrapper` in `LargeImagePane` to scale count and cost limits dynamically based on physical RAM (up to 600MB on 32GB+ systems).
 
-## ⚡ Graphics Acceleration & Neural Engine Performance Pass
+### 4. 📊 Camera & Lens Performance Insights (EXIF Analytics)
+* **Interactive Chart Dashboard**: Added an EXIF analytics dashboard sheet (`chart.bar.xaxis`), complete with SwiftUI Canvas-based animated charts depicting Focal Length, Aperture, ISO, and Shutter Speed distributions.
+* **Top Gear Combinations**: Automatically analyzes and displays camera and lens combinations, occurrence frequency, average aperture, and pick ratios.
 
-* **Metal GPU Layer & Zero-Copy Memory Management**:
-  * **Metal-Backed Zoom & Pan**: Added `.drawingGroup(opaque: false)` to the large viewer's zoom/pan image layer for smooth Metal-accelerated GPU rendering during pinch/pan gestures.
-  * **Instant Memory Release**: Immediately nils out previous high-res image buffers on view task trigger, releasing ~36MB of RAM per photo swap.
-* **Ultra-Sharp High-DPI Retina Rendering & Extended Preview Ceiling**:
-  * **600px Retina Grid Thumbnails**: Doubled standard grid thumbnail decoding targets from 300px to 600px max pixels, delivering razor-sharp rendering on high-DPI Retina displays.
-  * **3072px Ultra-HD Large Previews**: Expanded large image preview decoding ceiling from 2048px to 3072px, capturing full dynamic detail for 4K and 5K Retina displays.
-  * **Immediate GPU Bitmap Caching & Float Precision**: Enabled `kCGImageSourceShouldCacheImmediately: true` for zero-hitch background decompression and `kCGImageSourceShouldAllowFloat: true` for Display P3 wide-gamut color accuracy.
-* **On-Device AI Neural Engine Auto-Tagging Acceleration**:
-  * **299px Model Tensor Match**: Aligned thumbnail extraction for Vision scene classification to 299px max pixels, matching exact Apple Neural Engine model input dimensions and reducing ImageIO decode overhead by >60%.
-  * **Synchronous Execution & Result Caching**: Removed async continuations to run Vision requests directly and synchronously on `@VisionActor`, backed by an in-memory `NSCache` for 0ms instant classification lookups.
-  * **Predictive Neighbor Preloading**: Integrated Vision ML classification directly into neighbor preloading. As you navigate or focus on a photo, neighboring photos pre-trigger background Neural Engine classifications so recommendations appear instantaneously when switching photos.
-* **Data Pipeline & Layout Overhead Reduction**:
-  * **Zero-Overhead Grid Layout**: Removed internal `GeometryReader` wrappers from every cell, eliminating hundreds of bottom-up layout recalculations during scroll.
-  * **Gated Marquee Hit-Testing**: Gated cell `GeometryReader` background overlays so they only install when an active marquee drag (`marqueeStart != nil`) is occurring.
-  * **Coalesced Filter Updates**: Added `batchUpdate()` to coalesce state mutations and eliminate redundant `updateDerivedState()` runs.
-  * **Gated Metadata Task Group**: Limited parallel metadata decoding to 16 concurrent tasks to prevent file descriptor exhaustion and I/O thrashing.
-  * **Pre-Computed Photo Date Map**: Cached photo dates in `photoDateCache` to eliminate blocking filesystem `stat()` calls during library sorting.
-  * **Zero-Memory EXIF Reads**: Passed `kCGImageSourceShouldCache: false` for EXIF-only property reading, saving ~50MB RAM per RAW file scan.
-  * **Downsampled Body Pose Frames**: Downsampled Vision body pose inputs to 1024px thumbnails, dropping memory footprint from 200MB to 4MB per inference.
+### 5. 🎨 Photomator Integration & Custom Handoff
+* **One-Click Launch**: Added an **Edit** button overlay and global hotkey `E` on the large photo viewer.
+* **Handoff Action**: Directs the active RAW or high-res image directly into Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) for seamless editing workflows.
+
+### 6. 🎛️ Speed Culling (Auto-Advance) & Strong Haptics
+* **Custom Speed Culling Settings**: Configurable Auto-Advance sound effects, trackpad haptic triggers, and custom hotkey bindings in the settings panel.
+* **Mechanical Haptic Click Sequence**: Implemented a triple-pulse mechanical tactile vibration using a sequence of trackpad `.levelChange` and `.alignment` bursts in a 30ms queue.
+
+### 7. 🧭 Unified Header Navigation & Interface Refinements
+* **Edge-to-Edge Grid**: Removed the redundant bottom `TransferFooter` panel and subheadings to maximize grid thumbnail vertical space.
+* **Unified Toolbar**: Integrated Destination Selection, Export Routing Rules, Copy/Move triggers, and active checkmarks for selected photo counts directly into the top window bar.
+* **Full-Window Overlay Viewer**: Configured `LargeImageViewer` to support `.ignoresSafeArea()` extending across titlebars, with a 54pt top clearance.
+
+### 8. 🛠️ Native Xcode Build Tooling
+* **Standalone Project Configuration**: Added a standalone `DuckSort.xcodeproj` Xcode project (generated via XcodeGen `project.yml`) alongside an explicit `Info.plist` app bundle manifest.
+* Supports building, testing, and debugging directly via Xcode or using standard command-line `xcodebuild` tools.
+
 
 ---
 
