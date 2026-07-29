@@ -9,6 +9,11 @@ struct LargeImageViewerSidebar: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
     @ObservedObject private var preferences = UserPreferences.shared
 
+    @State private var isEditHovered = false
+    @State private var isFlagHovered = false
+    @State private var isRejectHovered = false
+    @State private var hoverStarRating: Int? = nil
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -16,6 +21,8 @@ struct LargeImageViewerSidebar: View {
                     // Auto-Advance (and its haptic / sound toggles + shortcut)
                     // moved to Settings → Mode Switching, so it can be configured
                     // once and stays out of the way of the inspector workflow.
+
+                    quickActionsSection
 
                     // Section 1: Tags
                     VStack(alignment: .leading, spacing: Theme.Space.s10) {
@@ -245,6 +252,111 @@ struct LargeImageViewerSidebar: View {
         .frame(width: 290)
         .background(Theme.Color.sidebarBackground)
         .overlay(Divider(), alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var quickActionsSection: some View {
+        if let photo = viewModel.currentFocusedPhotoSet {
+            let rating = photo.rating ?? 0
+            
+            VStack(alignment: .leading, spacing: Theme.Space.s10) {
+                sectionHeader("QUICK ACTIONS")
+                
+                HStack(spacing: 8) {
+                    // Star Rating Control
+                    HStack(spacing: 2) {
+                        ForEach(1...5, id: \.self) { star in
+                            Button {
+                                let newRating = (rating == star) ? 0 : star
+                                viewModel.setRating(newRating == 0 ? nil : newRating, for: photo.id)
+                            } label: {
+                                let displayFilled = star <= (hoverStarRating ?? rating)
+                                Image(systemName: displayFilled ? "star.fill" : "star")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(displayFilled ? Theme.Color.rating : Theme.Color.textSecondary)
+                                    .frame(width: 18, height: 18)
+                            }
+                            .buttonStyle(.plain)
+                            .onHover { isHovered in
+                                if isHovered {
+                                    hoverStarRating = star
+                                } else {
+                                    hoverStarRating = nil
+                                }
+                            }
+                        }
+                    }
+                    .help("Set Star Rating")
+                    
+                    Spacer()
+                    
+                    // Pick Flag Button
+                    Button {
+                        viewModel.setPick(photo.pick == 1 ? 0 : 1, forIDs: [photo.id])
+                    } label: {
+                        Image(systemName: photo.pick == 1 ? "flag.fill" : "flag")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(photo.pick == 1 ? Theme.Color.danger : (isFlagHovered ? Theme.Color.accent : Theme.Color.textSecondary))
+                            .frame(width: 24, height: 24)
+                            .background(Theme.Color.cellBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.s)
+                                    .stroke(Theme.Color.separator, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isFlagHovered = $0 }
+                    .help("Toggle Pick Flag")
+                    
+                    // Reject Flag Button
+                    Button {
+                        viewModel.setPick(photo.pick == -1 ? 0 : -1, forIDs: [photo.id])
+                    } label: {
+                        Image(systemName: photo.pick == -1 ? "flag.slash.fill" : "flag.slash")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(photo.pick == -1 ? Theme.Color.warning : (isRejectHovered ? Theme.Color.accent : Theme.Color.textSecondary))
+                            .frame(width: 24, height: 24)
+                            .background(Theme.Color.cellBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.s)
+                                    .stroke(Theme.Color.separator, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isRejectHovered = $0 }
+                    .help("Toggle Reject Flag")
+                    
+                    // Edit Button (Photomator)
+                    Button {
+                        viewModel.openFocusedPhotoInPhotomator()
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(isEditHovered ? Theme.Color.accent : Theme.Color.textSecondary)
+                            .frame(width: 24, height: 24)
+                            .background(Theme.Color.cellBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.s)
+                                    .stroke(Theme.Color.separator, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isEditHovered = $0 }
+                    .help("Open in Photomator")
+                }
+                .padding(.horizontal, Theme.Space.s12)
+                .padding(.vertical, Theme.Space.s8)
+                .background(Theme.Color.cellBackground.opacity(0.4))
+                .cornerRadius(Theme.Radius.m)
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.m)
+                        .stroke(Theme.Color.separator, lineWidth: 1)
+                )
+            }
+        }
     }
 
     private func sectionHeader(_ title: String) -> some View {

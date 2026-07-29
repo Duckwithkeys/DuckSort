@@ -18,6 +18,9 @@ final class PhotoIndexStore: @unchecked Sendable {
     private var geohashBins: [String: Set<UUID>] = [:]
     private var featurePrints: [UUID: [Float]] = [:]
     
+    /// Index a batch of photo sets in a single lock acquisition.
+    /// Prefer this over calling `index(_:)` with one-element arrays, which
+    /// acquires and releases the lock for every photo individually.
     func index(_ photoSets: [PhotoSet]) {
         lock.lock()
         defer { lock.unlock() }
@@ -32,7 +35,14 @@ final class PhotoIndexStore: @unchecked Sendable {
                 byPick[pick, default: []].insert(photo.id)
             }
         }
+        AppLogger.metadata.info("PhotoIndexStore: indexed \(photoSets.count) photo sets")
     }
+
+    /// Convenience single-photo index. Wraps the batch method.
+    func index(_ photoSet: PhotoSet) {
+        index([photoSet])
+    }
+
 
     func indexFeaturePrint(id: UUID, vector: [Float]) {
         guard !vector.isEmpty else { return }

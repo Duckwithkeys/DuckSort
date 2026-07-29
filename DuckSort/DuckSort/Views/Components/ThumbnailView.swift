@@ -11,10 +11,13 @@
 //  • ThumbnailLoader     — @MainActor ObservableObject. Only stores the result
 //                          image; delegates ALL I/O to ThumbnailService.
 //  • ThumbnailService    — Global actor (not MainActor). Owns an async semaphore
-//                          that caps concurrent decodes to 4. All CGImageSource,
-//                          QL, and NSWorkspace calls happen here, never on main.
-//  • ThumbnailCache      — Thread-safe NSCache wrapper. Reads & writes happen
-//                          on ThumbnailService's executor, never on main.
+//                          that caps concurrent decodes to core-count (4–8).
+//                          All CGImageSource, QL, and NSWorkspace calls happen
+//                          here, never on main.
+//  • ThumbnailCache      — Thread-safe NSCache wrapper (memory tier).
+//                          Reads & writes happen on ThumbnailService's executor.
+//  • DiskThumbnailCache  — Actor-isolated disk cache (JPEG on disk).
+//                          Two-tier lookup: memory → disk → decode.
 //
 
 import AppKit
@@ -29,12 +32,13 @@ struct ThumbnailView: View {
     var size: CGSize = CGSize(width: 600, height: 600)
     var cornerRadius: CGFloat = Theme.Radius.xl
     @StateObject private var loader = ThumbnailLoader()
+    @State private var isLoading = true
 
     var body: some View {
         Color.clear
             .overlay {
                 ZStack {
-                    // Placeholder
+                    // Placeholder / skeleton
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(
                             LinearGradient(
@@ -51,20 +55,29 @@ struct ThumbnailView: View {
                         Image(nsImage: image)
                             .resizable()
                             .scaledToFill()
+                            .transition(.opacity.animation(.easeIn(duration: 0.15)))
                     } else {
-                        Image(systemName: "photo")
-                            .font(Theme.Font.iconHero)
-                            .foregroundStyle(Theme.Color.textTertiary)
+                        // Show subtle animated shimmer while loading
+                        ShimmerView()
+                            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                            .opacity(isLoading ? 1 : 0)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             }
         .task(id: url) {
-            guard let url else { return }
-            
-            // Fast cache hit
+            guard let url else {
+                isLoading = false
+                return
+            }
+
+            isLoading = true
+
+            // Fast memory-cache hit
             if let hit = ThumbnailCache.global.image(for: url, size: size) {
+                AppLogger.thumbnails.trace("Memory cache hit: \(url.lastPathComponent)")
                 loader.image = hit
+                isLoading = false
                 return
             }
 
@@ -87,10 +100,41 @@ struct ThumbnailView: View {
 
             guard !Task.isCancelled else { return }
 
+            AppLogger.thumbnails.trace("Decode started: \(url.lastPathComponent)")
             if let result = await ThumbnailService.shared.thumbnail(for: url, size: size, scale: scale) {
                 guard !Task.isCancelled else { return }
                 loader.image = result
             }
+            isLoading = false
+        }
+    }
+}
+
+// MARK: - Shimmer placeholder
+
+/// Lightweight animated shimmer shown while thumbnails decode.
+private struct ShimmerView: View {
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Theme.Color.cellBackground.opacity(0.6), location: 0),
+                            .init(color: Theme.Color.separator.opacity(0.4), location: 0.4),
+                            .init(color: Theme.Color.cellBackground.opacity(0.6), location: 1)
+                        ],
+                        startPoint: UnitPoint(x: phase - 0.3, y: 0.5),
+                        endPoint: UnitPoint(x: phase + 0.3, y: 0.5)
+                    )
+                )
+                .onAppear {
+                    withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                        phase = 1.3
+                    }
+                }
         }
     }
 }
@@ -114,14 +158,24 @@ final class ThumbnailService {
     static let shared = ThumbnailService()
 
     private let cache = ThumbnailCache()
-    private let semaphore = AsyncSemaphore(limit: 6)
+    // Semaphore limit: core-count, bounded to 4–8 to avoid thrashing.
+    private let semaphore = AsyncSemaphore(
+        limit: ProcessInfo.processInfo.activeProcessorCount.clamped(to: 4...8)
+    )
 
     private init() {}
 
     func thumbnail(for url: URL?, size: CGSize, scale: CGFloat = 2.0) async -> NSImage? {
         guard let url else { return nil }
 
+        // 1. Memory cache
         if let hit = ThumbnailCache.global.image(for: url, size: size) { return hit }
+
+        // 2. Disk cache (avoid decode if we already have JPEG on disk)
+        if let diskHit = await DiskThumbnailCache.shared.image(for: url, size: size) {
+            ThumbnailCache.global.insert(diskHit, for: url, size: size)
+            return diskHit
+        }
 
         do {
             try Task.checkCancellation()
@@ -153,6 +207,7 @@ final class ThumbnailService {
             try Task.checkCancellation()
             let ns = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             ThumbnailCache.global.insert(ns, for: url, size: size)
+            await DiskThumbnailCache.shared.insert(ns, for: url, size: size)
             return ns
         }
 
@@ -162,6 +217,7 @@ final class ThumbnailService {
                 try Task.checkCancellation()
                 let ns = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
                 ThumbnailCache.global.insert(ns, for: url, size: size)
+                await DiskThumbnailCache.shared.insert(ns, for: url, size: size)
                 return ns
             }
         }
@@ -180,6 +236,7 @@ final class ThumbnailService {
             let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             try Task.checkCancellation()
             ThumbnailCache.global.insert(rep.nsImage, for: url, size: size)
+            await DiskThumbnailCache.shared.insert(rep.nsImage, for: url, size: size)
             return rep.nsImage
         } catch is CancellationError {
             throw CancellationError()
@@ -277,7 +334,7 @@ final class ThumbnailService {
     }
 }
 
-// MARK: - Thread-safe cache
+// MARK: - Thread-safe memory cache
 
 final class ThumbnailCache {
     nonisolated(unsafe) static let global = ThumbnailCache()
@@ -312,6 +369,17 @@ final class ThumbnailCache {
         let ph = rep?.pixelsHigh ?? Int(image.size.height)
         let cost = Int(max(pw * ph * 4, 1))
         cache.setObject(image, forKey: cacheKey(for: url, size: size), cost: cost)
+    }
+
+    /// Removes a single entry by URL + size.
+    func remove(for url: URL, size: CGSize) {
+        cache.removeObject(forKey: cacheKey(for: url, size: size))
+    }
+
+    /// Evicts the entire in-memory cache. Called on memory pressure events.
+    func evictAll() {
+        cache.removeAllObjects()
+        AppLogger.thumbnails.info("Memory cache evicted (all objects removed)")
     }
 }
 
@@ -354,5 +422,13 @@ actor AsyncSemaphore {
             let cancelled = waiters.remove(at: index)
             cancelled.continuation.resume(throwing: CancellationError())
         }
+    }
+}
+
+// MARK: - Comparable clamping helper
+
+extension Comparable {
+    fileprivate func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }

@@ -98,6 +98,7 @@ final class VisionEngineActor {
 
     /// Generates a Vision feature print embedding vector for similarity and burst culling lookups.
     func generateFeaturePrint(at url: URL) async throws -> [Float] {
+        AppLogger.vision.debug("Generating feature print for \(url.lastPathComponent)")
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: 512,
@@ -106,13 +107,20 @@ final class VisionEngineActor {
         ]
         guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
               let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+            AppLogger.vision.warning("Failed to create CGImage source/thumbnail for feature print: \(url.lastPathComponent)")
             return []
         }
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([featurePrintRequest])
+        do {
+            try handler.perform([featurePrintRequest])
+        } catch {
+            AppLogger.vision.error("Feature print VNImageRequestHandler perform failed: \(error.localizedDescription) for \(url.lastPathComponent)")
+            throw error
+        }
 
         guard let observation = featurePrintRequest.results?.first as? VNFeaturePrintObservation else {
+            AppLogger.vision.warning("No VNFeaturePrintObservation returned for \(url.lastPathComponent)")
             return []
         }
 

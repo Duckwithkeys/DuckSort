@@ -44,12 +44,11 @@ struct XMPTaggingService: Sendable {
         return hashStr == expectedHash
     }
 
-    /// Stamps the extended attribute hash digest onto an XMP sidecar file.
     static func stampExtendedAttributeHash(_ hashStr: String, to url: URL) {
         let name = "com.ducksort.metadata.hash"
         guard let data = hashStr.data(using: .utf8) else { return }
         let path = url.path
-        data.withUnsafeBytes {
+        _ = data.withUnsafeBytes {
             setxattr(path, name, $0.baseAddress, data.count, 0, 0)
         }
     }

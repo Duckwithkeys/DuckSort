@@ -54,136 +54,139 @@ struct MetadataReader: Sendable {
     }()
 
     func metadata(for url: URL) -> MetadataSnapshot {
+        AppLogger.metadata.debug("Reading metadata: \(url.lastPathComponent)")
+
         if url.pathExtension.lowercased() == "xmp" {
             if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {
                 return parseXMPText(xmlString)
             }
         }
 
-        let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?
-        else {
-            if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {
-                return parseXMPText(xmlString)
+        // Wrap in autoreleasepool to bound the lifetime of transient ObjC
+        // bridge objects (CGImageSource, NSDictionary) during batch loads.
+        // Without this, rapid serial calls to metadata(for:) can cause
+        // a temporary memory spike before ARC can drain the pool.
+        return autoreleasepool {
+            let options = [kCGImageSourceShouldCache: false] as CFDictionary
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?
+            else {
+                if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {
+                    AppLogger.metadata.info("Falling back to XMP text parse for \(url.lastPathComponent)")
+                    return parseXMPText(xmlString)
+                }
+                // File system fallback for missing source
+                AppLogger.metadata.info("Falling back to file attributes for \(url.lastPathComponent)")
+                var snapshot = MetadataSnapshot()
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let fileCreationDate = attrs[.creationDate] as? Date {
+                    snapshot.captureDate = fileCreationDate
+                }
+                return snapshot
             }
-            // File system fallback for missing source
-            var snapshot = MetadataSnapshot()
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let fileCreationDate = attrs[.creationDate] as? Date {
-                snapshot.captureDate = fileCreationDate
-            }
-            return snapshot
-        }
 
-        let tiff = properties[kCGImagePropertyTIFFDictionary] as? NSDictionary
-        let exif = properties[kCGImagePropertyExifDictionary] as? NSDictionary
-        let gps = properties[kCGImagePropertyGPSDictionary] as? NSDictionary
-        let iptc = properties[kCGImagePropertyIPTCDictionary] as? NSDictionary
+            let tiff = properties[kCGImagePropertyTIFFDictionary] as? NSDictionary
+            let exif = properties[kCGImagePropertyExifDictionary] as? NSDictionary
+            let gps = properties[kCGImagePropertyGPSDictionary] as? NSDictionary
+            let iptc = properties[kCGImagePropertyIPTCDictionary] as? NSDictionary
 
-        let cameraModel = tiff?[kCGImagePropertyTIFFModel] as? String
-        let lensModel = exif?[kCGImagePropertyExifLensModel] as? String
-        
-        // Exif datetime -> TIFF datetime -> IPTC datetime
-        var captureDateString = exif?[kCGImagePropertyExifDateTimeOriginal] as? String
-            ?? tiff?[kCGImagePropertyTIFFDateTime] as? String
-        
-        if captureDateString == nil, let iptc = iptc {
-            if let dateStr = iptc[kCGImagePropertyIPTCDateCreated] as? String {
-                if let timeStr = iptc[kCGImagePropertyIPTCTimeCreated] as? String {
-                    captureDateString = "\(dateStr) \(timeStr)"
-                } else {
-                    captureDateString = dateStr
+            let cameraModel = tiff?[kCGImagePropertyTIFFModel] as? String
+            let lensModel = exif?[kCGImagePropertyExifLensModel] as? String
+
+            // Exif datetime -> TIFF datetime -> IPTC datetime
+            var captureDateString = exif?[kCGImagePropertyExifDateTimeOriginal] as? String
+                ?? tiff?[kCGImagePropertyTIFFDateTime] as? String
+
+            if captureDateString == nil, let iptc = iptc {
+                if let dateStr = iptc[kCGImagePropertyIPTCDateCreated] as? String {
+                    if let timeStr = iptc[kCGImagePropertyIPTCTimeCreated] as? String {
+                        captureDateString = "\(dateStr) \(timeStr)"
+                    } else {
+                        captureDateString = dateStr
+                    }
                 }
             }
-        }
-        
-        var captureDate = captureDateString.flatMap(Self.parseExifDate)
-        
-        let aperture = exif?[kCGImagePropertyExifFNumber] as? Double
-        let shutterSpeed = exif?[kCGImagePropertyExifExposureTime] as? Double
-        let isoArray = exif?[kCGImagePropertyExifISOSpeedRatings] as? [Int]
 
-        // Advanced fields
-        let focalLength = exif?[kCGImagePropertyExifFocalLength] as? Double
-        let focalLengthIn35mm = exif?[kCGImagePropertyExifFocalLenIn35mmFilm] as? Double
-        let whiteBalanceRaw = exif?[kCGImagePropertyExifWhiteBalance] as? Int
-        let flashRaw = exif?[kCGImagePropertyExifFlash] as? Int
-        let exposureProgramRaw = exif?[kCGImagePropertyExifExposureProgram] as? Int
-        let meteringModeRaw = exif?[kCGImagePropertyExifMeteringMode] as? Int
-        let exposureBias = exif?[kCGImagePropertyExifExposureBiasValue] as? Double
+            var captureDate = captureDateString.flatMap(Self.parseExifDate)
 
-        let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int
-        let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int
-        let orientation = properties[kCGImagePropertyOrientation] as? Int
-        let colorSpaceRaw = properties[kCGImagePropertyColorModel] as? String
-        let profileName = properties[kCGImagePropertyProfileName] as? String
+            let aperture = exif?[kCGImagePropertyExifFNumber] as? Double
+            let shutterSpeed = exif?[kCGImagePropertyExifExposureTime] as? Double
+            let isoArray = exif?[kCGImagePropertyExifISOSpeedRatings] as? [Int]
 
-        let gpsLatitude = gps?[kCGImagePropertyGPSLatitude] as? Double
-        let gpsLongitude = gps?[kCGImagePropertyGPSLongitude] as? Double
-        let gpsAltitude = gps?[kCGImagePropertyGPSAltitude] as? Double
+            // Advanced fields
+            let focalLength = exif?[kCGImagePropertyExifFocalLength] as? Double
+            let focalLengthIn35mm = exif?[kCGImagePropertyExifFocalLenIn35mmFilm] as? Double
+            let whiteBalanceRaw = exif?[kCGImagePropertyExifWhiteBalance] as? Int
+            let flashRaw = exif?[kCGImagePropertyExifFlash] as? Int
+            let exposureProgramRaw = exif?[kCGImagePropertyExifExposureProgram] as? Int
+            let meteringModeRaw = exif?[kCGImagePropertyExifMeteringMode] as? Int
+            let exposureBias = exif?[kCGImagePropertyExifExposureBiasValue] as? Double
 
-        var rating: Int? = nil
-        var pick: Int? = nil
-        if let iptc = iptc {
-            rating = iptc[kCGImagePropertyIPTCStarRating] as? Int
-        }
-        
-        // Check embedded XMP only if we still need rating, pick, or captureDate
-        if rating == nil || pick == nil || captureDate == nil {
-            if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
-               let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
-               let xmpString = String(data: xmpData, encoding: .utf8) {
+            let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int
+            let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int
+            let orientation = properties[kCGImagePropertyOrientation] as? Int
+            let colorSpaceRaw = properties[kCGImagePropertyColorModel] as? String
+            let profileName = properties[kCGImagePropertyProfileName] as? String
 
-                let xmpSnapshot = parseXMPText(xmpString)
-                if rating == nil {
-                    rating = xmpSnapshot.rating
-                }
-                if pick == nil {
-                    pick = xmpSnapshot.pick
-                }
-                if captureDate == nil {
-                    captureDate = xmpSnapshot.captureDate
+            let gpsLatitude = gps?[kCGImagePropertyGPSLatitude] as? Double
+            let gpsLongitude = gps?[kCGImagePropertyGPSLongitude] as? Double
+            let gpsAltitude = gps?[kCGImagePropertyGPSAltitude] as? Double
+
+            var rating: Int? = nil
+            var pick: Int? = nil
+            if let iptc = iptc {
+                rating = iptc[kCGImagePropertyIPTCStarRating] as? Int
+            }
+
+            // Check embedded XMP only if we still need rating, pick, or captureDate
+            if rating == nil || pick == nil || captureDate == nil {
+                if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
+                   let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
+                   let xmpString = String(data: xmpData, encoding: .utf8) {
+
+                    let xmpSnapshot = parseXMPText(xmpString)
+                    if rating == nil { rating = xmpSnapshot.rating }
+                    if pick == nil   { pick   = xmpSnapshot.pick   }
+                    if captureDate == nil { captureDate = xmpSnapshot.captureDate }
                 }
             }
-        }
-        
-        // Final File System Fallback
-        if captureDate == nil {
-            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-               let fileCreationDate = attrs[.creationDate] as? Date {
-                captureDate = fileCreationDate
-            }
-        }
 
-        return MetadataSnapshot(
-            cameraModel: cameraModel,
-            lensModel: lensModel,
-            captureDate: captureDate,
-            aperture: aperture,
-            shutterSpeed: shutterSpeed,
-            iso: isoArray?.first,
-            rating: rating,
-            pick: pick,
-            focalLength: focalLength,
-            focalLengthIn35mm: focalLengthIn35mm,
-            whiteBalance: Self.whiteBalanceLabel(whiteBalanceRaw),
-            flashFired: Self.flashFired(flashRaw),
-            flashMode: Self.flashModeLabel(flashRaw),
-            pixelWidth: pixelWidth,
-            pixelHeight: pixelHeight,
-            orientation: orientation,
-            colorSpace: Self.colorSpaceLabel(colorSpaceRaw),
-            colorProfile: profileName,
-            gpsLatitude: gpsLatitude,
-            gpsLongitude: gpsLongitude,
-            gpsAltitude: gpsAltitude,
-            exposureProgram: Self.exposureProgramLabel(exposureProgramRaw),
-            meteringMode: Self.meteringModeLabel(meteringModeRaw),
-            exposureBias: exposureBias
-        )
+            // Final File System Fallback
+            if captureDate == nil {
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                   let fileCreationDate = attrs[.creationDate] as? Date {
+                    captureDate = fileCreationDate
+                }
+            }
+
+            return MetadataSnapshot(
+                cameraModel: cameraModel,
+                lensModel: lensModel,
+                captureDate: captureDate,
+                aperture: aperture,
+                shutterSpeed: shutterSpeed,
+                iso: isoArray?.first,
+                rating: rating,
+                pick: pick,
+                focalLength: focalLength,
+                focalLengthIn35mm: focalLengthIn35mm,
+                whiteBalance: Self.whiteBalanceLabel(whiteBalanceRaw),
+                flashFired: Self.flashFired(flashRaw),
+                flashMode: Self.flashModeLabel(flashRaw),
+                pixelWidth: pixelWidth,
+                pixelHeight: pixelHeight,
+                orientation: orientation,
+                colorSpace: Self.colorSpaceLabel(colorSpaceRaw),
+                colorProfile: profileName,
+                gpsLatitude: gpsLatitude,
+                gpsLongitude: gpsLongitude,
+                gpsAltitude: gpsAltitude,
+                exposureProgram: Self.exposureProgramLabel(exposureProgramRaw),
+                meteringMode: Self.meteringModeLabel(meteringModeRaw),
+                exposureBias: exposureBias
+            )
+        } // end autoreleasepool
     }
-
     private static func whiteBalanceLabel(_ raw: Int?) -> String? {
         guard let raw else { return nil }
         switch raw {

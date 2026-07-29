@@ -140,13 +140,32 @@ struct ExportRuleEditorView: View {
 
             HStack(spacing: 8) {
                 Menu {
-                    Button("Camera Model") { addComponent(.cameraModel, to: rule) }
-                    Button("Lens Model") { addComponent(.lensModel, to: rule) }
-                    Button("Capture Date") { addComponent(.captureDate, to: rule) }
-                    Divider()
-                    ForEach(tagStore.categories) { category in
-                        Button(category.name) {
-                            addComponent(.tagCategory(category.id), to: rule)
+                    Menu("Date Tokens") {
+                        Button("Year") { addComponent(.year, to: rule) }
+                        Button("Month") { addComponent(.month, to: rule) }
+                        Button("Day") { addComponent(.day, to: rule) }
+                        Button("Capture Date (Legacy)") { addComponent(.captureDate, to: rule) }
+                    }
+                    Menu("Equipment Tokens") {
+                        Button("Camera") { addComponent(.camera, to: rule) }
+                        Button("Lens") { addComponent(.lens, to: rule) }
+                        Button("Camera Model (Legacy)") { addComponent(.cameraModel, to: rule) }
+                        Button("Lens Model (Legacy)") { addComponent(.lensModel, to: rule) }
+                    }
+                    Menu("Exposure Tokens") {
+                        Button("ISO") { addComponent(.iso, to: rule) }
+                        Button("Aperture") { addComponent(.aperture, to: rule) }
+                        Button("Shutter Speed") { addComponent(.shutterSpeed, to: rule) }
+                    }
+                    Menu("Workflow Tokens") {
+                        Button("Rating") { addComponent(.ratingStars, to: rule) }
+                        Button("Flag Status") { addComponent(.flagStatus, to: rule) }
+                        Button("Primary Tag") { addComponent(.primaryTag, to: rule) }
+                        Divider()
+                        ForEach(tagStore.categories) { category in
+                            Button("Tag Category: \(category.name)") {
+                                addComponent(.tagCategory(category.id), to: rule)
+                            }
                         }
                     }
                     Divider()
@@ -171,7 +190,8 @@ struct ExportRuleEditorView: View {
             Image(systemName: component.systemImage)
                 .frame(width: 22)
             switch component {
-            case .cameraModel, .lensModel, .captureDate:
+            case .cameraModel, .lensModel, .captureDate,
+                 .year, .month, .day, .camera, .lens, .iso, .aperture, .shutterSpeed, .ratingStars, .flagStatus, .primaryTag:
                 Text(component.displayName)
             case .tagCategory(let id):
                 Picker("", selection: Binding(

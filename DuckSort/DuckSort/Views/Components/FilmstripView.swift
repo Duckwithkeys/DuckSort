@@ -111,6 +111,26 @@ struct FilmstripThumbnailCell: View {
                             )
                     )
 
+                // Top-left indicators (Rating and Pick flag)
+                HStack(spacing: 3) {
+                    if let rating = photoSet.rating, rating > 0 {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 14, height: 14)
+                            .background(Theme.Color.rating, in: Circle())
+                    }
+                    if let pick = photoSet.pick, pick == 1 || pick == -1 {
+                        Image(systemName: pick == 1 ? "flag.fill" : "flag.slash.fill")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 14, height: 14)
+                            .background(pick == 1 ? Theme.Color.danger : Theme.Color.warning, in: Circle())
+                    }
+                }
+                .padding(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
                 HStack(spacing: Theme.Space.s4) {
                     if photoSet.hasEdit {
                         Image(systemName: "wand.and.stars")

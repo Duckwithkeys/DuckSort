@@ -83,13 +83,14 @@ struct FileScanner: Sendable {
         }
     }
 
-    /// Scan a directory recursively, suitable for choosing an SD card root.
     func scanDirectory(_ url: URL) async throws -> ScanResult {
-        try await Task.detached(priority: .userInitiated) {
+        AppLogger.scanner.info("Starting scan of directory: \(url.path)")
+        return try await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
             guard fm.isReadableFile(atPath: url.path),
                   fm.isDirectory(atPath: url.path)
             else {
+                AppLogger.scanner.error("Scan failed: path is not a directory or not readable: \(url.path)")
                 throw ScanError.notADirectory(url.path)
             }
 
@@ -102,6 +103,7 @@ struct FileScanner: Sendable {
                 includingPropertiesForKeys: Array(keys),
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
             ) else {
+                AppLogger.scanner.error("Scan failed: unable to create enumerator for \(url.path)")
                 throw ScanError.notADirectory(url.path)
             }
 
@@ -145,6 +147,7 @@ struct FileScanner: Sendable {
 
             let photoSets = Self.assemble(media: mediaURLsByBaseName, sidecars: sidecars)
             let total = photoSets.reduce(0) { $0 + $1.allFiles.count }
+            AppLogger.scanner.info("Scan completed for \(url.lastPathComponent): found \(photoSets.count) photo sets, \(total) files. Ignored \(ignoredFileCount) items.")
 
             return ScanResult(
                 sourceDirectories: [url],
@@ -159,7 +162,8 @@ struct FileScanner: Sendable {
     /// open panel) into PhotoSets using the same base-name + sidecar logic as a
     /// recursive directory scan.
     func scanFiles(_ urls: [URL]) async -> ScanResult {
-        await Task.detached(priority: .userInitiated) {
+        AppLogger.scanner.info("Starting scan of \(urls.count) individual files")
+        return await Task.detached(priority: .userInitiated) {
             let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isRegularFileKey]
 
             var mediaURLsByBaseName: [String: [URL]] = [:]
@@ -194,12 +198,14 @@ struct FileScanner: Sendable {
                         ignoredFileCount += 1
                     }
                 } catch {
+                    AppLogger.scanner.warning("Skipped unreadable file during import: \(itemURL.path)")
                     failedFiles.append(itemURL)
                 }
             }
 
             let photoSets = Self.assemble(media: mediaURLsByBaseName, sidecars: sidecars)
             let total = photoSets.reduce(0) { $0 + $1.allFiles.count }
+            AppLogger.scanner.info("Import scan completed: grouped \(urls.count) items into \(photoSets.count) photo sets.")
 
             return ScanResult(
                 sourceDirectories: [],

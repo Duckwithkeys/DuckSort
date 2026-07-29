@@ -7,6 +7,12 @@ import SwiftUI
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSSetUncaughtExceptionHandler { exception in
+            AppLogger.ui.fault("CRASH: Uncaught exception: \(exception.name.rawValue) - \(exception.reason ?? "")\nStack trace: \(exception.callStackSymbols.joined(separator: "\n"))")
+        }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return true
     }
@@ -46,14 +52,10 @@ struct DuckSortApp: App {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(!windowManager.isReady)
 
-                Divider()
-
-                Button("XMP Tags Not in Active Pack…") {
-                    if let vm = windowManager.activeViewModel {
-                        FloatingWindowManager.shared.showXMPTagInspector(viewModel: vm)
-                    }
+                Button("Activity Console...") {
+                    FloatingWindowManager.shared.showLogConsole()
                 }
-                .keyboardShortcut("x", modifiers: [.command, .shift])
+                .keyboardShortcut("c", modifiers: [.command, .shift])
                 .disabled(!windowManager.isReady)
             }
 

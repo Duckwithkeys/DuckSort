@@ -385,7 +385,8 @@ private struct RuleComponentRow: View {
     @ViewBuilder
     private var componentContent: some View {
         switch component {
-        case .cameraModel, .lensModel, .captureDate:
+        case .cameraModel, .lensModel, .captureDate,
+             .year, .month, .day, .camera, .lens, .iso, .aperture, .shutterSpeed, .ratingStars, .flagStatus, .primaryTag:
             Text(component.displayName)
                 .font(Theme.Font.bodyBold)
                 .foregroundStyle(Theme.Color.textPrimary)

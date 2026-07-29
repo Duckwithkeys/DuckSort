@@ -261,5 +261,22 @@ extension View {
             self
         }
     }
+
+    @ViewBuilder
+    func liquidGlassHighlight(
+        isSelected: Bool = false,
+        isHovered: Bool = false,
+        shape: some Shape = Circle()
+    ) -> some View {
+        self
+            .ifTrue(isSelected) { view in
+                view.glassEffect(.regular.interactive(), in: shape)
+            }
+            .ifTrue(!isSelected && isHovered) { view in
+                view.glassEffect(.regular, in: shape)
+            }
+            .animation(.spring(response: 0.18, dampingFraction: 0.85), value: isSelected)
+            .animation(.spring(response: 0.15, dampingFraction: 0.85), value: isHovered)
+    }
 }
 

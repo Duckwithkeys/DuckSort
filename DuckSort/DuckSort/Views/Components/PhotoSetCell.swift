@@ -176,6 +176,8 @@ struct PhotoSetCell: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+
+
     /// A single-line tag pill area. Always renders with a fixed height so the
     /// cell layout stays stable whether or not the photo has tags. Long tag
     /// lists are truncated with a "+N" overflow indicator.

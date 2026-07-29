@@ -81,39 +81,50 @@ struct PhotoGridView: View {
                     // Layer 2: Cells. Layered above the marquee hit area so
                     // normal clicks land on the cell's button first.
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: Self.gridSpacing) {
-                            ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
-                                cell(for: index, photoSet: photoSet)
-                                    .id(photoSet.id)
-                                    .background(
-                                        Group {
-                                            if marqueeStart != nil {
-                                                GeometryReader { proxy in
-                                                    Color.clear
-                                                        .preference(
-                                                            key: CellFramePreferenceKey.self,
-                                                            value: [CellFrame(id: photoSet.id, frame: proxy.frame(in: .named("PhotoGrid")))]
-                                                        )
+                        if viewModel.filteredPhotoSets.isEmpty && viewModel.isScanning {
+                            LazyVGrid(columns: columns, spacing: Self.gridSpacing) {
+                                ForEach(0..<12, id: \.self) { _ in
+                                    SkeletonThumbnailView()
+                                }
+                            }
+                            .padding(.horizontal, Self.horizontalPadding)
+                            .padding(.top, Theme.Space.s16)
+                            .padding(.bottom, Theme.Space.s16)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: Self.gridSpacing) {
+                                ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
+                                    cell(for: index, photoSet: photoSet)
+                                        .id(photoSet.id)
+                                        .background(
+                                            Group {
+                                                if marqueeStart != nil {
+                                                    GeometryReader { proxy in
+                                                        Color.clear
+                                                            .preference(
+                                                                key: CellFramePreferenceKey.self,
+                                                                value: [CellFrame(id: photoSet.id, frame: proxy.frame(in: .named("PhotoGrid")))]
+                                                            )
+                                                    }
                                                 }
                                             }
+                                        )
+                                }
+                            }
+                            .padding(.horizontal, Self.horizontalPadding)
+                            .padding(.top, Theme.Space.s16)
+                            .padding(.bottom, Theme.Space.s16)
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear
+                                        .onAppear {
+                                            gridOrigin = proxy.frame(in: .named("PhotoGrid")).origin
                                         }
-                                    )
-                            }
+                                        .onChange(of: proxy.frame(in: .named("PhotoGrid")).origin) { _, newOrigin in
+                                            gridOrigin = newOrigin
+                                        }
+                                }
+                            )
                         }
-                        .padding(.horizontal, Self.horizontalPadding)
-                        .padding(.top, Theme.Space.s16)
-                        .padding(.bottom, Theme.Space.s16)
-                        .background(
-                            GeometryReader { proxy in
-                                Color.clear
-                                    .onAppear {
-                                        gridOrigin = proxy.frame(in: .named("PhotoGrid")).origin
-                                    }
-                                    .onChange(of: proxy.frame(in: .named("PhotoGrid")).origin) { _, newOrigin in
-                                        gridOrigin = newOrigin
-                                    }
-                            }
-                        )
                     }
                     .coordinateSpace(name: "PhotoGrid")
                     .background(GeometryReader { geometry in

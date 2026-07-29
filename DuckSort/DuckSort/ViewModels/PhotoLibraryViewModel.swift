@@ -239,6 +239,9 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
     @Published var isLargeImageViewerOpen: Bool = false
     @Published var currentTagCategoryID: UUID? = nil
+    
+    @Published var singleZoomState = SynchronizedZoomState()
+    @Published var sharedZoomState = SynchronizedZoomState()
 
     /// Memoized counts & UI state
     @Published var searchText = ""
@@ -250,6 +253,17 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
     @Published var pendingRoutedPlan: RoutedPlan? = nil
+
+    // MARK: - Culling Undo/Redo State
+    struct CullingState: Sendable {
+        let photoSetID: UUID
+        let rating: Int?
+        let pick: Int?
+        let tagIDs: Set<UUID>
+    }
+    private var undoStack: [[CullingState]] = []
+    private var redoStack: [[CullingState]] = []
+
     @Published var cachedSubfolders: [URL: [URL]] = [:]
     @Published var cachedSubfolderCounts: [URL: Int] = [:]
 
@@ -280,7 +294,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     var gridColumnCount: Int = 1
     
     // MARK: - Services
-    
+
     private let scanner = FileScanner()
     private let xmpTagging = XMPTaggingService()         // new custom tag keywords
     private let transferService = FileTransferService()
@@ -290,8 +304,20 @@ final class PhotoLibraryViewModel: ObservableObject {
     private var transferTask: Task<Void, Never>?
     private var tagTask: Task<Void, Never>?
     private var metadataTask: Task<Void, Never>?
-    
+
     private var cancellables = Set<AnyCancellable>()
+
+    // MARK: - Performance constants
+
+    /// Number of photos loaded per metadata batch. First batch is always shown
+    /// immediately; subsequent batches of this size are loaded and applied
+    /// progressively so very large libraries populate the UI incrementally.
+    /// Tunable range: 100–250 items.
+    static let metadataBatchSize: Int = 150
+
+    // MARK: - Memory pressure
+
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
     
     // MARK: - Init
     
@@ -381,15 +407,33 @@ final class PhotoLibraryViewModel: ObservableObject {
 
         
         self.isInitializing = false
-        
+
         updateGlobalCounts()
         updateDerivedState()
-        
+
         if !sourceDirectories.isEmpty || !looseFiles.isEmpty {
             Task { [weak self] in
                 self?.scanSourceDirectories(urls)
             }
         }
+
+        // Register for OS memory pressure events and evict the thumbnail
+        // cache on warning/critical to prevent the app from being jettisoned.
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            guard self != nil else { return }
+            let event = source.data
+            if event.contains(.warning) || event.contains(.critical) {
+                ThumbnailCache.global.evictAll()
+                Task { await DiskThumbnailCache.shared.evictAll() }
+                AppLogger.ui.warning("Memory pressure event received — thumbnail cache evicted")
+            }
+        }
+        source.resume()
+        self.memoryPressureSource = source
     }
     
     deinit {
@@ -401,6 +445,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         // Clean up keyboard monitor if registered
         if let keyboardMonitor = keyboardMonitor {
             NSEvent.removeMonitor(keyboardMonitor)
+        }
+        // Clean up scroll monitor if registered
+        if let scrollMonitor = scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
         }
     }
     
@@ -644,6 +692,7 @@ final class PhotoLibraryViewModel: ObservableObject {
                 self.statusMessage = "Found \(photoSets.count) photo sets across [\(scope)], \(scannedFileCount) matching files."
             } else {
                 self.statusMessage = "Found \(photoSets.count) photo sets, \(scannedFileCount) matching files. Warning: \(failed.count) source(s) failed to load."
+                self.errorMessage = "Failed to scan \(failed.count) source folder(s): \(failed.map(\.lastPathComponent).joined(separator: ", "))"
             }
             
             self.loadMetadataAndTags(for: photoSets)
@@ -659,50 +708,59 @@ final class PhotoLibraryViewModel: ObservableObject {
         loadMetadataAndTags(for: photoSets)
     }
 
-    /// Single-pass loader: reads EXIF + XMP for every photo in one task group,
-    /// in two phases (visible ~100 first, then the rest), and applies all
-    /// results in ONE `photoSets` assignment so `updateGlobalCounts` and
-    /// `updateDerivedState` only fire twice instead of four times.
+    /// Adaptive multi-batch loader: reads EXIF + XMP for every photo in
+    /// `metadataBatchSize`-sized chunks so the UI populates progressively
+    /// for large libraries (5,000+ photos) without blocking.
+    ///
+    /// The first batch (size == metadataBatchSize) is applied immediately so
+    /// the visible grid rows are never blank for more than one round-trip.
+    /// Subsequent batches are applied as they complete.
     private func loadMetadataAndTags(for photoSets: [PhotoSet]) {
         metadataTask?.cancel()
         tagTask?.cancel()
 
         let sets = photoSets
+        let batchSize = Self.metadataBatchSize
         let allTags = tagStore.tags
         let nameToID: [String: UUID] = Dictionary(
             allTags.map { ($0.name.lowercased(), $0.id) },
             uniquingKeysWith: { first, _ in first }
         )
 
-        metadataTask = Task { @MainActor [metadataReader, xmpTagging] in
-            // ----- Phase 1: visible-first (first 100) -----
-            let firstBatch = Array(sets.prefix(100))
-            let firstResults = await Self.loadBatchMetadataAndTags(
-                firstBatch, metadataReader: metadataReader, xmpTagging: xmpTagging
-            )
-            if Task.isCancelled { return }
-            self.applyMetadataAndTagResults(firstResults, nameToID: nameToID)
+        AppLogger.metadata.info("Starting metadata load: \(sets.count) sets, batch size \(batchSize)")
 
-            // ----- Phase 2: the remaining sets -----
-            let remaining = Array(sets.dropFirst(100))
-            guard !remaining.isEmpty else { return }
-            let restResults = await Self.loadBatchMetadataAndTags(
-                remaining, metadataReader: metadataReader, xmpTagging: xmpTagging
-            )
-            if Task.isCancelled { return }
-            self.applyMetadataAndTagResults(restResults, nameToID: nameToID)
+        metadataTask = Task { @MainActor [metadataReader, xmpTagging] in
+            var offset = 0
+            while offset < sets.count {
+                if Task.isCancelled { return }
+                let upper = min(offset + batchSize, sets.count)
+                let batch = Array(sets[offset..<upper])
+                let results = await Self.loadBatchMetadataAndTags(
+                    batch,
+                    metadataReader: metadataReader,
+                    xmpTagging: xmpTagging
+                )
+                if Task.isCancelled { return }
+                self.applyMetadataAndTagResults(results, nameToID: nameToID)
+                AppLogger.metadata.debug("Applied metadata batch \(offset / batchSize + 1): \(results.count) sets")
+                offset += batchSize
+            }
+            AppLogger.metadata.info("Metadata load complete: \(sets.count) sets processed")
         }
     }
 
     /// Read EXIF metadata + XMP sidecar for every photo in `batch` in parallel.
     /// One task per photo so each set's I/O runs concurrently.
+    /// Concurrency is capped at 16 concurrent in-flight tasks to avoid
+    /// saturating the disk I/O scheduler on low-IOPS storage.
     private static func loadBatchMetadataAndTags(
         _ batch: [PhotoSet],
         metadataReader: MetadataReader,
         xmpTagging: XMPTaggingService
     ) async -> [LoadedPhotoInfo] {
-        await withTaskGroup(of: LoadedPhotoInfo.self) { group in
-            let maxConcurrency = 16
+        let maxConcurrency = 16
+        AppLogger.metadata.debug("Loading metadata batch: \(batch.count) sets, concurrency cap: \(maxConcurrency)")
+        return await withTaskGroup(of: LoadedPhotoInfo.self) { group in
             var inFlight = 0
             var out: [LoadedPhotoInfo] = []
             out.reserveCapacity(batch.count)
@@ -925,6 +983,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// to no-op (used when no photo is in scope).
     func setRating(_ rating: Int?, forIDs ids: [PhotoSet.ID]) {
         guard !ids.isEmpty else { return }
+        let before = captureState(for: ids)
         var updated = photoSets
         var targets: [PhotoSet] = []
         for id in ids {
@@ -940,6 +999,8 @@ final class PhotoLibraryViewModel: ObservableObject {
         } else {
             statusMessage = "Cleared rating on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
         }
+
+        registerUndo(beforeStates: before, actionName: "Rating")
 
         Task { [xmpTagging] in
             for photo in targets {
@@ -960,6 +1021,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// Apply the same pick flag to every photo in ``ids``.
     func setPick(_ pick: Int?, forIDs ids: [PhotoSet.ID]) {
         guard !ids.isEmpty else { return }
+        let before = captureState(for: ids)
         var updated = photoSets
         var targets: [PhotoSet] = []
         for id in ids {
@@ -976,6 +1038,8 @@ final class PhotoLibraryViewModel: ObservableObject {
             statusMessage = "Cleared pick flag on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
         }
 
+        registerUndo(beforeStates: before, actionName: "Pick Flag")
+
         Task { [xmpTagging] in
             for photo in targets {
                 do {
@@ -986,6 +1050,89 @@ final class PhotoLibraryViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: - Undo/Redo Helper Functions
+
+    private func captureState(for ids: [PhotoSet.ID]) -> [CullingState] {
+        return ids.compactMap { id -> CullingState? in
+            guard let index = photoSetIndex[id] else { return nil }
+            let photo = photoSets[index]
+            let tagIDs = tagStore.assignedTagIDs(for: id)
+            return CullingState(photoSetID: id, rating: photo.rating, pick: photo.pick, tagIDs: tagIDs)
+        }
+    }
+
+    private func registerUndo(beforeStates: [CullingState], actionName: String) {
+        undoStack.append(beforeStates)
+        redoStack.removeAll()
+        if undoStack.count > 150 {
+            undoStack.removeFirst()
+        }
+    }
+
+    private func restoreState(_ states: [CullingState]) {
+        var updated = photoSets
+        for state in states {
+            if let index = photoSetIndex[state.photoSetID] {
+                updated[index].rating = state.rating
+                updated[index].pick = state.pick
+                tagStore.setTags(state.tagIDs, for: state.photoSetID)
+            }
+        }
+        photoSets = updated
+
+        let targets = states.compactMap { state -> (photo: PhotoSet, tagIDs: Set<UUID>)? in
+            guard let index = photoSetIndex[state.photoSetID] else { return nil }
+            return (photoSets[index], state.tagIDs)
+        }
+
+        let previousTask = tagTask
+        tagTask = Task { @MainActor [xmpTagging, tagStore] in
+            _ = await previousTask?.result
+            for target in targets {
+                do {
+                    try xmpTagging.updatePermanentTags(rating: target.photo.rating, pick: target.photo.pick, for: target.photo)
+                    if target.tagIDs.isEmpty {
+                        try xmpTagging.clear(for: target.photo)
+                    } else {
+                        let names = target.tagIDs.compactMap { tagStore.tag(id: $0)?.name }
+                        try xmpTagging.applyTagNames(Set(names), to: target.photo)
+                    }
+                } catch {
+                    self.errorMessage = "Failed to sync XMP on undo/redo: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
+    func undo() {
+        guard let before = undoStack.popLast() else {
+            statusMessage = "Nothing to undo."
+            return
+        }
+        let ids = before.map(\.photoSetID)
+        let current = captureState(for: ids)
+        redoStack.append(current)
+        restoreState(before)
+        statusMessage = "Undid last culling change."
+        triggerHapticFeedback(for: .flag)
+    }
+
+    func redo() {
+        guard let after = redoStack.popLast() else {
+            statusMessage = "Nothing to redo."
+            return
+        }
+        let ids = after.map(\.photoSetID)
+        let current = captureState(for: ids)
+        undoStack.append(current)
+        restoreState(after)
+        statusMessage = "Redid last culling change."
+        triggerHapticFeedback(for: .flag)
     }
 
     enum CullingAction {
@@ -1397,9 +1544,12 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
     
     func preloadNeighbors(around index: Int) {
+        // Skip preloading during active scroll so decode tasks don't
+        // compete with the currently-visible cells for I/O bandwidth.
+        guard !ScrollStateObserver.shared.isScrolling else { return }
         let sets = filteredPhotoSets
         guard !sets.isEmpty else { return }
-        
+
         let neighbors = [index - 1, index + 1, index + 2]
         for neighborIndex in neighbors {
             if neighborIndex >= 0 && neighborIndex < sets.count {
@@ -1444,6 +1594,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// removed from every photo.
     func applyTag(_ tag: CustomTag, toPhotoSets photos: [PhotoSet]) {
         guard !photos.isEmpty else { return }
+        let ids = photos.map(\.id)
+        let before = captureState(for: ids)
         let tagID = tag.id
 
         // Snapshot whether each target already has the tag, then mutate the
@@ -1479,6 +1631,8 @@ final class PhotoLibraryViewModel: ObservableObject {
                 statusMessage = "Removed \(tag.name) from \(photos.count) photo sets."
             }
         }
+
+        registerUndo(beforeStates: before, actionName: "Apply Tag")
     }
 
     /// Apply a tag to every photo in the current selection (or focused photo
@@ -1490,19 +1644,23 @@ final class PhotoLibraryViewModel: ObservableObject {
     
     func applyTag(_ tag: CustomTag, to photoSetID: UUID) {
         guard let idx = photoSetIndex[photoSetID] else { return }
+        let before = captureState(for: [photoSetID])
         let photo = photoSets[idx]
         var current = tagStore.assignedTagIDs(for: photoSetID)
         let alreadyApplied = current.contains(tag.id)
         if !alreadyApplied { current.insert(tag.id) }
         commitTagChange(current, for: photo, remove: false)
+        registerUndo(beforeStates: before, actionName: "Apply Tag")
     }
     
     func removeTag(_ tag: CustomTag, from photoSetID: UUID) {
         guard let idx = photoSetIndex[photoSetID] else { return }
+        let before = captureState(for: [photoSetID])
         let photo = photoSets[idx]
         var current = tagStore.assignedTagIDs(for: photoSetID)
         current.remove(tag.id)
         commitTagChange(current, for: photo, remove: current.isEmpty)
+        registerUndo(beforeStates: before, actionName: "Remove Tag")
     }
     
     // MARK: - Auto-tagging
@@ -1600,11 +1758,13 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// so users can reset all tags on the selection in a single action.
     func clearTags(forIDs ids: [PhotoSet.ID]) {
         guard !ids.isEmpty else { return }
+        let before = captureState(for: ids)
         let targets: [PhotoSet] = photoSets.filter { ids.contains($0.id) }
         for photo in targets {
             commitTagChange([], for: photo, remove: true)
         }
         statusMessage = "Cleared tags on \(ids.count) photo set\(ids.count == 1 ? "" : "s")."
+        registerUndo(beforeStates: before, actionName: "Clear Tags")
     }
     
     private func commitTagChange(_ tagIDs: Set<UUID>, for photo: PhotoSet, remove: Bool) {
@@ -1633,6 +1793,8 @@ final class PhotoLibraryViewModel: ObservableObject {
             errorMessage = "Select at least one photo set before clearing tags."
             return
         }
+        let ids = selected.map(\.id)
+        let before = captureState(for: ids)
         tagTask?.cancel()
         statusMessage = "Clearing tags for \(selected.count) selected photo sets..."
         tagTask = Task { @MainActor [xmpTagging] in
@@ -1645,6 +1807,7 @@ final class PhotoLibraryViewModel: ObservableObject {
                     self.tagStore.clearTags(for: photo.id)
                 }
                 self.statusMessage = "Cleared tags for \(selected.count) photo sets."
+                self.registerUndo(beforeStates: before, actionName: "Clear Tags")
             } catch is CancellationError {
                 self.statusMessage = "Tag clearing cancelled."
             } catch {
@@ -1802,6 +1965,20 @@ final class PhotoLibraryViewModel: ObservableObject {
             NSEvent.removeMonitor(existing)
         }
         keyboardMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if handler(event) {
+                return nil
+            }
+            return event
+        }
+    }
+
+    nonisolated(unsafe) private var scrollMonitor: Any? = nil
+
+    func registerScrollMonitor(_ handler: @escaping (NSEvent) -> Bool) {
+        if let existing = scrollMonitor {
+            NSEvent.removeMonitor(existing)
+        }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             if handler(event) {
                 return nil
             }
@@ -2043,9 +2220,14 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
         }
 
-        // Reshuffle grid animates automatically via SwiftUI spring transition
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            self.filteredPhotoSets = list
+        // Skip-if-equal: avoid the SwiftUI diffing pass when the filtered
+        // result is identical to what's already displayed. This commonly
+        // occurs when a non-filter property (e.g. inspector state) changes.
+        if list != self.filteredPhotoSets {
+            // Reshuffle grid animates automatically via SwiftUI spring transition
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                self.filteredPhotoSets = list
+            }
         }
 
         // Clamp focusedPhotoIndex first to valid range of filteredPhotoSets

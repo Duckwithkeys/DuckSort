@@ -36,209 +36,105 @@ struct LargeImagePane: View {
     private let maxZoom: CGFloat = 5.0
 
     var body: some View {
-        ZStack {
-            Color.clear
-                .ignoresSafeArea()
-
-            let highResImage = (imageLoader.loadedURL == photoSet.preferredPreviewURL ? imageLoader.image : nil) ?? LargeImageLoader.cachedImage(for: photoSet.preferredPreviewURL)
-            let lowResImage = photoSet.preferredPreviewURL.flatMap {
-                ThumbnailCache.global.image(for: $0, size: CGSize(width: 600, height: 600)) ??
-                ThumbnailCache.global.image(for: $0, size: CGSize(width: 128, height: 128))
+        ErrorBoundaryView(errorMessage: imageLoader.loadError, retryAction: {
+            Task {
+                await imageLoader.load(url: photoSet.preferredPreviewURL)
             }
+        }) {
+            ZStack {
+                Color.clear
+                    .ignoresSafeArea()
 
-            if highResImage != nil || lowResImage != nil {
-                GeometryReader { geometry in
-                    ZStack {
-                        Color.clear
-                        
-                        if let lowRes = lowResImage, highResImage == nil {
-                            Image(nsImage: lowRes)
-                                .resizable()
-                                .interpolation(.low)
-                                .scaledToFit()
-                                .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
-                                .offset(zoomState.panOffset)
-                                .blur(radius: 12)
-                                .opacity(0.8)
-                                .grayscale(photoSet.pick == -1 ? 0.8 : 0)
-                        }
-                        
-                        if let highRes = highResImage {
-                            Image(nsImage: highRes)
-                                .resizable()
-                                .interpolation(.high)
-                                .scaledToFit()
-                                .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
-                                .offset(zoomState.panOffset)
-                                .transition(.opacity)
-                                .grayscale(photoSet.pick == -1 ? 0.8 : 0)
-                        }
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .gesture(
-                        MagnificationGesture()
-                            .onChanged { value in
-                                zoomState.currentAmount = value - 1.0
-                            }
-                            .onEnded { value in
-                                zoomState.zoomScale = clamp(zoomState.zoomScale + zoomState.currentAmount)
-                                zoomState.currentAmount = 0
-                            }
-                            .simultaneously(
-                                with: DragGesture(minimumDistance: 4)
-                                    .onChanged { value in
-                                        if (zoomState.zoomScale + zoomState.currentAmount) > 1.0 {
-                                            zoomState.panOffset = CGSize(
-                                                width: zoomState.accumulatedPan.width + value.translation.width,
-                                                height: zoomState.accumulatedPan.height + value.translation.height
-                                            )
-                                        }
-                                    }
-                                    .onEnded { _ in
-                                        zoomState.accumulatedPan = zoomState.panOffset
-                                    }
-                            )
-                    )
-                    .onTapGesture(count: 2) {
-                        withAnimation(.spring()) {
-                            if zoomState.zoomScale > 1.0 {
-                                zoomState.zoomScale = 1.0
-                                zoomState.panOffset = .zero
-                                zoomState.accumulatedPan = .zero
-                            } else if let nsImage = highResImage ?? lowResImage {
-                                let fitScale = min(
-                                    geometry.size.width / nsImage.size.width,
-                                    geometry.size.height / nsImage.size.height
-                                )
-                                zoomState.zoomScale = max(fitScale * 2.0, 1.5)
-                                zoomState.panOffset = .zero
-                                zoomState.accumulatedPan = .zero
-                            }
-                        }
-                    }
-                    .contextMenu {
-                        Button("Reveal in Finder") {
-                            if let url = photoSet.preferredPreviewURL {
-                                NSWorkspace.shared.activateFileViewerSelecting([url])
-                            }
-                        }
-                    }
+                let highResImage = (imageLoader.loadedURL == photoSet.preferredPreviewURL ? imageLoader.image : nil) ?? LargeImageLoader.cachedImage(for: photoSet.preferredPreviewURL)
+                let lowResImage = photoSet.preferredPreviewURL.flatMap {
+                    ThumbnailCache.global.image(for: $0, size: CGSize(width: 600, height: 600)) ??
+                    ThumbnailCache.global.image(for: $0, size: CGSize(width: 128, height: 128))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
-                .overlay(alignment: .topTrailing) {
-                    HStack(spacing: 8) {
-                        if let rating = photoSet.rating, rating > 0 {
-                            HStack(spacing: 3) {
-                                Text("\(rating)")
-                                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Theme.Color.textPrimary)
-                                Image(systemName: "star.fill")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundStyle(Theme.Color.textPrimary)
+
+                if highResImage != nil || lowResImage != nil {
+                    GeometryReader { geometry in
+                        ZStack {
+                            Color.clear
+                            
+                            if let lowRes = lowResImage, highResImage == nil {
+                                Image(nsImage: lowRes)
+                                    .resizable()
+                                    .interpolation(.low)
+                                    .scaledToFit()
+                                    .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
+                                    .offset(zoomState.panOffset)
+                                    .blur(radius: 12)
+                                    .opacity(0.8)
+                                    .grayscale(photoSet.pick == -1 ? 0.8 : 0)
                             }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Theme.Color.rating, in: Capsule())
-                            .overlay(
-                                Capsule().stroke(.white.opacity(0.3), lineWidth: 1)
-                            )
-                            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)
+                            
+                            if let highRes = highResImage {
+                                Image(nsImage: highRes)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .scaledToFit()
+                                    .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
+                                    .offset(zoomState.panOffset)
+                                    .transition(.opacity)
+                                    .grayscale(photoSet.pick == -1 ? 0.8 : 0)
+                            }
                         }
-
-                        if let pick = photoSet.pick, pick == 1 || pick == -1 {
-                            Image(systemName: pick == 1 ? "flag.fill" : "flag.slash.fill")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(Theme.Color.textInverse)
-                                .frame(width: 30, height: 30)
-                                .background(pick == 1 ? Theme.Color.danger : Theme.Color.warning, in: Circle())
-                                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
-                                .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)
-                        }
-
-                        if let onEdit {
-                            Button {
-                                onEdit()
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "slider.horizontal.3")
-                                        .font(.system(size: 11, weight: .bold))
-                                    Text("Edit")
-                                        .font(Theme.Font.caption)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .gesture(
+                            MagnificationGesture()
+                                .onChanged { value in
+                                    zoomState.currentAmount = value - 1.0
                                 }
-                                .foregroundStyle(Theme.Color.textPrimary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: Capsule())
-                                .overlay(
-                                    Capsule().stroke(.white.opacity(0.2), lineWidth: 1)
+                                .onEnded { value in
+                                    zoomState.zoomScale = clamp(zoomState.zoomScale + zoomState.currentAmount)
+                                    zoomState.currentAmount = 0
+                                }
+                                .simultaneously(
+                                    with: DragGesture(minimumDistance: 4)
+                                        .onChanged { value in
+                                            if (zoomState.zoomScale + zoomState.currentAmount) > 1.0 {
+                                                zoomState.panOffset = CGSize(
+                                                    width: zoomState.accumulatedPan.width + value.translation.width,
+                                                    height: zoomState.accumulatedPan.height + value.translation.height
+                                                )
+                                            }
+                                        }
+                                        .onEnded { _ in
+                                            zoomState.accumulatedPan = zoomState.panOffset
+                                        }
                                 )
+                        )
+                        .onTapGesture(count: 2) {
+                            withAnimation(.spring()) {
+                                if zoomState.zoomScale > 1.0 {
+                                    zoomState.zoomScale = 1.0
+                                    zoomState.panOffset = .zero
+                                    zoomState.accumulatedPan = .zero
+                                } else if let nsImage = highResImage ?? lowResImage {
+                                    let fitScale = min(
+                                        geometry.size.width / nsImage.size.width,
+                                        geometry.size.height / nsImage.size.height
+                                    )
+                                    zoomState.zoomScale = max(fitScale * 2.0, 1.5)
+                                    zoomState.panOffset = .zero
+                                    zoomState.accumulatedPan = .zero
+                                }
                             }
-                            .buttonStyle(.plain)
-                            .shadow(color: .black.opacity(0.35), radius: 6, x: 0, y: 2)
+                        }
+                        .contextMenu {
+                            Button("Reveal in Finder") {
+                                if let url = photoSet.preferredPreviewURL {
+                                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                                }
+                            }
                         }
                     }
-                    .padding(14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                } else if imageLoader.loadError == nil {
+                    ProgressView()
+                        .tint(.white)
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    HStack(spacing: 10) {
-                        Button {
-                            withAnimation(.spring()) {
-                                zoomState.zoomScale = clamp(zoomState.zoomScale * 0.7)
-                                zoomState.panOffset = .zero
-                                zoomState.accumulatedPan = .zero
-                            }
-                        } label: {
-                            Image(systemName: "minus.magnifyingglass")
-                                .font(.title3)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: Circle())
-                        }
-                        .buttonStyle(.plain)
- 
-                        Text(String(format: "%.0f%%", (zoomState.zoomScale + zoomState.currentAmount) * 100))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.7))
-                            .padding(.horizontal, 8)
-                            .background(.ultraThinMaterial, in: Capsule())
- 
-                        Button {
-                            withAnimation(.spring()) {
-                                zoomState.zoomScale = clamp(zoomState.zoomScale * 1.4)
-                                zoomState.panOffset = .zero
-                                zoomState.accumulatedPan = .zero
-                            }
-                        } label: {
-                            Image(systemName: "plus.magnifyingglass")
-                                .font(.title3)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: Circle())
-                        }
-                        .buttonStyle(.plain)
- 
-                        Button {
-                            withAnimation(.spring()) {
-                                zoomState.zoomScale = 1.0
-                                zoomState.panOffset = .zero
-                                zoomState.accumulatedPan = .zero
-                            }
-                        } label: {
-                            Image(systemName: "arrow.2.squarepath")
-                                .font(.title3)
-                                .foregroundStyle(.white.opacity(0.7))
-                                .padding(8)
-                                .background(.ultraThinMaterial, in: Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .help("Reset zoom")
-                    }
-                    .padding(12)
-                }
-            } else {
-                ProgressView()
-                    .tint(.white)
             }
         }
         .task(id: photoSet.id) {
@@ -282,6 +178,7 @@ private final class PreloadsWrapper: @unchecked Sendable {
 final class LargeImageLoader: ObservableObject {
     @Published var image: NSImage?
     @Published var loadedURL: URL? = nil
+    @Published var loadError: String? = nil
 
     private static let cacheWrapper = LargeImageCacheWrapper()
     private static let activePreloadsWrapper = PreloadsWrapper()
@@ -376,6 +273,7 @@ final class LargeImageLoader: ObservableObject {
     }
 
     func load(url: URL?) async {
+        loadError = nil
         guard let url = url else {
             image = nil
             loadedURL = nil
@@ -497,9 +395,13 @@ final class LargeImageLoader: ObservableObject {
                     cache.setObject(nsImage, forKey: key, cost: cost)
                     image = nsImage
                     loadedURL = url
+                } else {
+                    throw NSError(domain: "DuckSort", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode image data"])
                 }
             } catch {
-                // Ignore errors
+                if Task.isCancelled { return }
+                loadError = error.localizedDescription
+                AppLogger.ui.error("LargeImageLoader failed to load \(url.path): \(error.localizedDescription)")
             }
         }
     }

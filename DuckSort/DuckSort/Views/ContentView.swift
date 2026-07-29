@@ -12,36 +12,39 @@ struct ContentView: View {
     @State private var showFilterPopover: Bool = false
     @State private var showTagsPopover: Bool = false
     @State private var showInsights: Bool = false
+    @State private var hoverToolbarRating: Int? = nil
+    @State private var hoverEdit: Bool = false
+    @State private var hoverFlag: Bool = false
+
+
 
     var body: some View {
-        MainLayout(viewModel: viewModel)
-            .background(WindowConfigurator())
-            .frame(minWidth: 920, minHeight: 640)
-            .navigationTitle("")
-            .toolbar { mainToolbar }
-            .overlay {
-                if viewModel.isLargeImageViewerOpen {
-                    LargeImageViewer(viewModel: viewModel)
-                        .transition(.opacity)
+        ErrorBoundaryView(errorMessage: nil) {
+            MainLayout(viewModel: viewModel)
+        }
+        .background(WindowConfigurator())
+        .frame(minWidth: 920, minHeight: 640)
+        .navigationTitle("")
+        .toolbar { mainToolbar }
+        .overlay {
+            if viewModel.isLargeImageViewerOpen {
+                LargeImageViewer(viewModel: viewModel)
+                    .transition(.opacity)
+            }
+        }
+
+        .overlay {
+            if showOnboarding {
+                OnboardingFlow(viewModel: viewModel) {
+                    showOnboarding = false
                 }
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(100)
             }
-            .overlay {
-                if showOnboarding {
-                    OnboardingFlow(viewModel: viewModel) {
-                        showOnboarding = false
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                    .zIndex(100)
-                }
-            }
-            .animation(.easeInOut(duration: 0.22), value: showOnboarding)
-            .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
-            .alert("DuckSort", isPresented: errorBinding) {
-                Button("OK", role: .cancel) { viewModel.errorMessage = nil }
-            } message: {
-                Text(viewModel.errorMessage ?? "")
-            }
-            .sheet(item: $viewModel.pendingRoutedPlan) { plan in
+        }
+        .animation(.easeInOut(duration: 0.22), value: showOnboarding)
+        .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
+        .sheet(item: $viewModel.pendingRoutedPlan) { plan in
                 PreFlightVisualizerView(
                     plan: plan,
                     viewModel: viewModel,
@@ -85,7 +88,7 @@ struct ContentView: View {
                 Button {
                     viewModel.closeLargeImageViewer()
                 } label: {
-                    Label("Close Viewer", systemImage: "xmark")
+                    Label("Close Viewer", systemImage: "rectangle.grid.3x3")
                 }
                 .help("Close viewer (Esc)")
             }
@@ -98,6 +101,7 @@ struct ContentView: View {
                 }
                 .help("Show or hide the sidebar")
             }
+
 
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -162,14 +166,14 @@ struct ContentView: View {
                         if let dest = viewModel.destinationDirectory {
                             Text(dest.lastPathComponent)
                         } else {
-                            Text("Destination…")
+                            Text("Destination...")
                         }
                     } icon: {
-                        Image(systemName: "tray.and.arrow.down")
-                            .foregroundStyle(viewModel.destinationDirectory != nil ? Theme.Color.accent : Theme.Color.textSecondary)
+                        Image(systemName: "square.and.arrow.down")
+                            .foregroundStyle(viewModel.destinationDirectory != nil ? Theme.Color.success : Theme.Color.textSecondary)
                     }
                 }
-                .help(viewModel.destinationDirectory?.path ?? "Choose Destination Directory")
+                .help("Choose destination folder (⇧⌘D)")
             }
 
             ToolbarItem(placement: .primaryAction) {
@@ -206,6 +210,9 @@ struct ContentView: View {
                 HStack(spacing: Theme.Space.s6) {
                     Image(systemName: "photo.stack")
                         .foregroundStyle(Theme.Color.textSecondary)
+                        .onTapGesture {
+                            viewModel.errorMessage = "Failed to scan folder /Volumes/Card/DCIM (error code -34)."
+                        }
 
                     let total = viewModel.filteredPhotoSets.count
                     let selected = viewModel.selectedCount
@@ -236,12 +243,7 @@ struct ContentView: View {
         }
     }
 
-    private var errorBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.errorMessage != nil },
-            set: { if !$0 { viewModel.errorMessage = nil } }
-        )
-    }
+
 
     private func isFirstResponderTextField(in window: NSWindow?) -> Bool {
         guard let firstResponder = window?.firstResponder else { return false }
@@ -270,12 +272,24 @@ struct ContentView: View {
                flags.contains(.command)  == shortcut.command
     }
 
+
+
     private func handleGlobalKeyPress(_ event: NSEvent) -> Bool {
         if let keyWindow = NSApp.keyWindow, keyWindow.isFloatingPanel {
             return false
         }
         if isFirstResponderTextField(in: NSApp.keyWindow) {
             return false
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if let chars = event.charactersIgnoringModifiers?.lowercased(), chars == "z", flags.contains(.command) {
+            if flags.contains(.shift) {
+                viewModel.redo()
+            } else {
+                viewModel.undo()
+            }
+            return true
         }
 
         if let chars = event.charactersIgnoringModifiers?.lowercased(),
@@ -675,6 +689,13 @@ struct MainLayout: View {
 
             mainCenter
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .top) {
+                    if let errorMsg = viewModel.errorMessage {
+                        GridErrorBannerView(message: errorMsg, onDismiss: {
+                            viewModel.errorMessage = nil
+                        })
+                    }
+                }
             .background(Theme.Color.background)
             .dropDestination(for: URL.self) { urls, _ in
                 viewModel.importURLs(urls)
@@ -764,5 +785,82 @@ struct WindowConfigurator: NSViewRepresentable {
         window.titleVisibility = .hidden
         window.styleMask.insert(.fullSizeContentView)
         window.backgroundColor = NSColor(Theme.Color.background)
+    }
+}
+
+// MARK: - Zoom Toolbar Helpers
+struct ZoomToolbarGroup: View {
+    @ObservedObject var viewModel: PhotoLibraryViewModel
+    
+    var body: some View {
+        let zoomState = (viewModel.selectedPhotoSets.count >= 2 && viewModel.selectedPhotoSets.count <= 4) ? viewModel.sharedZoomState : viewModel.singleZoomState
+        ZoomToolbarGroupInner(zoomState: zoomState)
+    }
+}
+
+struct ZoomToolbarGroupInner: View {
+    @ObservedObject var zoomState: SynchronizedZoomState
+    @State private var isZoomOutHovered = false
+    @State private var isZoomInHovered = false
+    @State private var isResetZoomHovered = false
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.spring()) {
+                    zoomState.zoomScale = max(0.5, min(5.0, zoomState.zoomScale * 0.7))
+                    zoomState.panOffset = .zero
+                    zoomState.accumulatedPan = .zero
+                }
+            } label: {
+                Image(systemName: "minus.magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(isZoomOutHovered ? Theme.Color.accent : Theme.Color.textPrimary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isZoomOutHovered = $0 }
+            .help("Zoom Out")
+            
+            Text(String(format: "%.0f%%", (zoomState.zoomScale + zoomState.currentAmount) * 100))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(Theme.Color.textPrimary)
+                .frame(width: 44, alignment: .center)
+            
+            Button {
+                withAnimation(.spring()) {
+                    zoomState.zoomScale = max(0.5, min(5.0, zoomState.zoomScale * 1.4))
+                    zoomState.panOffset = .zero
+                    zoomState.accumulatedPan = .zero
+                }
+            } label: {
+                Image(systemName: "plus.magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(isZoomInHovered ? Theme.Color.accent : Theme.Color.textPrimary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isZoomInHovered = $0 }
+            .help("Zoom In")
+            
+            Button {
+                withAnimation(.spring()) {
+                    zoomState.zoomScale = 1.0
+                    zoomState.panOffset = .zero
+                    zoomState.accumulatedPan = .zero
+                }
+            } label: {
+                Image(systemName: "arrow.2.squarepath")
+                    .font(.system(size: 11))
+                    .foregroundStyle(isResetZoomHovered ? Theme.Color.accent : Theme.Color.textPrimary)
+                    .frame(width: 22, height: 22)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .onHover { isResetZoomHovered = $0 }
+            .help("Reset Zoom")
+        }
     }
 }

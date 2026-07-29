@@ -893,13 +893,12 @@ struct LiquidGlassRowBackground: View {
     var indentationLevel: Int = 0
 
     var body: some View {
-        Color.clear
-            .ifTrue(isSelected) { view in
-                view.glassEffect(.regular.interactive(), in: .capsule)
-            }
-            .ifTrue(!isSelected && isHovered) { view in
-                view.glassEffect(.regular, in: .capsule)
-            }
+        Capsule()
+            .fill(
+                isSelected
+                    ? Color(white: 0.22)
+                    : (isHovered ? Color(white: 0.18) : Color.clear)
+            )
             .animation(.spring(response: 0.18, dampingFraction: 0.85), value: isSelected)
             .animation(.spring(response: 0.15, dampingFraction: 0.85), value: isHovered)
             .padding(.leading, Theme.Space.s8 + CGFloat(indentationLevel) * 12)

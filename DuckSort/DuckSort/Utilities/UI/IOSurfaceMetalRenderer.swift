@@ -32,8 +32,13 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
         self.device = dev
         if let dev = dev {
             var cache: CVMetalTextureCache?
-            CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, dev, nil, &cache)
+            let result = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, dev, nil, &cache)
+            if result != kCVReturnSuccess {
+                AppLogger.ui.error("Failed to create CVMetalTextureCache: \(result)")
+            }
             self.textureCache = cache
+        } else {
+            AppLogger.ui.error("Failed to create system default Metal device.")
         }
     }
 
@@ -46,6 +51,8 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
 
     /// Computes 256-bin RGB luminance histograms and clipping metrics using Accelerate vImage.
     func computeHistogram(from cgImage: CGImage) -> ImageHistogramResult? {
+        AppLogger.ui.debug("Computing luminance histogram for image: \(cgImage.width)x\(cgImage.height)")
+
         var format = vImage_CGImageFormat(
             bitsPerComponent: 8,
             bitsPerPixel: 32,
@@ -58,6 +65,7 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
 
         var srcBuffer = vImage_Buffer()
         guard vImageBuffer_InitWithCGImage(&srcBuffer, &format, nil, cgImage, vImage_Flags(kvImageNoFlags)) == kvImageNoError else {
+            AppLogger.ui.error("vImageBuffer_InitWithCGImage failed for histogram calculation")
             return nil
         }
         defer { free(srcBuffer.data) }
@@ -84,7 +92,10 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
             vImageHistogramCalculation_ARGB8888(&srcBuffer, ptr.baseAddress!, vImage_Flags(kvImageNoFlags))
         }
 
-        guard error == kvImageNoError else { return nil }
+        guard error == kvImageNoError else {
+            AppLogger.ui.error("vImageHistogramCalculation_ARGB8888 failed with error \(error)")
+            return nil
+        }
 
         let redBins = Array(UnsafeBufferPointer(start: r, count: 256))
         let greenBins = Array(UnsafeBufferPointer(start: g, count: 256))
@@ -110,7 +121,10 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
 
     /// Wraps a CVPixelBuffer backed by an IOSurface into a Metal texture without CPU copy memory overhead.
     func makeTexture(from pixelBuffer: CVPixelBuffer) -> MTLTexture? {
-        guard let cache = textureCache else { return nil }
+        guard let cache = textureCache else {
+            AppLogger.ui.error("makeTexture failed: CVMetalTextureCache is nil")
+            return nil
+        }
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
@@ -129,6 +143,7 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
         )
 
         guard result == kCVReturnSuccess, let cvTexture = cvTexture else {
+            AppLogger.ui.error("CVMetalTextureCacheCreateTextureFromImage failed with result \(result)")
             return nil
         }
 

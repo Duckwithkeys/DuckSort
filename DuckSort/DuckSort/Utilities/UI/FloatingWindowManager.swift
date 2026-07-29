@@ -58,7 +58,7 @@ final class FloatingWindowManager: ObservableObject {
     @Published private(set) var isReady = false
 
     private var settingsController: NSWindowController?
-    private var xmpInspectorController: NSWindowController?
+    private var logConsoleController: NSWindowController?
 
     private init() {}
 
@@ -116,65 +116,48 @@ final class FloatingWindowManager: ObservableObject {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func closeAll() {
-        settingsController?.close()
-        xmpInspectorController?.close()
-    }
-
-    /// Show a small floating "XMP tag inspector" overlay listing tags found
-    /// in XMP sidecars that aren't defined in the active pack. Re-uses the
-    /// same controller if it's already open.
-    func showXMPTagInspector(viewModel: PhotoLibraryViewModel) {
-        if let controller = xmpInspectorController {
-            if let win = controller.window,
-               let hosting = win.contentView as? NSHostingView<AnyView> {
-                hosting.rootView = AnyView(
-                    XMPTagInspectorView(
-                        viewModel: viewModel,
-                        onClose: { [weak controller] in controller?.close() }
-                    )
-                )
-            }
+    func showLogConsole() {
+        if let controller = logConsoleController {
             controller.showWindow(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let view = XMPTagInspectorView(
-            viewModel: viewModel,
-            onClose: { [weak self] in self?.xmpInspectorController?.close() }
-        )
+        let view = LogConsoleView()
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 500),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "XMP Tags Not in Active Pack"
-        window.titlebarAppearsTransparent = true
+        window.title = "Activity Console"
         window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 360, height: 320)
-        window.backgroundColor = NSColor(red: 0x1E/255, green: 0x1E/255, blue: 0x1E/255, alpha: 1)
-        window.level = .floating
+        window.minSize = NSSize(width: 700, height: 400)
         window.center()
 
-        let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = NSRect(x: 0, y: 0, width: 460, height: 520 + 28)
+        let hosting = NSHostingView(rootView: view)
         hosting.autoresizingMask = [.width, .height]
         window.contentView = hosting
 
         let delegate = PanelDelegate { [weak self] in
-            self?.xmpInspectorController = nil
+            self?.logConsoleController = nil
         }
         window.delegate = delegate
         window.setAssociatedDelegate(delegate)
 
         let controller = NSWindowController(window: window)
-        self.xmpInspectorController = controller
+        self.logConsoleController = controller
         controller.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    func closeAll() {
+        settingsController?.close()
+        logConsoleController?.close()
+    }
+
+
 }
 
 // MARK: - Delegate to retain delegate instance
