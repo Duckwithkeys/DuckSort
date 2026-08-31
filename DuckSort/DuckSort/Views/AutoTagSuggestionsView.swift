@@ -165,7 +165,7 @@ struct AutoTagSuggestionCard: View {
                 .shadow(color: isHovered ? confidenceColor.opacity(0.12) : Color.clear, radius: 4)
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
                 isHovered = hovering
             }
         }

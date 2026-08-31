@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
 @MainActor
-final class CullingHistoryTests: XCTestCase {
+struct CullingHistoryTests {
 
     private func createTestContext() -> (PhotoLibraryViewModel, PhotoSet, PhotoSet) {
         let viewModel = PhotoLibraryViewModel()
@@ -24,75 +25,76 @@ final class CullingHistoryTests: XCTestCase {
         return (viewModel, photo1, photo2)
     }
 
-    func test_undoRedo_ratingChange() {
+    @Test
+    func undoRedo_ratingChange() {
         let (viewModel, photo1, _) = createTestContext()
 
         // Initially nil rating
-        XCTAssertNil(viewModel.photoSets[0].rating)
-        XCTAssertFalse(viewModel.canUndo)
-        XCTAssertFalse(viewModel.canRedo)
+        #expect(viewModel.photoSets[0].rating == nil)
+        #expect(!(viewModel.canUndo))
+        #expect(!(viewModel.canRedo))
 
         // Set rating
         viewModel.setRating(5, for: photo1.id)
-        XCTAssertEqual(viewModel.photoSets[0].rating, 5)
-        XCTAssertTrue(viewModel.canUndo)
-        XCTAssertFalse(viewModel.canRedo)
+        #expect(viewModel.photoSets[0].rating == 5)
+        #expect(viewModel.canUndo)
+        #expect(!(viewModel.canRedo))
 
         // Undo
         viewModel.undo()
-        XCTAssertNil(viewModel.photoSets[0].rating)
-        XCTAssertFalse(viewModel.canUndo)
-        XCTAssertTrue(viewModel.canRedo)
+        #expect(viewModel.photoSets[0].rating == nil)
+        #expect(!(viewModel.canUndo))
+        #expect(viewModel.canRedo)
 
         // Redo
         viewModel.redo()
-        XCTAssertEqual(viewModel.photoSets[0].rating, 5)
-        XCTAssertTrue(viewModel.canUndo)
-        XCTAssertFalse(viewModel.canRedo)
+        #expect(viewModel.photoSets[0].rating == 5)
+        #expect(viewModel.canUndo)
+        #expect(!(viewModel.canRedo))
     }
 
-    func test_undoRedo_pickFlagChange() {
+    @Test
+    func undoRedo_pickFlagChange() {
         let (viewModel, _, photo2) = createTestContext()
 
         // Initially nil pick
-        XCTAssertNil(viewModel.photoSets[1].pick)
+        #expect(viewModel.photoSets[1].pick == nil)
 
         // Set pick to reject (-1)
         viewModel.setPick(-1, for: photo2.id)
-        XCTAssertEqual(viewModel.photoSets[1].pick, -1)
+        #expect(viewModel.photoSets[1].pick == -1)
 
         // Undo
         viewModel.undo()
-        XCTAssertNil(viewModel.photoSets[1].pick)
+        #expect(viewModel.photoSets[1].pick == nil)
 
         // Redo
         viewModel.redo()
-        XCTAssertEqual(viewModel.photoSets[1].pick, -1)
+        #expect(viewModel.photoSets[1].pick == -1)
     }
 
-    func test_undoRedo_tagChange() {
+    @Test
+    func undoRedo_tagChange() throws {
         let (viewModel, photo1, _) = createTestContext()
-        guard let tag = viewModel.tagStore.tags.first else {
-            XCTFail("TagStore tags list is empty")
-            return
-        }
+        let tag = try #require(viewModel.tagStore.tags.first, "TagStore tags list is empty")
         
-        XCTAssertTrue(viewModel.tagStore.assignedTagIDs(for: photo1.id).isEmpty)
+        #expect(viewModel.tagStore.assignedTagIDs(for: photo1.id).isEmpty)
 
         // Apply tag
         viewModel.applyTag(tag, to: photo1.id)
-        XCTAssertTrue(viewModel.tagStore.assignedTagIDs(for: photo1.id).contains(tag.id))
+        #expect(viewModel.tagStore.assignedTagIDs(for: photo1.id).contains(tag.id))
 
         // Undo
         viewModel.undo()
-        XCTAssertFalse(viewModel.tagStore.assignedTagIDs(for: photo1.id).contains(tag.id))
+        #expect(!(viewModel.tagStore.assignedTagIDs(for: photo1.id).contains(tag.id)))
 
         // Redo
         viewModel.redo()
-        XCTAssertTrue(viewModel.tagStore.assignedTagIDs(for: photo1.id).contains(tag.id))
+        #expect(viewModel.tagStore.assignedTagIDs(for: photo1.id).contains(tag.id))
     }
 
-    func test_historyStackDepthLimit() {
+    @Test
+    func historyStackDepthLimit() {
         let (viewModel, photo1, _) = createTestContext()
 
         // Perform 200 rating changes
@@ -106,6 +108,6 @@ final class CullingHistoryTests: XCTestCase {
             viewModel.undo()
             undoCount += 1
         }
-        XCTAssertEqual(undoCount, 150, "Undo stack should be capped at 150 items")
+        #expect(undoCount == 150)
     }
 }

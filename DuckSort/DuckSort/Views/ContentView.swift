@@ -42,7 +42,7 @@ struct ContentView: View {
                 .zIndex(100)
             }
         }
-        .animation(.easeInOut(duration: 0.22), value: showOnboarding)
+        .animation(.spring(response: 0.25, dampingFraction: 1.0), value: showOnboarding)
         .animation(.smooth, value: viewModel.isLargeImageViewerOpen)
         .sheet(item: $viewModel.pendingRoutedPlan) { plan in
                 PreFlightVisualizerView(
@@ -709,7 +709,7 @@ struct MainLayout: View {
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.15), value: isDropTargeted)
+            .animation(.spring(response: 0.25, dampingFraction: 1.0), value: isDropTargeted)
         }
     }
 
@@ -756,7 +756,7 @@ struct PulsingDropTargetOverlay: View {
                 withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
                     phase = 30.0
                 }
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                withAnimation(.spring(response: 0.25, dampingFraction: 1.0).repeatForever(autoreverses: true)) {
                     pulseScale = 0.98
                 }
             }

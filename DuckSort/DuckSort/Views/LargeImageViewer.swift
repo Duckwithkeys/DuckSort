@@ -41,6 +41,10 @@ struct LargeImageViewer: View {
                     .padding(.horizontal, Theme.Space.s12)
                     .padding(.bottom, Theme.Space.s12)
                     .padding(.top, Theme.Space.s12) // Space below the header separation band
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        NSApp.keyWindow?.makeFirstResponder(nil)
+                    }
 
                 FilmstripView(viewModel: viewModel)
             }

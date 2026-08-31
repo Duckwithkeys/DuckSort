@@ -41,9 +41,12 @@ struct EmptyLibraryView: View {
                 Button("Import…") {
                     selectFolderAction()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.responsive)
                 .controlSize(.large)
-                .tint(Theme.Color.accent)
+                .padding(.horizontal, Theme.Space.s24)
+                .padding(.vertical, Theme.Space.s12)
+                .background(Theme.Color.accent, in: RoundedRectangle(cornerRadius: Theme.Radius.l))
+                .foregroundStyle(Theme.Color.textInverse)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -55,18 +58,28 @@ struct EmptyLibraryView: View {
 private struct EmptyActionCard: View {
     let systemImage: String
     let title: String
+    @State private var isHovered = false
 
     var body: some View {
         VStack(spacing: Theme.Space.s12) {
             Image(systemName: systemImage)
                 .font(Theme.Font.iconHero)
-                .foregroundStyle(Theme.Color.textSecondary)
+                .foregroundStyle(isHovered ? Theme.Color.accent : Theme.Color.textSecondary)
+                .animation(Theme.Motion.snappy, value: isHovered)
             Text(title)
                 .font(Theme.Font.caption)
                 .foregroundStyle(Theme.Color.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(width: 200, height: 160)
-        .background(Theme.Color.cellBackground, in: RoundedRectangle(cornerRadius: Theme.Radius.l))
+        .background(Theme.Color.cellBackground, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.xl)
+                .stroke(isHovered ? Theme.Color.accent.opacity(0.3) : Theme.Color.separator.opacity(0.4), lineWidth: 1)
+        )
+        .scaleEffect(isHovered ? 1.02 : 1.0)
+        .shadow(color: isHovered ? Theme.Color.overlayScrim : .clear, radius: isHovered ? 8 : 0)
+        .animation(Theme.Motion.snappy, value: isHovered)
+        .onHover { isHovered = $0 }
     }
 }

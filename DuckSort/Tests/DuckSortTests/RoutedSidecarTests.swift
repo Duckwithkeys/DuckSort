@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 import ImageIO
 @testable import DuckSort
 
-final class RoutedSidecarTests: XCTestCase {
+struct RoutedSidecarTests {
     private func copySet(_ dir: URL) throws -> RoutedPhoto {
         let media = dir.appendingPathComponent("IMG_0001.jpg")
         try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
@@ -14,7 +15,8 @@ final class RoutedSidecarTests: XCTestCase {
         )
     }
 
-    func test_copyOriginals_writesSidecar() async throws {
+    @Test
+    func copyOriginals_writesSidecar() async throws {
         let src = try TempDir.make(); let dst = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
         let routed = try copySet(src)
@@ -27,13 +29,14 @@ final class RoutedSidecarTests: XCTestCase {
         )
         let summary = try await RoutedTransferService().execute(plan, categoryNameProvider: { _ in nil })
 
-        XCTAssertEqual(summary.sidecarFailures, 0)
+        #expect(summary.sidecarFailures == 0)
         let sidecar = dst.appendingPathComponent("IMG_0001.xmp")
-        XCTAssertTrue(try String(contentsOf: sidecar, encoding: .utf8).contains("<rdf:li>Family</rdf:li>"))
+        #expect(try String(contentsOf: sidecar, encoding: .utf8).contains("<rdf:li>Family</rdf:li>"))
     }
 
 
-    func test_moveOriginals_writesSidecarAndRemovesOrphan() async throws {
+    @Test
+    func moveOriginals_writesSidecarAndRemovesOrphan() async throws {
         let src = try TempDir.make(); let dst = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
 
@@ -61,16 +64,16 @@ final class RoutedSidecarTests: XCTestCase {
         )
         let summary = try await RoutedTransferService().execute(plan, categoryNameProvider: { _ in nil })
 
-        XCTAssertEqual(summary.sidecarFailures, 0)
+        #expect(summary.sidecarFailures == 0)
 
         let destSidecar = dst.appendingPathComponent("IMG_0007.xmp")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: destSidecar.path), "destination sidecar should exist")
+        #expect(FileManager.default.fileExists(atPath: destSidecar.path))
         let destContents = try String(contentsOf: destSidecar, encoding: .utf8)
-        XCTAssertTrue(destContents.contains("<rdf:li>Family</rdf:li>"), "destination sidecar should contain Family tag")
+        #expect(destContents.contains("<rdf:li>Family</rdf:li>"))
 
-        XCTAssertFalse(FileManager.default.fileExists(atPath: media.path), "source media should have been moved")
+        #expect(!(FileManager.default.fileExists(atPath: media.path)))
 
         let srcOrphan = src.appendingPathComponent("IMG_0007.xmp")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: srcOrphan.path), "source orphan sidecar should have been removed")
+        #expect(!(FileManager.default.fileExists(atPath: srcOrphan.path)))
     }
 }

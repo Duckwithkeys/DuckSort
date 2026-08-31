@@ -82,6 +82,6 @@ struct ErrorBoundaryView<Content: View>: View {
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: errorMessage == nil)
+        .animation(.spring(response: 0.3, dampingFraction: 1.0), value: errorMessage == nil)
     }
 }

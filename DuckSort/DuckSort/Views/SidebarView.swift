@@ -117,12 +117,18 @@ struct TagsSectionView: View {
     @State private var hoveredTagID: UUID? = nil
     @State private var expandedCategoryIDs: Set<UUID> = []
     @State private var hoveredCategoryID: UUID? = nil
+    @State private var isStatusExpanded: Bool = true
 
     var body: some View {
         Section("TAGS") {
+            // Permanent built-in status & ratings category
+            PermanentStatusCategoryView(
+                viewModel: viewModel,
+                isExpanded: $isStatusExpanded
+            )
 
             if viewModel.tagStore.tags.isEmpty {
-                Text("No tags")
+                Text("No custom tags")
                     .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Color.textTertiary)
             } else {
@@ -167,7 +173,7 @@ struct TagsSectionView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: 0.12)) {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
                                         hoveredTagID = hovering ? tag.id : nil
                                     }
                                 }
@@ -189,7 +195,7 @@ struct TagsSectionView: View {
                             .contentShape(Rectangle())
                             .onTapGesture { isExpandedBinding.wrappedValue.toggle() }
                             .onHover { hovering in
-                                withAnimation(.easeInOut(duration: 0.12)) {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
                                     hoveredCategoryID = hovering ? category.id : nil
                                 }
                             }
@@ -210,6 +216,259 @@ struct TagsSectionView: View {
                 expandedCategoryIDs = Set(viewModel.tagStore.categories.map(\.id))
             }
         }
+    }
+}
+
+// MARK: - Permanent Status Category View
+
+struct PermanentStatusCategoryView: View {
+    @ObservedObject var viewModel: PhotoLibraryViewModel
+    @Binding var isExpanded: Bool
+    @State private var hoveredStatus: String? = nil
+    @State private var isHeaderHovered = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            // 1. Flagged / Picked
+            statusRow(
+                id: "flagged",
+                title: "Flagged (Picks)",
+                icon: "flag.fill",
+                iconColor: Theme.Color.warning,
+                count: viewModel.countFlagged,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterFlagActive && viewModel.filterFlag == .flagged,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterFlagActive && viewModel.filterFlag == .flagged {
+                        viewModel.filterFlagActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterFlagActive = true
+                        viewModel.filterFlag = .flagged
+                    }
+                }
+            )
+
+            // 2. Rejected
+            statusRow(
+                id: "rejected",
+                title: "Rejected",
+                icon: "xmark.circle.fill",
+                iconColor: Theme.Color.danger,
+                count: viewModel.countRejected,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterFlagActive && viewModel.filterFlag == .rejected,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterFlagActive && viewModel.filterFlag == .rejected {
+                        viewModel.filterFlagActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterFlagActive = true
+                        viewModel.filterFlag = .rejected
+                    }
+                }
+            )
+
+            // 3. Unflagged
+            statusRow(
+                id: "unflagged",
+                title: "Unflagged",
+                icon: "circle",
+                iconColor: Theme.Color.textSecondary,
+                count: viewModel.countUnflagged,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterFlagActive && viewModel.filterFlag == .unflagged,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterFlagActive && viewModel.filterFlag == .unflagged {
+                        viewModel.filterFlagActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterFlagActive = true
+                        viewModel.filterFlag = .unflagged
+                    }
+                }
+            )
+
+            // 4. 5 Stars
+            statusRow(
+                id: "5stars",
+                title: "5 Stars",
+                icon: "star.fill",
+                iconColor: Theme.Color.rating,
+                count: viewModel.countFiveStars,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 5 && viewModel.filterRatingCondition == .equalTo,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 5 && viewModel.filterRatingCondition == .equalTo {
+                        viewModel.filterRatingActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterRatingActive = true
+                        viewModel.filterRatingValue = 5
+                        viewModel.filterRatingCondition = .equalTo
+                    }
+                }
+            )
+
+            // 5. 4 Stars
+            statusRow(
+                id: "4stars",
+                title: "4 Stars",
+                icon: "star.fill",
+                iconColor: Theme.Color.rating,
+                count: viewModel.countFourStars,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 4 && viewModel.filterRatingCondition == .equalTo,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 4 && viewModel.filterRatingCondition == .equalTo {
+                        viewModel.filterRatingActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterRatingActive = true
+                        viewModel.filterRatingValue = 4
+                        viewModel.filterRatingCondition = .equalTo
+                    }
+                }
+            )
+
+            // 6. 3 Stars
+            statusRow(
+                id: "3stars",
+                title: "3 Stars",
+                icon: "star.fill",
+                iconColor: Theme.Color.rating,
+                count: viewModel.countThreeStars,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 3 && viewModel.filterRatingCondition == .equalTo,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 3 && viewModel.filterRatingCondition == .equalTo {
+                        viewModel.filterRatingActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterRatingActive = true
+                        viewModel.filterRatingValue = 3
+                        viewModel.filterRatingCondition = .equalTo
+                    }
+                }
+            )
+
+            // 7. 2 Stars
+            statusRow(
+                id: "2stars",
+                title: "2 Stars",
+                icon: "star.fill",
+                iconColor: Theme.Color.rating,
+                count: viewModel.countTwoStars,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 2 && viewModel.filterRatingCondition == .equalTo,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 2 && viewModel.filterRatingCondition == .equalTo {
+                        viewModel.filterRatingActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterRatingActive = true
+                        viewModel.filterRatingValue = 2
+                        viewModel.filterRatingCondition = .equalTo
+                    }
+                }
+            )
+
+            // 8. 1 Star
+            statusRow(
+                id: "1star",
+                title: "1 Star",
+                icon: "star.fill",
+                iconColor: Theme.Color.rating,
+                count: viewModel.countOneStar,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 1 && viewModel.filterRatingCondition == .equalTo,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 1 && viewModel.filterRatingCondition == .equalTo {
+                        viewModel.filterRatingActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterRatingActive = true
+                        viewModel.filterRatingValue = 1
+                        viewModel.filterRatingCondition = .equalTo
+                    }
+                }
+            )
+
+            // 9. Unrated
+            statusRow(
+                id: "unrated",
+                title: "Unrated",
+                icon: "star.slash",
+                iconColor: Theme.Color.textTertiary,
+                count: viewModel.countUnrated,
+                isSelected: viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 0 && viewModel.filterRatingCondition == .equalTo,
+                action: {
+                    if viewModel.isFilterPopoverEnabled && viewModel.filterRatingActive && viewModel.filterRatingValue == 0 && viewModel.filterRatingCondition == .equalTo {
+                        viewModel.filterRatingActive = false
+                    } else {
+                        viewModel.isFilterPopoverEnabled = true
+                        viewModel.filterRatingActive = true
+                        viewModel.filterRatingValue = 0
+                        viewModel.filterRatingCondition = .equalTo
+                    }
+                }
+            )
+        } label: {
+            HStack {
+                Text("Status & Ratings")
+                    .font(Theme.Font.subheadline)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { isExpanded.toggle() }
+            .onHover { hovering in
+                withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
+                    isHeaderHovered = hovering
+                }
+            }
+        }
+        .tint(Theme.Color.textSecondary)
+        .listRowBackground(
+            LiquidGlassRowBackground(
+                isSelected: false,
+                isHovered: isHeaderHovered
+            )
+        )
+    }
+
+    private func statusRow(
+        id: String,
+        title: String,
+        icon: String,
+        iconColor: Color,
+        count: Int,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: Theme.Space.s8) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(iconColor)
+                    .frame(width: 14)
+                Text(title)
+                    .foregroundStyle(Theme.Color.textPrimary)
+                Spacer()
+                if count > 0 {
+                    Text("\(count)")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+            }
+            .padding(.vertical, Theme.Space.s4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
+                hoveredStatus = hovering ? id : nil
+            }
+        }
+        .listRowBackground(
+            LiquidGlassRowBackground(
+                isSelected: isSelected,
+                isHovered: hoveredStatus == id,
+                indentationLevel: 1
+            )
+        )
     }
 }
 
@@ -267,7 +526,7 @@ struct SourceRow: View {
         .padding(.vertical, Theme.Space.s4)
         .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
         .contextMenu {
             Button("Reveal in Finder") { onReveal() }
@@ -311,7 +570,7 @@ struct SystemFilterRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
         .listRowBackground(
             LiquidGlassRowBackground(
@@ -548,7 +807,7 @@ struct FolderTreeNode: View {
         .padding(.vertical, Theme.Space.s4)
         .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
         .onTapGesture {
             toggleSelection()
@@ -648,7 +907,7 @@ struct PhotoLeafNode: View {
         .padding(.vertical, Theme.Space.s4)
         .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
         .onTapGesture {
             selectPhoto()
@@ -754,7 +1013,7 @@ struct ActiveTagsBar: View {
                 )
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
     }
 }
@@ -792,7 +1051,7 @@ struct LibrarySectionView: View {
                 }
                 .buttonStyle(.plain)
                 .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.12)) {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
                         hoveredRule = hovering ? rule : nil
                     }
                 }
@@ -871,7 +1130,7 @@ struct ActiveTagsDetailSectionView: View {
                     }
                     .buttonStyle(.plain)
                     .onHover { hovering in
-                        withAnimation(.easeInOut(duration: 0.12)) {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
                             hoveredTagID = hovering ? tag.id : nil
                         }
                     }
@@ -899,8 +1158,8 @@ struct LiquidGlassRowBackground: View {
                     ? Color(white: 0.22)
                     : (isHovered ? Color(white: 0.18) : Color.clear)
             )
-            .animation(.spring(response: 0.18, dampingFraction: 0.85), value: isSelected)
-            .animation(.spring(response: 0.15, dampingFraction: 0.85), value: isHovered)
+            .animation(.spring(response: 0.18, dampingFraction: 1.0), value: isSelected)
+            .animation(.spring(response: 0.15, dampingFraction: 1.0), value: isHovered)
             .padding(.leading, Theme.Space.s8 + CGFloat(indentationLevel) * 12)
             .padding(.trailing, Theme.Space.s8)
             .padding(.vertical, 2)

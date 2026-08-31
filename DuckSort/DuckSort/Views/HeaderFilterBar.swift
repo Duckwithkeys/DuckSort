@@ -33,7 +33,7 @@ struct HeaderFilterBar: View {
                         .foregroundStyle(hasActiveFilters ? Theme.Color.textInverse : Theme.Color.textSecondary)
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.responsive)
             .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
                 FilterPopoverContent(viewModel: viewModel)
             }
@@ -41,7 +41,7 @@ struct HeaderFilterBar: View {
         }
         .padding(.horizontal, Theme.Space.s16)
         .padding(.vertical, Theme.Space.s10)
-        .background(Theme.Color.background) // Matches main grid view background
+        .background(.regularMaterial)
         .overlay(
             Rectangle()
                 .frame(height: 1)
@@ -60,7 +60,7 @@ struct HeaderFilterBar: View {
 
             // Date Sort Button
             Button {
-                withAnimation(.smooth(duration: 0.2)) {
+                withAnimation(Theme.Motion.snappy) {
                     viewModel.sortOrder = .date
                 }
             } label: {
@@ -72,11 +72,11 @@ struct HeaderFilterBar: View {
                     .foregroundStyle(viewModel.sortOrder == .date ? Theme.Color.textInverse : Theme.Color.textPrimary)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.responsive)
 
             // Name Sort Button
             Button {
-                withAnimation(.smooth(duration: 0.2)) {
+                withAnimation(Theme.Motion.snappy) {
                     viewModel.sortOrder = .name
                 }
             } label: {
@@ -88,23 +88,23 @@ struct HeaderFilterBar: View {
                     .foregroundStyle(viewModel.sortOrder == .name ? Theme.Color.textInverse : Theme.Color.textPrimary)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.responsive)
 
             // Direction Toggle Button
             Button {
-                withAnimation(.smooth(duration: 0.2)) {
+                withAnimation(Theme.Motion.snappy) {
                     viewModel.sortDirection = viewModel.sortDirection == .ascending ? .descending : .ascending
                 }
             } label: {
                 Image(systemName: viewModel.sortDirection == .ascending ? "arrow.up" : "arrow.down")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.Color.accent)
-                    .frame(width: 22, height: 22)
+                    .padding(.horizontal, Theme.Space.s8)
+                    .padding(.vertical, Theme.Space.s6)
+                    .background(Color.primary.opacity(0.04))
+                    .foregroundStyle(Theme.Color.textPrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
             }
-            .buttonStyle(.plain)
-            .background(Color.primary.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
-            .help("Toggle Sort Direction")
+            .buttonStyle(.responsive).help("Toggle Sort Direction")
         }
     }
 }

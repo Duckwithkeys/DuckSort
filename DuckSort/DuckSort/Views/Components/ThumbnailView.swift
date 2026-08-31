@@ -55,7 +55,7 @@ struct ThumbnailView: View {
                         Image(nsImage: image)
                             .resizable()
                             .scaledToFill()
-                            .transition(.opacity.animation(.easeIn(duration: 0.15)))
+                            .transition(.opacity.animation(.spring(response: 0.25, dampingFraction: 1.0)))
                     } else {
                         // Show subtle animated shimmer while loading
                         ShimmerView()
@@ -101,7 +101,7 @@ struct ThumbnailView: View {
             guard !Task.isCancelled else { return }
 
             AppLogger.thumbnails.trace("Decode started: \(url.lastPathComponent)")
-            if let result = await ThumbnailService.shared.thumbnail(for: url, size: size, scale: scale) {
+            if let result = await ThumbnailService.shared.thumbnail(for: url, size: size, scale: scale, skipMemoryCache: true) {
                 guard !Task.isCancelled else { return }
                 loader.image = result
             }
@@ -162,40 +162,68 @@ final class ThumbnailService {
     private let semaphore = AsyncSemaphore(
         limit: ProcessInfo.processInfo.activeProcessorCount.clamped(to: 4...8)
     )
+    private var inFlightTasks: [String: Task<NSImage?, Never>] = [:]
 
     private init() {}
 
-    func thumbnail(for url: URL?, size: CGSize, scale: CGFloat = 2.0) async -> NSImage? {
+    private func diskCacheSize(for size: CGSize) -> CGSize {
+        let maxDim = max(size.width, size.height)
+        if maxDim <= 128 {
+            return CGSize(width: 128, height: 128)
+        }
+        return CGSize(width: 600, height: 600)
+    }
+
+    func thumbnail(for url: URL?, size: CGSize, scale: CGFloat = 2.0, skipMemoryCache: Bool = false) async -> NSImage? {
         guard let url else { return nil }
 
         // 1. Memory cache
-        if let hit = ThumbnailCache.global.image(for: url, size: size) { return hit }
+        if !skipMemoryCache, let hit = ThumbnailCache.global.image(for: url, size: size) { return hit }
+
+        let bucketSize = diskCacheSize(for: size)
 
         // 2. Disk cache (avoid decode if we already have JPEG on disk)
-        if let diskHit = await DiskThumbnailCache.shared.image(for: url, size: size) {
+        if let diskHit = await DiskThumbnailCache.shared.image(for: url, size: bucketSize) {
             ThumbnailCache.global.insert(diskHit, for: url, size: size)
             return diskHit
         }
 
-        do {
-            try Task.checkCancellation()
-            // Acquire will throw if cancelled while waiting
-            try await semaphore.acquire()
-        } catch {
-            return nil
+        // 3. In-flight task deduplication
+        let key = "\(url.path)_\(Int(size.width))x\(Int(size.height))"
+        if let existing = inFlightTasks[key] {
+            return await existing.value
         }
-        
-        do {
-            let result = try await decode(url: url, size: size, scale: scale)
-            await semaphore.release()
-            return result
-        } catch {
-            await semaphore.release()
-            return nil
+
+        let task = Task<NSImage?, Never> {
+            defer {
+                Task { @ThumbnailActor in
+                    ThumbnailService.shared.inFlightTasks.removeValue(forKey: key)
+                }
+            }
+
+            do {
+                try Task.checkCancellation()
+                // Acquire will throw if cancelled while waiting
+                try await semaphore.acquire()
+            } catch {
+                return nil
+            }
+
+            do {
+                let result = try await decode(url: url, size: size, scale: scale, bucketSize: bucketSize)
+                await semaphore.release()
+                return result
+            } catch {
+                await semaphore.release()
+                return nil
+            }
         }
+
+        inFlightTasks[key] = task
+        return await task.value
     }
 
-    private func decode(url: URL, size: CGSize, scale: CGFloat) async throws -> NSImage? {
+    private func decode(url: URL, size: CGSize, scale: CGFloat, bucketSize: CGSize) async throws -> NSImage? {
         try Task.checkCancellation()
 
         let maxPixels = max(size.width, size.height) * scale
@@ -207,7 +235,9 @@ final class ThumbnailService {
             try Task.checkCancellation()
             let ns = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
             ThumbnailCache.global.insert(ns, for: url, size: size)
-            await DiskThumbnailCache.shared.insert(ns, for: url, size: size)
+            Task(priority: .background) {
+                await DiskThumbnailCache.shared.insert(ns, for: url, size: bucketSize)
+            }
             return ns
         }
 
@@ -217,7 +247,9 @@ final class ThumbnailService {
                 try Task.checkCancellation()
                 let ns = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
                 ThumbnailCache.global.insert(ns, for: url, size: size)
-                await DiskThumbnailCache.shared.insert(ns, for: url, size: size)
+                Task(priority: .background) {
+                    await DiskThumbnailCache.shared.insert(ns, for: url, size: bucketSize)
+                }
                 return ns
             }
         }
@@ -235,9 +267,12 @@ final class ThumbnailService {
         do {
             let rep = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
             try Task.checkCancellation()
-            ThumbnailCache.global.insert(rep.nsImage, for: url, size: size)
-            await DiskThumbnailCache.shared.insert(rep.nsImage, for: url, size: size)
-            return rep.nsImage
+            let image = rep.nsImage
+            ThumbnailCache.global.insert(image, for: url, size: size)
+            Task(priority: .background) {
+                await DiskThumbnailCache.shared.insert(image, for: url, size: bucketSize)
+            }
+            return image
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -249,11 +284,77 @@ final class ThumbnailService {
 
     nonisolated private static let decodeQueue = DispatchQueue(label: "com.ducksort.imageio.decode", qos: .utility, attributes: .concurrent)
 
+    /// Applies EXIF orientation to a CGImage when decoded via CGImageSourceCreateImageAtIndex.
+    nonisolated static func applyOrientation(from source: CGImageSource, to cgImage: CGImage) -> CGImage {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let rawOrientation = properties[kCGImagePropertyOrientation] as? UInt32,
+              let orientation = CGImagePropertyOrientation(rawValue: rawOrientation),
+              orientation != .up else {
+            return cgImage
+        }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        let isTransposed = (orientation == .left || orientation == .right || orientation == .leftMirrored || orientation == .rightMirrored)
+        let targetW = isTransposed ? height : width
+        let targetH = isTransposed ? width : height
+        
+        guard let colorSpace = cgImage.colorSpace,
+              let context = CGContext(
+                  data: nil,
+                  width: targetW,
+                  height: targetH,
+                  bitsPerComponent: cgImage.bitsPerComponent,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: cgImage.bitmapInfo.rawValue
+              ) else { return cgImage }
+        
+        switch orientation {
+        case .up:
+            break
+        case .upMirrored:
+            context.translateBy(x: CGFloat(targetW), y: 0)
+            context.scaleBy(x: -1.0, y: 1.0)
+        case .down:
+            context.translateBy(x: CGFloat(targetW), y: CGFloat(targetH))
+            context.rotate(by: .pi)
+        case .downMirrored:
+            context.translateBy(x: 0, y: CGFloat(targetH))
+            context.scaleBy(x: 1.0, y: -1.0)
+        case .leftMirrored:
+            context.rotate(by: .pi / 2.0)
+            context.scaleBy(x: 1.0, y: -1.0)
+        case .right:
+            context.translateBy(x: CGFloat(targetW), y: 0)
+            context.rotate(by: .pi / 2.0)
+        case .rightMirrored:
+            context.translateBy(x: CGFloat(targetW), y: CGFloat(targetH))
+            context.rotate(by: .pi / 2.0)
+            context.scaleBy(x: -1.0, y: 1.0)
+        case .left:
+            context.translateBy(x: 0, y: CGFloat(targetH))
+            context.rotate(by: -.pi / 2.0)
+        @unknown default:
+            break
+        }
+        
+        context.interpolationQuality = .high
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? cgImage
+    }
+
     nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
         await withCheckedContinuation { continuation in
             Self.decodeQueue.async {
-                let options = [kCGImageSourceShouldCache: false] as CFDictionary
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else {
+                let ext = url.pathExtension.lowercased()
+                var sourceOptions: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true
+                ]
+                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
+                }
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
                     continuation.resume(returning: nil)
                     return
                 }
@@ -261,10 +362,9 @@ final class ThumbnailService {
                     continuation.resume(returning: nil)
                     return
                 }
+
                 let decodeOptions: [CFString: Any] = [
-                    (alwaysCreate
-                        ? kCGImageSourceCreateThumbnailFromImageAlways
-                        : kCGImageSourceCreateThumbnailFromImageIfAbsent): true,
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceThumbnailMaxPixelSize: maxPixels,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceShouldCacheImmediately: true,
@@ -279,8 +379,14 @@ final class ThumbnailService {
     nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
         await withCheckedContinuation { continuation in
             Self.decodeQueue.async {
-                let options = [kCGImageSourceShouldCache: false] as CFDictionary
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else {
+                let ext = url.pathExtension.lowercased()
+                var sourceOptions: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true
+                ]
+                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
+                }
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
                     continuation.resume(returning: nil)
                     return
                 }
@@ -296,39 +402,41 @@ final class ThumbnailService {
                     return
                 }
 
-                guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                guard let rawCGImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
                     continuation.resume(returning: nil)
                     return
                 }
                 
-                let width = CGFloat(cgImage.width)
-                let height = CGFloat(cgImage.height)
+                let orientedImage = Self.applyOrientation(from: source, to: rawCGImage)
+                
+                let width = CGFloat(orientedImage.width)
+                let height = CGFloat(orientedImage.height)
                 let scale = min(maxPixels / max(width, height), 1.0)
                 guard scale < 1.0 else {
-                    continuation.resume(returning: cgImage)
+                    continuation.resume(returning: orientedImage)
                     return
                 }
                 
                 let targetW = Int(width * scale)
                 let targetH = Int(height * scale)
                 
-                guard let colorSpace = cgImage.colorSpace,
+                guard let colorSpace = orientedImage.colorSpace,
                       let context = CGContext(
                           data: nil,
                           width: targetW,
                           height: targetH,
-                          bitsPerComponent: cgImage.bitsPerComponent,
+                          bitsPerComponent: orientedImage.bitsPerComponent,
                           bytesPerRow: 0,
                           space: colorSpace,
-                          bitmapInfo: cgImage.bitmapInfo.rawValue
+                          bitmapInfo: orientedImage.bitmapInfo.rawValue
                       ) else {
-                    continuation.resume(returning: cgImage)
+                    continuation.resume(returning: orientedImage)
                     return
                 }
                       
                 context.interpolationQuality = .high
-                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
-                continuation.resume(returning: context.makeImage())
+                context.draw(orientedImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
+                continuation.resume(returning: context.makeImage() ?? orientedImage)
             }
         }
     }

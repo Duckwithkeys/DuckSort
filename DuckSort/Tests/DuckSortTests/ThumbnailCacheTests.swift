@@ -1,24 +1,28 @@
-import XCTest
+import Testing
+import Foundation
+import AppKit
 @testable import DuckSort
 
 // MARK: - ThumbnailCacheTests
 
-final class ThumbnailCacheTests: XCTestCase {
+struct ThumbnailCacheTests {
 
     // MARK: - ThumbnailCache (memory tier)
 
-    func test_memoryCache_insertAndRetrieve() {
+    @Test
+    func memoryCache_insertAndRetrieve() throws {
         let cache = ThumbnailCache()
         let url = URL(fileURLWithPath: "/tmp/test_photo.jpg")
         let size = CGSize(width: 300, height: 300)
         let image = NSImage(size: NSSize(width: 300, height: 300))
 
-        XCTAssertNil(cache.image(for: url, size: size), "Cache should be empty initially")
+        #expect(cache.image(for: url, size: size) == nil)
         cache.insert(image, for: url, size: size)
-        XCTAssertNotNil(cache.image(for: url, size: size), "Cache should return inserted image")
+        try #require(cache.image(for: url, size: size) != nil)
     }
 
-    func test_memoryCache_differentSizesAreIndependent() {
+    @Test
+    func memoryCache_differentSizesAreIndependent() throws {
         let cache = ThumbnailCache()
         let url = URL(fileURLWithPath: "/tmp/photo.jpg")
         let smallSize = CGSize(width: 128, height: 128)
@@ -30,35 +34,38 @@ final class ThumbnailCacheTests: XCTestCase {
         cache.insert(small, for: url, size: smallSize)
         cache.insert(large, for: url, size: largeSize)
 
-        XCTAssertEqual(cache.image(for: url, size: smallSize)?.size.width, 128)
-        XCTAssertEqual(cache.image(for: url, size: largeSize)?.size.width, 600)
+        #expect(cache.image(for: url, size: smallSize)?.size.width == 128)
+        #expect(cache.image(for: url, size: largeSize)?.size.width == 600)
     }
 
-    func test_memoryCache_evictAll() {
+    @Test
+    func memoryCache_evictAll() throws {
         let cache = ThumbnailCache()
         let url = URL(fileURLWithPath: "/tmp/photo_evict.jpg")
         let size = CGSize(width: 300, height: 300)
         let image = NSImage(size: NSSize(width: 300, height: 300))
 
         cache.insert(image, for: url, size: size)
-        XCTAssertNotNil(cache.image(for: url, size: size))
+        try #require(cache.image(for: url, size: size) != nil)
         cache.evictAll()
-        XCTAssertNil(cache.image(for: url, size: size), "After evictAll, cache should be empty")
+        #expect(cache.image(for: url, size: size) == nil)
     }
 
-    func test_memoryCache_removeSpecificEntry() {
+    @Test
+    func memoryCache_removeSpecificEntry() throws {
         let cache = ThumbnailCache()
         let url = URL(fileURLWithPath: "/tmp/photo_remove.jpg")
         let size = CGSize(width: 300, height: 300)
         let image = NSImage(size: NSSize(width: 300, height: 300))
 
         cache.insert(image, for: url, size: size)
-        XCTAssertNotNil(cache.image(for: url, size: size))
+        try #require(cache.image(for: url, size: size) != nil)
         cache.remove(for: url, size: size)
-        XCTAssertNil(cache.image(for: url, size: size), "After remove, entry should be gone")
+        #expect(cache.image(for: url, size: size) == nil)
     }
 
-    func test_memoryCache_differentURLsSeparateEntries() {
+    @Test
+    func memoryCache_differentURLsSeparateEntries() throws {
         let cache = ThumbnailCache()
         let size = CGSize(width: 300, height: 300)
         let urlA = URL(fileURLWithPath: "/tmp/a.jpg")
@@ -69,17 +76,18 @@ final class ThumbnailCacheTests: XCTestCase {
         cache.insert(imgA, for: urlA, size: size)
         cache.insert(imgB, for: urlB, size: size)
 
-        XCTAssertEqual(cache.image(for: urlA, size: size)?.size.width, 100)
-        XCTAssertEqual(cache.image(for: urlB, size: size)?.size.width, 200)
+        #expect(cache.image(for: urlA, size: size)?.size.width == 100)
+        #expect(cache.image(for: urlB, size: size)?.size.width == 200)
         // Removing A should not affect B
         cache.remove(for: urlA, size: size)
-        XCTAssertNil(cache.image(for: urlA, size: size))
-        XCTAssertNotNil(cache.image(for: urlB, size: size))
+        #expect(cache.image(for: urlA, size: size) == nil)
+        try #require(cache.image(for: urlB, size: size) != nil)
     }
 
     // MARK: - DiskThumbnailCache
 
-    func test_diskCache_insertAndRetrieve() async throws {
+    @Test
+    func diskCache_insertAndRetrieve() async throws {
         // Use a non-singleton to avoid polluting the shared cache
         let cache = DiskThumbnailCache.shared
         let tmpURL = URL(fileURLWithPath: "/tmp/ducksort_test_thumb_\(UUID()).jpg")
@@ -97,18 +105,19 @@ final class ThumbnailCacheTests: XCTestCase {
 
         // Miss before insertion
         let miss = await cache.image(for: tmpURL, size: size)
-        XCTAssertNil(miss, "Should be a cache miss before insertion")
+        #expect(miss == nil)
 
         // Insert then retrieve
         await cache.insert(image, for: tmpURL, size: size)
         let hit = await cache.image(for: tmpURL, size: size)
-        XCTAssertNotNil(hit, "Should be a cache hit after insertion")
+        try #require(hit != nil)
 
         // Cleanup
         await cache.remove(for: tmpURL, size: size)
     }
 
-    func test_diskCache_evictAll_emptiesCache() async throws {
+    @Test
+    func diskCache_evictAll_emptiesCache() async throws {
         let cache = DiskThumbnailCache.shared
         let tmpURL = URL(fileURLWithPath: "/tmp/ducksort_evict_test_\(UUID()).jpg")
         let size = CGSize(width: 32, height: 32)
@@ -122,10 +131,11 @@ final class ThumbnailCacheTests: XCTestCase {
         await cache.evictAll()
 
         let hit = await cache.image(for: tmpURL, size: size)
-        XCTAssertNil(hit, "After evictAll, disk cache should be empty")
+        #expect(hit == nil)
     }
 
-    func test_diskCache_remove_specificEntry() async throws {
+    @Test
+    func diskCache_remove_specificEntry() async throws {
         let cache = DiskThumbnailCache.shared
         let urlA = URL(fileURLWithPath: "/tmp/ducksort_a_\(UUID()).jpg")
         let urlB = URL(fileURLWithPath: "/tmp/ducksort_b_\(UUID()).jpg")
@@ -149,8 +159,8 @@ final class ThumbnailCacheTests: XCTestCase {
 
         let hitA = await cache.image(for: urlA, size: size)
         let hitB = await cache.image(for: urlB, size: size)
-        XCTAssertNil(hitA, "Removed entry should be gone")
-        XCTAssertNotNil(hitB, "Other entry should still be present")
+        #expect(hitA == nil)
+        try #require(hitB != nil)
 
         // Cleanup
         await cache.remove(for: urlB, size: size)
@@ -158,7 +168,8 @@ final class ThumbnailCacheTests: XCTestCase {
 
     // MARK: - AsyncSemaphore
 
-    func test_asyncSemaphore_limitsConcurrency() async {
+    @Test
+    func asyncSemaphore_limitsConcurrency() async {
         let limit = 3
         let semaphore = AsyncSemaphore(limit: limit)
         let counter = LockProtected(0)
@@ -178,8 +189,7 @@ final class ThumbnailCacheTests: XCTestCase {
             }
         }
 
-        XCTAssertLessThanOrEqual(maxObserved.value, limit,
-            "Concurrency should never exceed the semaphore limit")
+        #expect(maxObserved.value <= limit)
     }
 }
 

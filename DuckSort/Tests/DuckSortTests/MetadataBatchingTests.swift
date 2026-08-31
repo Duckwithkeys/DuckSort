@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
 // MARK: - MetadataBatchingTests
@@ -12,21 +13,21 @@ import XCTest
 // properties) are @MainActor-isolated in Swift 6 strict concurrency.
 
 @MainActor
-final class MetadataBatchingTests: XCTestCase {
+struct MetadataBatchingTests {
 
     // MARK: - Batch size constant
 
-    func test_metadataBatchSize_isInReasonableRange() {
+    @Test
+    func metadataBatchSize_isInReasonableRange() {
         let batchSize = PhotoLibraryViewModel.metadataBatchSize
-        XCTAssertGreaterThanOrEqual(batchSize, 100,
-            "Batch size must be at least 100 to reduce UI update frequency")
-        XCTAssertLessThanOrEqual(batchSize, 250,
-            "Batch size above 250 delays first-visible-batch appearance")
+        #expect(batchSize >= 100)
+        #expect(batchSize <= 250)
     }
 
     // MARK: - Batch metadata loading
 
-    func test_loadBatchMetadataAndTags_returnsResultsForAllInputSets() async {
+    @Test
+    func loadBatchMetadataAndTags_returnsResultsForAllInputSets() async {
         // Non-existent URLs → MetadataReader falls back to empty MetadataSnapshot.
         let sets = (0..<10).map { i -> PhotoSet in
             PhotoSet(
@@ -41,19 +42,19 @@ final class MetadataBatchingTests: XCTestCase {
 
         let results = await batchLoad(sets, reader: reader, xmp: xmpService)
 
-        XCTAssertEqual(results.count, sets.count,
-            "loadBatchMetadataAndTags should return one result per input PhotoSet, " +
-            "even for unreadable files (fallback to empty MetadataSnapshot)")
+        #expect(results.count == sets.count)
     }
 
-    func test_loadBatchMetadataAndTags_returnsEmptyForEmptyInput() async {
+    @Test
+    func loadBatchMetadataAndTags_returnsEmptyForEmptyInput() async {
         let reader = MetadataReader()
         let xmpService = XMPTaggingService()
         let results = await batchLoad([], reader: reader, xmp: xmpService)
-        XCTAssertEqual(results.count, 0)
+        #expect(results.count == 0)
     }
 
-    func test_loadBatchMetadataAndTags_concurrencyCapNotExceeded() async {
+    @Test
+    func loadBatchMetadataAndTags_concurrencyCapNotExceeded() async {
         // 50 sets triggers the 16-task gate multiple times.
         let sets = (0..<50).map { i -> PhotoSet in
             PhotoSet(
@@ -68,13 +69,13 @@ final class MetadataBatchingTests: XCTestCase {
 
         let results = await batchLoad(sets, reader: reader, xmp: xmpService)
 
-        XCTAssertEqual(results.count, 50,
-            "All 50 sets should produce results under the 16-task concurrency gate")
+        #expect(results.count == 50)
     }
 
     // MARK: - Adaptive batching simulation
 
-    func test_adaptiveBatching_allSetsEventuallyProcessed() {
+    @Test
+    func adaptiveBatching_allSetsEventuallyProcessed() {
         let batchSize = PhotoLibraryViewModel.metadataBatchSize
         let total = 300
         var processedCount = 0
@@ -84,11 +85,11 @@ final class MetadataBatchingTests: XCTestCase {
             processedCount += (upper - offset)
             offset += batchSize
         }
-        XCTAssertEqual(processedCount, total,
-            "Adaptive batching must process all \(total) sets without leaving any behind")
+        #expect(processedCount == total)
     }
 
-    func test_adaptiveBatching_smallLibrary_singleBatch() {
+    @Test
+    func adaptiveBatching_smallLibrary_singleBatch() {
         let batchSize = PhotoLibraryViewModel.metadataBatchSize
         let total = 50 // less than one batch
         var batchCount = 0
@@ -97,11 +98,11 @@ final class MetadataBatchingTests: XCTestCase {
             batchCount += 1
             offset += batchSize
         }
-        XCTAssertEqual(batchCount, 1,
-            "A library smaller than batchSize should require only one batch")
+        #expect(batchCount == 1)
     }
 
-    func test_adaptiveBatching_largeLibrary_multipleBatches() {
+    @Test
+    func adaptiveBatching_largeLibrary_multipleBatches() {
         let batchSize = PhotoLibraryViewModel.metadataBatchSize
         let total = 5000
         var batchCount = 0
@@ -111,8 +112,7 @@ final class MetadataBatchingTests: XCTestCase {
             offset += batchSize
         }
         let expected = Int(ceil(Double(total) / Double(batchSize)))
-        XCTAssertEqual(batchCount, expected,
-            "5,000-photo library should be split into exactly \(expected) batches")
+        #expect(batchCount == expected)
     }
 
     // MARK: - Helpers

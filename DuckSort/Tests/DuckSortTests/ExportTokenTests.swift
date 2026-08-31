@@ -1,9 +1,11 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class ExportTokenTests: XCTestCase {
+struct ExportTokenTests {
 
-    func test_tokenResolution_withCompleteMetadata() {
+    @Test
+    func tokenResolution_withCompleteMetadata() {
         let base = URL(fileURLWithPath: "/tmp/export")
         let metadata = MetadataSnapshot(
             cameraModel: "Fujifilm X-T5",
@@ -31,7 +33,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(yearFolders.first?.lastPathComponent, "2026")
+        #expect(yearFolders.first?.lastPathComponent == "2026")
 
         // Test month (2026-07-29 -> 07 or 06 depending on timezone, let's format it dynamically to be timezone-independent)
         let calendar = Calendar.current
@@ -43,7 +45,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(monthFolders.first?.lastPathComponent, expectedMonth)
+        #expect(monthFolders.first?.lastPathComponent == expectedMonth)
 
         // Test day
         let expectedDay = String(format: "%02d", calendar.component(.day, from: metadata.captureDate!))
@@ -54,7 +56,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(dayFolders.first?.lastPathComponent, expectedDay)
+        #expect(dayFolders.first?.lastPathComponent == expectedDay)
 
         // Test camera
         let cameraFolders = ExportPathRouter.destinationFolders(
@@ -64,7 +66,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(cameraFolders.first?.lastPathComponent, "Fujifilm X-T5")
+        #expect(cameraFolders.first?.lastPathComponent == "Fujifilm X-T5")
 
         // Test lens
         let lensFolders = ExportPathRouter.destinationFolders(
@@ -74,7 +76,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(lensFolders.first?.lastPathComponent, "XF 56mm f-1.2 R WR") // cleaned by FilenameSanitizer slash -> dash
+        #expect(lensFolders.first?.lastPathComponent == "XF 56mm f-1.2 R WR") // cleaned by FilenameSanitizer slash -> dash
 
         // Test iso
         let isoFolders = ExportPathRouter.destinationFolders(
@@ -84,7 +86,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(isoFolders.first?.lastPathComponent, "ISO 800")
+        #expect(isoFolders.first?.lastPathComponent == "ISO 800")
 
         // Test aperture
         let apertureFolders = ExportPathRouter.destinationFolders(
@@ -94,7 +96,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(apertureFolders.first?.lastPathComponent, "f1.2")
+        #expect(apertureFolders.first?.lastPathComponent == "f1.2")
 
         // Test shutterSpeed
         let shutterFolders = ExportPathRouter.destinationFolders(
@@ -104,7 +106,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(shutterFolders.first?.lastPathComponent, "1-250s")
+        #expect(shutterFolders.first?.lastPathComponent == "1-250s")
 
         // Test ratingStars
         let ratingFolders = ExportPathRouter.destinationFolders(
@@ -114,7 +116,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(ratingFolders.first?.lastPathComponent, "4_stars")
+        #expect(ratingFolders.first?.lastPathComponent == "4_stars")
 
         // Test flagStatus
         let flagFolders = ExportPathRouter.destinationFolders(
@@ -124,7 +126,7 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(flagFolders.first?.lastPathComponent, "Flagged")
+        #expect(flagFolders.first?.lastPathComponent == "Flagged")
 
         // Test primaryTag
         let tagFolders = ExportPathRouter.destinationFolders(
@@ -134,10 +136,11 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: assignedTags,
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(tagFolders.first?.lastPathComponent, "Landscape")
+        #expect(tagFolders.first?.lastPathComponent == "Landscape")
     }
 
-    func test_tokenResolution_withMissingMetadata() {
+    @Test
+    func tokenResolution_withMissingMetadata() {
         let base = URL(fileURLWithPath: "/tmp/export")
         let emptyMetadata = MetadataSnapshot()
         let assignedTags: [CustomTag] = []
@@ -173,10 +176,11 @@ final class ExportTokenTests: XCTestCase {
             "Untagged"
         ]
 
-        XCTAssertEqual(Array(components), expected)
+        #expect(Array(components) == expected)
     }
 
-    func test_tokenResolution_apertureWholeNumber() {
+    @Test
+    func tokenResolution_apertureWholeNumber() {
         let base = URL(fileURLWithPath: "/tmp/export")
         let metadata = MetadataSnapshot(aperture: 4.0)
         let dummyCategoryMap: (UUID) -> String? = { _ in nil }
@@ -188,10 +192,11 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: [],
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(folders.first?.lastPathComponent, "f4")
+        #expect(folders.first?.lastPathComponent == "f4")
     }
 
-    func test_tokenResolution_shutterSpeedSlow() {
+    @Test
+    func tokenResolution_shutterSpeedSlow() {
         let base = URL(fileURLWithPath: "/tmp/export")
         let metadata = MetadataSnapshot(shutterSpeed: 1.5)
         let dummyCategoryMap: (UUID) -> String? = { _ in nil }
@@ -203,6 +208,6 @@ final class ExportTokenTests: XCTestCase {
             assignedTags: [],
             categoryNameProvider: dummyCategoryMap
         )
-        XCTAssertEqual(folders.first?.lastPathComponent, "1.5s")
+        #expect(folders.first?.lastPathComponent == "1.5s")
     }
 }

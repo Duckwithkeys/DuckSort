@@ -45,6 +45,27 @@ final class VisionEngineActor {
         self.featurePrintRequest = featurePrint
     }
 
+    nonisolated private static let decodeQueue = DispatchQueue(label: "com.ducksort.vision.imageio", qos: .utility, attributes: .concurrent)
+
+    nonisolated private static func decodeThumbnail(at url: URL, maxPixels: CGFloat) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCache: false
+                ]
+                guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+                      let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: cgImage)
+            }
+        }
+    }
+
     /// Classifies the content of an image file asynchronously with Neural Engine acceleration.
     func classifyImage(at url: URL, confidenceThreshold: Float = 0.3) async throws -> [VisionClassificationResult] {
         let nsURL = url.standardizedFileURL as NSURL
@@ -52,15 +73,7 @@ final class VisionEngineActor {
             return cached.filter { $0.confidence >= confidenceThreshold }
         }
 
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 299,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCache: false
-        ]
-
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+        guard let cgImage = await Self.decodeThumbnail(at: url, maxPixels: 299) else {
             return []
         }
 
@@ -79,14 +92,7 @@ final class VisionEngineActor {
 
     /// Detects human body poses within an image file.
     func detectBodyPoses(at url: URL) async throws -> Int {
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 1024,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCache: false
-        ]
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+        guard let cgImage = await Self.decodeThumbnail(at: url, maxPixels: 1024) else {
             return 0
         }
 
@@ -99,14 +105,7 @@ final class VisionEngineActor {
     /// Generates a Vision feature print embedding vector for similarity and burst culling lookups.
     func generateFeaturePrint(at url: URL) async throws -> [Float] {
         AppLogger.vision.debug("Generating feature print for \(url.lastPathComponent)")
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: 512,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCache: false
-        ]
-        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+        guard let cgImage = await Self.decodeThumbnail(at: url, maxPixels: 512) else {
             AppLogger.vision.warning("Failed to create CGImage source/thumbnail for feature print: \(url.lastPathComponent)")
             return []
         }

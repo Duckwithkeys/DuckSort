@@ -289,6 +289,19 @@ final class PhotoLibraryViewModel: ObservableObject {
     var cachedFlagCounts: [Int: Int] = [:]
     var cachedRatingCounts: [Int: Int] = [:]
 
+    var countFlagged: Int { cachedFlagCounts[1] ?? 0 }
+    var countRejected: Int { cachedFlagCounts[-1] ?? 0 }
+    var countUnflagged: Int { cachedFlagCounts[0] ?? 0 }
+    var countFiveStars: Int { cachedRatingCounts[5] ?? 0 }
+    var countFourStars: Int { cachedRatingCounts[4] ?? 0 }
+    var countThreeStars: Int { cachedRatingCounts[3] ?? 0 }
+    var countTwoStars: Int { cachedRatingCounts[2] ?? 0 }
+    var countOneStar: Int { cachedRatingCounts[1] ?? 0 }
+    var countFourPlusStars: Int { (cachedRatingCounts[4] ?? 0) + (cachedRatingCounts[5] ?? 0) }
+    var countThreePlusStars: Int { (cachedRatingCounts[3] ?? 0) + (cachedRatingCounts[4] ?? 0) + (cachedRatingCounts[5] ?? 0) }
+    var countRated: Int { (1...5).reduce(0) { $0 + (cachedRatingCounts[$1] ?? 0) } }
+    var countUnrated: Int { cachedRatingCounts[0] ?? 0 }
+
     /// Number of columns the photo grid is currently rendering. Kept in sync by
     /// PhotoGridView so arrow-key navigation matches the visible layout.
     var gridColumnCount: Int = 1
@@ -1342,7 +1355,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         let sets = self.photoSets
         let total = sets.count
 
-        return await Task.detached(priority: .userInitiated) { () -> XMPTagDiff in
+        return await Task(priority: .userInitiated) { () -> XMPTagDiff in
             let service = XMPTaggingService()
             var usage: [String: [UUID]] = [:]
             var seenInXMP: Set<String> = []
@@ -1642,6 +1655,28 @@ final class PhotoLibraryViewModel: ObservableObject {
         applyTag(tag, toPhotoSets: targets)
     }
     
+    @discardableResult
+    func createAndApplyTag(named name: String, categoryID: UUID? = nil, to photoSetID: UUID) -> CustomTag? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let tag: CustomTag
+        if let existing = tagStore.tags.first(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            tag = existing
+        } else {
+            let catID = categoryID ?? tagStore.categories.first?.id ?? tagStore.addCategory(name: "Custom").id
+            tag = tagStore.addTag(name: trimmed, categoryID: catID)
+        }
+        applyTag(tag, to: photoSetID)
+        return tag
+    }
+
+    func moveTag(_ tag: CustomTag, to categoryID: UUID) {
+        var updated = tag
+        updated.categoryID = categoryID
+        tagStore.updateTag(updated)
+        updateDerivedState()
+    }
+
     func applyTag(_ tag: CustomTag, to photoSetID: UUID) {
         guard let idx = photoSetIndex[photoSetID] else { return }
         let before = captureState(for: [photoSetID])
@@ -2225,7 +2260,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         // occurs when a non-filter property (e.g. inspector state) changes.
         if list != self.filteredPhotoSets {
             // Reshuffle grid animates automatically via SwiftUI spring transition
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 1.0)) {
                 self.filteredPhotoSets = list
             }
         }

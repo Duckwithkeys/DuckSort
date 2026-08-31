@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class FileTransferSidecarTests: XCTestCase {
-    func test_copy_writesSidecarBesideDestinationMedia() async throws {
+struct FileTransferSidecarTests {
+    @Test
+    func copy_writesSidecarBesideDestinationMedia() async throws {
         let src = try TempDir.make()
         let dst = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
@@ -25,14 +27,15 @@ final class FileTransferSidecarTests: XCTestCase {
         )
         let summary = try await FileTransferService().execute(plan)
 
-        XCTAssertEqual(summary.sidecarFailures, 0)
+        #expect(summary.sidecarFailures == 0)
         let sidecar = dst.appendingPathComponent("IMG_0001.xmp")
         let xml = try String(contentsOf: sidecar, encoding: .utf8)
-        XCTAssertTrue(xml.contains("<rdf:li>Family</rdf:li>"))
-        XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""))
+        #expect(xml.contains("<rdf:li>Family</rdf:li>"))
+        #expect(xml.contains("tiff:Model=\"X-T5\""))
     }
 
-    func test_copy_rawJpegShareSidecar_capturesReadableJpegMetadata() async throws {
+    @Test
+    func copy_rawJpegShareSidecar_capturesReadableJpegMetadata() async throws {
         let src = try TempDir.make(); let dst = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
 
@@ -55,16 +58,17 @@ final class FileTransferSidecarTests: XCTestCase {
             metadata: [set.id: metadata]
         )
         let summary = try await FileTransferService().execute(plan)
-        XCTAssertEqual(summary.sidecarFailures, 0)
+        #expect(summary.sidecarFailures == 0)
 
         // The single shared sidecar must carry the JPEG-derived camera model,
         // not empty data from the unreadable RAF processed last.
         let xml = try String(contentsOf: dst.appendingPathComponent("IMG.xmp"), encoding: .utf8)
-        XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""), "shared sidecar should keep readable JPEG metadata")
-        XCTAssertTrue(xml.contains("<rdf:li>Family</rdf:li>"))
+        #expect(xml.contains("tiff:Model=\"X-T5\""))
+        #expect(xml.contains("<rdf:li>Family</rdf:li>"))
     }
 
-    func test_move_sameLocation_preservesSidecar() async throws {
+    @Test
+    func move_sameLocation_preservesSidecar() async throws {
         let dir = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: dir) }
         let media = dir.appendingPathComponent("IMG_0009.jpg")
@@ -79,13 +83,13 @@ final class FileTransferSidecarTests: XCTestCase {
             tagNames: [set.id: ["Family"]]
         )
         let summary = try await FileTransferService().execute(plan)
-        XCTAssertEqual(summary.sidecarFailures, 0)
+        #expect(summary.sidecarFailures == 0)
         let sidecar = dir.appendingPathComponent("IMG_0009.xmp")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sidecar.path),
-                      "Same-location move must not delete the freshly written sidecar")
+        #expect(FileManager.default.fileExists(atPath: sidecar.path))
     }
 
-    func test_copy_preservesRatingAndCameraMetadata() async throws {
+    @Test
+    func copy_preservesRatingAndCameraMetadata() async throws {
         let src = try TempDir.make()
         let dst = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: src); try? FileManager.default.removeItem(at: dst) }
@@ -122,13 +126,13 @@ final class FileTransferSidecarTests: XCTestCase {
         )
         let summary = try await FileTransferService().execute(plan)
 
-        XCTAssertEqual(summary.sidecarFailures, 0)
+        #expect(summary.sidecarFailures == 0)
         let destSidecar = dst.appendingPathComponent("IMG_0002.xmp")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: destSidecar.path))
+        #expect(FileManager.default.fileExists(atPath: destSidecar.path))
         
         let xml = try String(contentsOf: destSidecar, encoding: .utf8)
-        XCTAssertTrue(xml.contains("xmp:Rating=\"3\""), "Destination sidecar should preserve the source rating when it is not in media metadata")
-        XCTAssertTrue(xml.contains("<rdf:li>Family</rdf:li>"), "Destination sidecar should contain custom tag keywords")
-        XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""), "Destination sidecar should preserve camera model")
+        #expect(xml.contains("xmp:Rating=\"3\""))
+        #expect(xml.contains("<rdf:li>Family</rdf:li>"))
+        #expect(xml.contains("tiff:Model=\"X-T5\""))
     }
 }

@@ -24,7 +24,7 @@ struct FilmstripView: View {
                                 previewURL: previewURL,
                                 isFocused: isFocused,
                                 onSelect: {
-                                    withAnimation(.easeOut(duration: 0.12)) {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
                                         viewModel.focusedPhotoIndex = index
                                     }
                                 }
@@ -64,7 +64,7 @@ struct FilmstripView: View {
             }
         }
         .frame(height: Theme.Space.s64)
-        .background(Theme.Color.footerBackground)
+        .background(.regularMaterial)
     }
 
     /// Warm the thumbnail cache for photos around the focused index so
@@ -73,7 +73,7 @@ struct FilmstripView: View {
     private func prefetchNeighbors(around index: Int) {
         let list = viewModel.filteredPhotoSets
         guard !list.isEmpty else { return }
-        let window = 30
+        let window = 10
         let start = max(0, index - window)
         let end = min(list.count - 1, index + window)
         guard start <= end else { return }
@@ -81,7 +81,8 @@ struct FilmstripView: View {
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         for i in start...end {
             guard let url = list[i].preferredPreviewURL else { continue }
-            Task.detached(priority: .utility) {
+            if ThumbnailCache.global.image(for: url, size: size) != nil { continue }
+            Task(priority: .utility) {
                 _ = await ThumbnailService.shared.thumbnail(for: url, size: size, scale: scale)
             }
         }
@@ -153,7 +154,7 @@ struct FilmstripThumbnailCell: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
     }
 

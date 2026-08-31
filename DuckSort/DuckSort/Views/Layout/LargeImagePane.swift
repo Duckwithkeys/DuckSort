@@ -59,12 +59,11 @@ struct LargeImagePane: View {
                             if let lowRes = lowResImage, highResImage == nil {
                                 Image(nsImage: lowRes)
                                     .resizable()
-                                    .interpolation(.low)
+                                    .interpolation(.medium)
                                     .scaledToFit()
                                     .scaleEffect(zoomState.zoomScale + zoomState.currentAmount)
                                     .offset(zoomState.panOffset)
-                                    .blur(radius: 12)
-                                    .opacity(0.8)
+                                    .opacity(0.9)
                                     .grayscale(photoSet.pick == -1 ? 0.8 : 0)
                             }
                             
@@ -138,8 +137,6 @@ struct LargeImagePane: View {
             }
         }
         .task(id: photoSet.id) {
-            imageLoader.image = nil
-            imageLoader.loadedURL = nil
             await imageLoader.load(url: photoSet.preferredPreviewURL)
         }
     }
@@ -170,10 +167,6 @@ private final class LargeImageCacheWrapper: @unchecked Sendable {
     }()
 }
 
-private final class PreloadsWrapper: @unchecked Sendable {
-    let cache = NSCache<NSString, AnyObject>()
-}
-
 @MainActor
 final class LargeImageLoader: ObservableObject {
     @Published var image: NSImage?
@@ -181,18 +174,9 @@ final class LargeImageLoader: ObservableObject {
     @Published var loadError: String? = nil
 
     private static let cacheWrapper = LargeImageCacheWrapper()
-    private static let activePreloadsWrapper = PreloadsWrapper()
-
-    nonisolated private static func cost(for image: NSImage) -> Int {
-        if let rep = image.representations.first {
-            let w = rep.pixelsWide
-            let h = rep.pixelsHigh
-            if w > 0 && h > 0 {
-                return w * h * 4
-            }
-        }
-        return Int(image.size.width * image.size.height * 4)
-    }
+    private static let decodeQueue = DispatchQueue(label: "com.ducksort.largeimage.decode", qos: .utility, attributes: .concurrent)
+    private static var inFlightTasks: [String: Task<NSImage?, Never>] = [:]
+    private static let inFlightLock = NSLock()
 
     /// Downsamples `cgImage` so that neither side exceeds `maxPixels`.
     /// Performs resizing entirely in CoreGraphics without touching AppKit contexts.
@@ -225,49 +209,185 @@ final class LargeImageLoader: ObservableObject {
         return cacheWrapper.cache.object(forKey: url.path as NSString)
     }
 
-    static func preload(url: URL?) {
-        guard let url = url else { return }
+    /// Fetches an image at high resolution with deduplication of in-flight decoding tasks.
+    static func fetchImage(for url: URL) async -> NSImage? {
         let key = url.path as NSString
-        let cacheW = cacheWrapper
-        let activePreloadsW = activePreloadsWrapper
-        if cacheW.cache.object(forKey: key) != nil {
-            return
+        if let cached = cacheWrapper.cache.object(forKey: key) {
+            return cached
         }
-        if activePreloadsW.cache.object(forKey: key) != nil {
-            return
-        }
-        activePreloadsW.cache.setObject(true as AnyObject, forKey: key)
 
-        let ext = url.pathExtension.lowercased()
-        let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
-        Task.detached(priority: .utility) {
-            let taskKey = url.path as NSString
-            defer { activePreloadsW.cache.removeObject(forKey: taskKey) }
-            let options = [kCGImageSourceShouldCache: false] as CFDictionary
-            if let imageSource = CGImageSourceCreateWithURL(url as CFURL, options) {
-                let options: [CFString: Any] = [
-                    alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                    kCGImageSourceThumbnailMaxPixelSize: CGFloat(2048),
-                    kCGImageSourceCreateThumbnailWithTransform: true
-                ]
-                if let thumbnailCG = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) {
-                    let previewImage = NSImage(cgImage: thumbnailCG, size: NSSize(width: thumbnailCG.width, height: thumbnailCG.height))
-                    let cost = thumbnailCG.width * thumbnailCG.height * 4
-                    cacheW.cache.setObject(previewImage, forKey: taskKey, cost: cost)
-                    return
-                }
+        // Check or register in-flight decoding task
+        let task: Task<NSImage?, Never> = inFlightLock.withLock {
+            if let existing = inFlightTasks[url.path] {
+                return existing
             }
 
-            // HEIF-friendly fallback when CGImageSource refuses the file.
-            if FileExtension.heifLikeExtensions.contains(ext) {
-                let options = [kCGImageSourceShouldCache: false] as CFDictionary
-                if let source = CGImageSourceCreateWithURL(url as CFURL, options),
-                   let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil),
-                   let scaledCG = downsample(cgImage: cgImage, maxPixels: 2048) {
-                    let previewImage = NSImage(cgImage: scaledCG, size: NSSize(width: scaledCG.width, height: scaledCG.height))
-                    let cost = scaledCG.width * scaledCG.height * 4
-                    cacheW.cache.setObject(previewImage, forKey: taskKey, cost: cost)
+            let newTask = Task<NSImage?, Never>(priority: .userInitiated) {
+                defer {
+                    _ = inFlightLock.withLock {
+                        inFlightTasks.removeValue(forKey: url.path)
+                    }
                 }
+
+                let ext = url.pathExtension.lowercased()
+                let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
+
+                // 1. Primary ImageIO decode
+                if let cgImage = await decodeThumbnailWithImageIO(url: url, maxPixels: 3072, alwaysCreate: alwaysCreate) {
+                    let preview = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                    let cost = cgImage.width * cgImage.height * 4
+                    cacheWrapper.cache.setObject(preview, forKey: key, cost: cost)
+                    return preview
+                }
+
+                // 2. HEIF fallback
+                if FileExtension.heifLikeExtensions.contains(ext) {
+                    if let cgImage = await decodeHEIFFallback(url: url, maxPixels: 2048) {
+                        let preview = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+                        let cost = cgImage.width * cgImage.height * 4
+                        cacheWrapper.cache.setObject(preview, forKey: key, cost: cost)
+                        return preview
+                    }
+                }
+
+                // 3. QuickLook backup
+                let request = QLThumbnailGenerator.Request(
+                    fileAt: url,
+                    size: CGSize(width: 2048, height: 2048),
+                    scale: NSScreen.main?.backingScaleFactor ?? 2,
+                    representationTypes: .thumbnail
+                )
+                if let representation = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
+                    let preview = representation.nsImage
+                    let cost = representation.cgImage.width * representation.cgImage.height * 4
+                    cacheWrapper.cache.setObject(preview, forKey: key, cost: cost)
+                    return preview
+                }
+
+                return nil
+            }
+
+            inFlightTasks[url.path] = newTask
+            return newTask
+        }
+
+        return await task.value
+    }
+
+    static func preload(url: URL?) {
+        guard let url = url else { return }
+        if cachedImage(for: url) != nil { return }
+        Task(priority: .utility) {
+            _ = await fetchImage(for: url)
+        }
+    }
+
+    /// Applies EXIF orientation to a CGImage when decoded via CGImageSourceCreateImageAtIndex.
+    nonisolated static func applyOrientation(from source: CGImageSource, to cgImage: CGImage) -> CGImage {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let rawOrientation = properties[kCGImagePropertyOrientation] as? UInt32,
+              let orientation = CGImagePropertyOrientation(rawValue: rawOrientation),
+              orientation != .up else {
+            return cgImage
+        }
+        
+        let width = cgImage.width
+        let height = cgImage.height
+        let isTransposed = (orientation == .left || orientation == .right || orientation == .leftMirrored || orientation == .rightMirrored)
+        let targetW = isTransposed ? height : width
+        let targetH = isTransposed ? width : height
+        
+        guard let colorSpace = cgImage.colorSpace,
+              let context = CGContext(
+                  data: nil,
+                  width: targetW,
+                  height: targetH,
+                  bitsPerComponent: cgImage.bitsPerComponent,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: cgImage.bitmapInfo.rawValue
+              ) else { return cgImage }
+        
+        switch orientation {
+        case .up:
+            break
+        case .upMirrored:
+            context.translateBy(x: CGFloat(targetW), y: 0)
+            context.scaleBy(x: -1.0, y: 1.0)
+        case .down:
+            context.translateBy(x: CGFloat(targetW), y: CGFloat(targetH))
+            context.rotate(by: .pi)
+        case .downMirrored:
+            context.translateBy(x: 0, y: CGFloat(targetH))
+            context.scaleBy(x: 1.0, y: -1.0)
+        case .leftMirrored:
+            context.rotate(by: .pi / 2.0)
+            context.scaleBy(x: 1.0, y: -1.0)
+        case .right:
+            context.translateBy(x: CGFloat(targetW), y: 0)
+            context.rotate(by: .pi / 2.0)
+        case .rightMirrored:
+            context.translateBy(x: CGFloat(targetW), y: CGFloat(targetH))
+            context.rotate(by: .pi / 2.0)
+            context.scaleBy(x: -1.0, y: 1.0)
+        case .left:
+            context.translateBy(x: 0, y: CGFloat(targetH))
+            context.rotate(by: -.pi / 2.0)
+        @unknown default:
+            break
+        }
+        
+        context.interpolationQuality = .high
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage() ?? cgImage
+    }
+
+    private static func decodeThumbnailWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let ext = url.pathExtension.lowercased()
+                var sourceOptions: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true
+                ]
+                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
+                }
+                guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceShouldAllowFloat: true
+                ]
+                let thumbnailCG = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary)
+                continuation.resume(returning: thumbnailCG)
+            }
+        }
+    }
+
+    private static func decodeHEIFFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
+        await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let ext = url.pathExtension.lowercased()
+                var sourceOptions: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true
+                ]
+                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
+                }
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary),
+                      let rawCG = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let orientedCG = Self.applyOrientation(from: source, to: rawCG)
+                let scaled = Self.downsample(cgImage: orientedCG, maxPixels: maxPixels)
+                continuation.resume(returning: scaled ?? orientedCG)
             }
         }
     }
@@ -280,129 +400,30 @@ final class LargeImageLoader: ObservableObject {
             return
         }
 
-        let key = url.path as NSString
-        let cache = Self.cacheWrapper.cache
-        let cached = cache.object(forKey: key)
-        if cached != nil {
+        // 1. High-res cache hit
+        if let cached = Self.cachedImage(for: url) {
             image = cached
             loadedURL = url
             return
         }
 
-        image = nil
-        loadedURL = nil
-
-        // 1. Try to load using the fast ImageIO CGImageSource in a detached task
-        // We load as CGImage (which is thread-safe and has no Sendable restrictions)
-        let ext = url.pathExtension.lowercased()
-        let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
-        let decodeTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
-            if Task.isCancelled { return nil }
-            let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-            guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
-            if Task.isCancelled { return nil }
-            let options: [CFString: Any] = [
-                alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
-                kCGImageSourceThumbnailMaxPixelSize: CGFloat(3072),
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceShouldAllowFloat: true
-            ]
-            guard let thumbnailCG = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else { return nil }
-            return thumbnailCG
-        }
-
-        let cgImage = await withTaskCancellationHandler {
-            await decodeTask.value
-        } onCancel: {
-            decodeTask.cancel()
-        }
-
-        if let cgImage {
-            if Task.isCancelled { return }
-            // Instantiate NSImage on the Main Actor
-            let previewImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-            let cost = cgImage.width * cgImage.height * 4
-            cache.setObject(previewImage, forKey: key, cost: cost)
-            image = previewImage
+        // 2. Instantly promote existing cached thumbnail as placeholder while high-res decodes
+        if let proxy = ThumbnailCache.global.image(for: url, size: CGSize(width: 600, height: 600)) ??
+                       ThumbnailCache.global.image(for: url, size: CGSize(width: 128, height: 128)) {
+            image = proxy
             loadedURL = url
-            return
         }
 
-        // 1b. HEIF/HEIC native fallback. Some HEIC bursts return nil from
-        // CGImageSourceCreateThumbnailAtIndex; we load and scale via CGImageSource + CGContext.
-        if FileExtension.heifLikeExtensions.contains(ext) {
-            if Task.isCancelled { return }
-            let fallbackTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
-                if Task.isCancelled { return nil }
-                let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions),
-                      let cg = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
-                return Self.downsample(cgImage: cg, maxPixels: 2048)
-            }
-            if let cgImage = await fallbackTask.value {
-                if Task.isCancelled { return }
-                let previewImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                let cost = cgImage.width * cgImage.height * 4
-                cache.setObject(previewImage, forKey: key, cost: cost)
-                image = previewImage
-                loadedURL = url
-                return
-            }
-        }
-
+        let decoded = await Self.fetchImage(for: url)
         if Task.isCancelled { return }
 
-        // 2. Try QuickLook as a backup
-        let request = QLThumbnailGenerator.Request(
-            fileAt: url,
-            size: CGSize(width: 2048, height: 2048),
-            scale: NSScreen.main?.backingScaleFactor ?? 2,
-            representationTypes: .thumbnail
-        )
-
-        do {
-            let representation = try await QLThumbnailGenerator.shared.generateBestRepresentation(for: request)
-            if Task.isCancelled { return }
-            let nsImage = representation.nsImage
-            let cost = representation.cgImage.width * representation.cgImage.height * 4
-            cache.setObject(nsImage, forKey: key, cost: cost)
-            image = nsImage
-            loadedURL = url
-            return
-        } catch is CancellationError {
-            // Task was cancelled, do not write fallback to cache or change state
-            return
-        } catch {
-            if Task.isCancelled { return }
-            // 3. Last fallback: load the file Data in a background thread to avoid blocking MainActor,
-            // then instantiate the NSImage on the Main Actor.
-            let fallbackTask = Task.detached(priority: .userInitiated, operation: {
-                if Task.isCancelled { throw CancellationError() }
-                return try Data(contentsOf: url)
-            })
-
-            do {
-                let data = try await withTaskCancellationHandler {
-                    try await fallbackTask.value
-                } onCancel: {
-                    fallbackTask.cancel()
-                }
-
-                if Task.isCancelled { return }
-                if let nsImage = NSImage(data: data) {
-                    let cost = Self.cost(for: nsImage)
-                    cache.setObject(nsImage, forKey: key, cost: cost)
-                    image = nsImage
-                    loadedURL = url
-                } else {
-                    throw NSError(domain: "DuckSort", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode image data"])
-                }
-            } catch {
-                if Task.isCancelled { return }
-                loadError = error.localizedDescription
-                AppLogger.ui.error("LargeImageLoader failed to load \(url.path): \(error.localizedDescription)")
+        if let decoded {
+            withAnimation(.easeOut(duration: 0.12)) {
+                self.image = decoded
+                self.loadedURL = url
             }
+        } else if image == nil {
+            loadError = "Failed to load image"
         }
     }
 }

@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class SidecarWriteTests: XCTestCase {
-    func test_writeExportSidecar_emitsKeywordsAndCapture() async throws {
+struct SidecarWriteTests {
+    @Test
+    func writeExportSidecar_emitsKeywordsAndCapture() async throws {
         let dir = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: dir) }
         let media = dir.appendingPathComponent("IMG_0001.RAF")
@@ -21,14 +23,15 @@ final class SidecarWriteTests: XCTestCase {
 
         let sidecar = dir.appendingPathComponent("IMG_0001.xmp")
         let xml = try String(contentsOf: sidecar, encoding: .utf8)
-        XCTAssertTrue(xml.contains("<rdf:li>Ceremony</rdf:li>"))
-        XCTAssertTrue(xml.contains("<rdf:li>Family</rdf:li>"))
-        XCTAssertTrue(xml.contains("tiff:Model=\"X-T5\""))
-        XCTAssertTrue(xml.contains("exif:LensModel=\"XF35mm\""))
-        XCTAssertTrue(xml.contains("exif:ISOSpeedRatings=\"400\""))
+        #expect(xml.contains("<rdf:li>Ceremony</rdf:li>"))
+        #expect(xml.contains("<rdf:li>Family</rdf:li>"))
+        #expect(xml.contains("tiff:Model=\"X-T5\""))
+        #expect(xml.contains("exif:LensModel=\"XF35mm\""))
+        #expect(xml.contains("exif:ISOSpeedRatings=\"400\""))
     }
 
-    func test_writeExportSidecar_escapesQuoteInAttributeValue() async throws {
+    @Test
+    func writeExportSidecar_escapesQuoteInAttributeValue() async throws {
         let dir = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: dir) }
         let media = dir.appendingPathComponent("IMG_0002.RAF")
@@ -40,11 +43,12 @@ final class SidecarWriteTests: XCTestCase {
         )
         try XMPTaggingService().writeExportSidecar(payload, besideDestinationFile: media)
         let xml = try String(contentsOf: dir.appendingPathComponent("IMG_0002.xmp"), encoding: .utf8)
-        XCTAssertTrue(xml.contains("tiff:Model=\"Cam &quot;Pro&quot;\""))
-        XCTAssertFalse(xml.contains("\"Pro\""))
+        #expect(xml.contains("tiff:Model=\"Cam &quot;Pro&quot;\""))
+        #expect(!(xml.contains("\"Pro\"")))
     }
 
-    func test_writeExportSidecar_mergesIntoExistingSidecar() async throws {
+    @Test
+    func writeExportSidecar_mergesIntoExistingSidecar() async throws {
         let dir = try TempDir.make()
         defer { try? FileManager.default.removeItem(at: dir) }
         
@@ -86,10 +90,10 @@ final class SidecarWriteTests: XCTestCase {
         let destSidecar = dir.appendingPathComponent("IMG_0003_dest.xmp")
         let mergedXML = try String(contentsOf: destSidecar, encoding: .utf8)
         
-        XCTAssertTrue(mergedXML.contains("customNs:CustomProp=\"KeepMe\""), "Should preserve custom namespace attributes")
-        XCTAssertTrue(mergedXML.contains("xmp:Rating=\"5\""), "Should update rating to payload value")
-        XCTAssertTrue(mergedXML.contains("tiff:Model=\"X-T5\""))
-        XCTAssertTrue(mergedXML.contains("exif:LensModel=\"XF35mm\""))
-        XCTAssertTrue(mergedXML.contains("<rdf:li>NewTag</rdf:li>"))
+        #expect(mergedXML.contains("customNs:CustomProp=\"KeepMe\""))
+        #expect(mergedXML.contains("xmp:Rating=\"5\""))
+        #expect(mergedXML.contains("tiff:Model=\"X-T5\""))
+        #expect(mergedXML.contains("exif:LensModel=\"XF35mm\""))
+        #expect(mergedXML.contains("<rdf:li>NewTag</rdf:li>"))
     }
 }

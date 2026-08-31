@@ -26,7 +26,7 @@ struct TransferFooter: View {
                 progressBlock(progress)
             }
         }
-        .background(Theme.Color.footerBackground)
+        .background(.regularMaterial)
         .overlay(Divider(), alignment: .top)
     }
 
@@ -109,7 +109,7 @@ struct TransferFooter: View {
             .padding(.vertical, Theme.Space.s6)
             .flatSidebarButton(isHovered: isDestHovered)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.responsive)
         .onHover { isDestHovered = $0 }
     }
 
@@ -129,7 +129,7 @@ struct TransferFooter: View {
             .padding(.vertical, Theme.Space.s6)
             .flatSidebarButton(isHovered: hoveredOp == op)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.responsive)
         .disabled(!viewModel.canTransfer)
         .onHover { isHovered in hoveredOp = isHovered ? op : nil }
     }
@@ -215,8 +215,8 @@ fileprivate extension View {
             .ifTrue(!isSelected && isHovered) { view in
                 view.glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.m))
             }
-            .animation(.spring(response: 0.18, dampingFraction: 0.85), value: isSelected)
-            .animation(.spring(response: 0.15, dampingFraction: 0.85), value: isHovered)
+            .animation(.spring(response: 0.18, dampingFraction: 1.0), value: isSelected)
+            .animation(.spring(response: 0.15, dampingFraction: 1.0), value: isHovered)
             .padding(.vertical, 1)
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
     }

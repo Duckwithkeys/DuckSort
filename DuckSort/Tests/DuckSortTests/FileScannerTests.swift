@@ -6,20 +6,21 @@
 //  and the Import command.
 //
 
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class FileScannerTests: XCTestCase {
+class FileScannerTests {
 
     private var tempDir: URL!
 
-    override func setUpWithError() throws {
+    init() throws {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("DuckSortTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    deinit {
         if let tempDir { try? FileManager.default.removeItem(at: tempDir) }
     }
 
@@ -34,7 +35,8 @@ final class FileScannerTests: XCTestCase {
         result.photoSets.first { $0.baseName == base }
     }
 
-    func testGroupsByBaseNameAndMergesSidecar() async throws {
+    @Test
+    func GroupsByBaseNameAndMergesSidecar() async throws {
         let urls = [
             try makeFile("IMG_001.jpg"),
             try makeFile("IMG_001.raf"),
@@ -44,21 +46,22 @@ final class FileScannerTests: XCTestCase {
 
         let result = await FileScanner().scanFiles(urls)
 
-        XCTAssertEqual(result.photoSets.count, 2)
+        #expect(result.photoSets.count == 2)
 
-        let first = try XCTUnwrap(set(named: "IMG_001", in: result))
-        XCTAssertEqual(first.mediaCount, 2)
-        XCTAssertTrue(first.hasEdit)
+        let first = try #require(set(named: "IMG_001", in: result))
+        #expect(first.mediaCount == 2)
+        #expect(first.hasEdit)
 
-        let second = try XCTUnwrap(set(named: "IMG_002", in: result))
-        XCTAssertEqual(second.mediaCount, 1)
-        XCTAssertFalse(second.hasEdit)
+        let second = try #require(set(named: "IMG_002", in: result))
+        #expect(second.mediaCount == 1)
+        #expect(!(second.hasEdit))
 
         // 2 media + 1 edit for IMG_001, 1 media for IMG_002.
-        XCTAssertEqual(result.scannedFileCount, 4)
+        #expect(result.scannedFileCount == 4)
     }
 
-    func testUnknownExtensionsAreIgnored() async throws {
+    @Test
+    func UnknownExtensionsAreIgnored() async throws {
         let urls = [
             try makeFile("IMG_001.jpg"),
             try makeFile("notes.txt")
@@ -66,7 +69,7 @@ final class FileScannerTests: XCTestCase {
 
         let result = await FileScanner().scanFiles(urls)
 
-        XCTAssertEqual(result.photoSets.count, 1)
-        XCTAssertEqual(result.ignoredFileCount, 1)
+        #expect(result.photoSets.count == 1)
+        #expect(result.ignoredFileCount == 1)
     }
 }

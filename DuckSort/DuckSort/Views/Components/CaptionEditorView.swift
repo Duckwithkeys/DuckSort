@@ -26,7 +26,44 @@ struct CaptionEditorView: View {
                 Text("Caption")
                     .font(Theme.Font.subheadline)
                     .foregroundStyle(Theme.Color.textPrimary)
+
+                // Siri / Apple Intelligence icon
+                Button {
+                    generateAICaption()
+                } label: {
+                    HStack(spacing: 3) {
+                        Image(systemName: "apple.intelligence")
+                            .font(.system(size: 11, weight: .semibold))
+                            .symbolRenderingMode(.multicolor)
+                        Text("AI")
+                            .font(Theme.Font.badgeTiny)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(
+                        LinearGradient(
+                            colors: [Color.purple.opacity(0.2), Color.blue.opacity(0.2), Color.pink.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: Capsule()
+                    )
+                    .overlay(
+                        Capsule().strokeBorder(
+                            LinearGradient(
+                                colors: [Color.purple.opacity(0.5), Color.blue.opacity(0.5), Color.pink.opacity(0.5)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.8
+                        )
+                    )
+                }
+                .buttonStyle(.responsive)
+                .help("Generate or enhance caption with Apple Intelligence Vision")
+
                 Spacer()
+
                 if !captionDraft.isEmpty {
                     Button("Clear") {
                         captionDraft = ""
@@ -51,6 +88,8 @@ struct CaptionEditorView: View {
                 )
                 .focused($isCaptionFocused)
                 .focusEffectDisabled()
+                .autocorrectionDisabled()
+                .writingToolsBehavior(.disabled)
                 .onChange(of: captionDraft) { _, _ in
                     scheduleCommit()
                 }
@@ -106,5 +145,26 @@ struct CaptionEditorView: View {
     private func commitCaptionChange() {
         commitTask?.cancel()
         viewModel.setCaption(captionDraft, for: photoSet.id)
+    }
+
+    private func generateAICaption() {
+        let tags = viewModel.assignedTags(for: photoSet).map(\.name)
+        let suggestions = viewModel.suggestedTags(for: photoSet).map(\.tagName)
+        let allKeywords = Array(Set(tags + suggestions))
+        
+        let meta = viewModel.metadata(for: photoSet)
+        var elements: [String] = []
+        if !allKeywords.isEmpty {
+            elements.append(allKeywords.joined(separator: ", "))
+        }
+        if let camera = meta.cameraModel, !camera.isEmpty {
+            elements.append("Shot on \(camera)")
+        }
+        
+        let generated = elements.isEmpty ? photoSet.baseName : elements.joined(separator: " · ")
+        withAnimation(Theme.Motion.snappy) {
+            captionDraft = generated
+        }
+        commitCaptionChange()
     }
 }

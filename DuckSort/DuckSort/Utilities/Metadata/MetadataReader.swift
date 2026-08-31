@@ -67,8 +67,13 @@ struct MetadataReader: Sendable {
         // Without this, rapid serial calls to metadata(for:) can cause
         // a temporary memory spike before ARC can drain the pool.
         return autoreleasepool {
-            let options = [kCGImageSourceShouldCache: false] as CFDictionary
-            guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
+            let ext = url.pathExtension.lowercased()
+            let shouldCache = FileExtension.heifLikeExtensions.contains(ext)
+            var options: [CFString: Any] = [kCGImageSourceShouldCache: shouldCache]
+            if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                options[kCGImageSourceTypeIdentifierHint] = typeHint
+            }
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary),
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?
             else {
                 if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {

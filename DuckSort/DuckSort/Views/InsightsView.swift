@@ -323,7 +323,7 @@ private struct HorizontalBar: View {
                     )
                     .frame(width: animWidth, height: 10)
                     .animation(
-                        .spring(response: 0.55, dampingFraction: 0.78),
+                        .spring(response: 0.55, dampingFraction: 1.0),
                         value: animating
                     )
             }
@@ -438,7 +438,7 @@ private struct GearComboRow: View {
                         )
                         .frame(width: animWidth, height: 3)
                         .animation(
-                            .spring(response: 0.55, dampingFraction: 0.78),
+                            .spring(response: 0.55, dampingFraction: 1.0),
                             value: animating
                         )
                 }

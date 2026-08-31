@@ -1,17 +1,20 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class ErrorFormatterTests: XCTestCase {
+struct ErrorFormatterTests {
 
-    func test_errorFormatter_stripsTechnicalCodes() {
+    @Test
+    func errorFormatter_stripsTechnicalCodes() {
         let rawMessage = "Failed to scan folder /Volumes/SD_Card/DCIM (error code -34)."
         let formatted = ErrorFormatter.format(rawMessage)
 
-        XCTAssertEqual(formatted.cleanMessage, "Failed to scan folder /Volumes/SD_Card/DCIM.")
-        XCTAssertTrue(formatted.suggestion.contains("Verify that the source directory is connected"))
+        #expect(formatted.cleanMessage == "Failed to scan folder /Volumes/SD_Card/DCIM.")
+        #expect(formatted.suggestion.contains("Verify that the source directory is connected"))
     }
 
-    func test_errorFormatter_handlesVariousPatterns() {
+    @Test
+    func errorFormatter_handlesVariousPatterns() {
         let cases = [
             ("An error occurred (error -1)", "An error occurred"),
             ("Unable to write changes code 256.", "Unable to write changes."),
@@ -21,26 +24,28 @@ final class ErrorFormatterTests: XCTestCase {
 
         for (raw, expectedClean) in cases {
             let formatted = ErrorFormatter.format(raw)
-            XCTAssertEqual(formatted.cleanMessage, expectedClean)
+            #expect(formatted.cleanMessage == expectedClean)
         }
     }
 
-    func test_errorFormatter_emptyFallback() {
+    @Test
+    func errorFormatter_emptyFallback() {
         let formatted = ErrorFormatter.format(" (error -1)")
-        XCTAssertEqual(formatted.cleanMessage, "An unexpected operation failure occurred.")
+        #expect(formatted.cleanMessage == "An unexpected operation failure occurred.")
     }
 
-    func test_errorFormatter_contextualSuggestions() {
+    @Test
+    func errorFormatter_contextualSuggestions() {
         // Permission context
         let perm = ErrorFormatter.format("Access was denied by the OS")
-        XCTAssertTrue(perm.suggestion.contains("System Settings"))
+        #expect(perm.suggestion.contains("System Settings"))
 
         // Decode context
         let dec = ErrorFormatter.format("Failed to decode HEIC pixels")
-        XCTAssertTrue(dec.suggestion.contains("supported format"))
+        #expect(dec.suggestion.contains("supported format"))
 
         // Write context
         let wr = ErrorFormatter.format("Destination disk full")
-        XCTAssertTrue(wr.suggestion.contains("destination volume"))
+        #expect(wr.suggestion.contains("destination volume"))
     }
 }

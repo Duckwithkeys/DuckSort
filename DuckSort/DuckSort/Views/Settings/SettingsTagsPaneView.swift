@@ -642,7 +642,7 @@ private struct TagChip: View {
                 .stroke(Color.white.opacity(0.04), lineWidth: Theme.Stroke.hairline)
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
     }
 
@@ -1336,8 +1336,8 @@ fileprivate extension View {
             .ifTrue(!isSelected && isHovered) { view in
                 view.glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.m))
             }
-            .animation(.spring(response: 0.18, dampingFraction: 0.85), value: isSelected)
-            .animation(.spring(response: 0.15, dampingFraction: 0.85), value: isHovered)
+            .animation(.spring(response: 0.18, dampingFraction: 1.0), value: isSelected)
+            .animation(.spring(response: 0.15, dampingFraction: 1.0), value: isHovered)
             .padding(.vertical, 1)
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
     }

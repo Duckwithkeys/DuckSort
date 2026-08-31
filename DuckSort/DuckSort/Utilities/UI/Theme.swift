@@ -220,9 +220,9 @@ enum Theme {
     // MARK: - Typography
 
     enum Font {
-        static let display       = SwiftUI.Font.system(size: 34, weight: .bold)
-        static let title         = SwiftUI.Font.system(size: 22, weight: .semibold)
-        static let headline      = SwiftUI.Font.system(size: 17, weight: .semibold)
+        static let display       = SwiftUI.Font.system(size: 34, weight: .bold, design: .rounded)
+        static let title         = SwiftUI.Font.system(size: 22, weight: .semibold, design: .rounded)
+        static let headline      = SwiftUI.Font.system(size: 17, weight: .semibold, design: .rounded)
         static let body          = SwiftUI.Font.system(size: 13, weight: .regular)
         static let bodyBold      = SwiftUI.Font.system(size: 13, weight: .semibold)
         static let callout       = SwiftUI.Font.system(size: 13, weight: .medium)
@@ -230,13 +230,26 @@ enum Theme {
         static let footnote      = SwiftUI.Font.system(size: 11, weight: .regular)
         static let caption       = SwiftUI.Font.system(size: 11, weight: .medium)
         static let caption2      = SwiftUI.Font.system(size: 10, weight: .medium)
-        static let badge         = SwiftUI.Font.system(size: 10, weight: .bold)
-        static let badgeTiny     = SwiftUI.Font.system(size: 9,  weight: .bold)
+        static let badge         = SwiftUI.Font.system(size: 10, weight: .bold, design: .rounded)
+        static let badgeTiny     = SwiftUI.Font.system(size: 9,  weight: .bold, design: .rounded)
         static let iconBadge     = SwiftUI.Font.system(size: 12, weight: .bold)
         static let monoCaption   = SwiftUI.Font.system(size: 10, weight: .semibold, design: .monospaced)
         static let monoBody      = SwiftUI.Font.system(size: 11, weight: .regular, design: .monospaced)
         static let iconHero      = SwiftUI.Font.system(size: 36, weight: .regular)
         static let iconLarge     = SwiftUI.Font.system(size: 28, weight: .light)
+    }
+
+    // MARK: - Motion / Animation Tokens (emilkowalski/skills)
+
+    enum Motion {
+        /// Default UI spring: critically damped, no bounce
+        static let snappy = SwiftUI.Animation.spring(response: 0.25, dampingFraction: 1.0)
+        /// Smooth interactive spring for larger UI transitions / drawers
+        static let interactive = SwiftUI.Animation.spring(response: 0.35, dampingFraction: 1.0)
+        /// Quick ease-out for hover / state entry
+        static let easeOutQuick = SwiftUI.Animation.easeOut(duration: 0.16)
+        /// Tactile press response curve
+        static let press = SwiftUI.Animation.easeOut(duration: 0.12)
     }
 
     // MARK: - Stroke
@@ -246,6 +259,23 @@ enum Theme {
         static let border:   CGFloat = 2
         static let heavy:    CGFloat = 2.5
     }
+}
+
+// MARK: - Responsive Button Style (emil-design-eng: scale 0.97 on press)
+
+struct ResponsiveButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.97
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .animation(Theme.Motion.press, value: configuration.isPressed)
+    }
+}
+
+extension ButtonStyle where Self == ResponsiveButtonStyle {
+    static var responsive: ResponsiveButtonStyle { ResponsiveButtonStyle() }
+    static func responsive(scale: CGFloat) -> ResponsiveButtonStyle { ResponsiveButtonStyle(scale: scale) }
 }
 
 // historical callers used `PhotomatorTheme.selectedBlue`. All call sites now
@@ -275,8 +305,8 @@ extension View {
             .ifTrue(!isSelected && isHovered) { view in
                 view.glassEffect(.regular, in: shape)
             }
-            .animation(.spring(response: 0.18, dampingFraction: 0.85), value: isSelected)
-            .animation(.spring(response: 0.15, dampingFraction: 0.85), value: isHovered)
+            .animation(.spring(response: 0.18, dampingFraction: 1.0), value: isSelected)
+            .animation(.spring(response: 0.15, dampingFraction: 1.0), value: isHovered)
     }
 }
 

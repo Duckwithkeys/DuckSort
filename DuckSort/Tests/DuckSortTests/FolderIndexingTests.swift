@@ -3,13 +3,15 @@
 //  DuckSortTests
 //
 
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
 @MainActor
-final class FolderIndexingTests: XCTestCase {
+struct FolderIndexingTests {
 
-    func testHierarchicalFolderIndexing() {
+    @Test
+    func HierarchicalFolderIndexing() {
         let viewModel = PhotoLibraryViewModel()
 
         let parentURL = URL(fileURLWithPath: "/Users/oliver/Photos")
@@ -38,19 +40,19 @@ final class FolderIndexingTests: XCTestCase {
 
         // 1. Verify parent-child subfolder tree logic
         let parentChildren = viewModel.childSubfolders(of: parentURL)
-        XCTAssertEqual(parentChildren.count, 1)
-        XCTAssertEqual(parentChildren.first?.standardizedFileURL.path, childURL.standardizedFileURL.path)
+        #expect(parentChildren.count == 1)
+        #expect(parentChildren.first?.standardizedFileURL.path == childURL.standardizedFileURL.path)
 
         let childChildren = viewModel.childSubfolders(of: childURL)
-        XCTAssertEqual(childChildren.count, 1)
-        XCTAssertEqual(childChildren.first?.standardizedFileURL.path, grandchildURL.standardizedFileURL.path)
+        #expect(childChildren.count == 1)
+        #expect(childChildren.first?.standardizedFileURL.path == grandchildURL.standardizedFileURL.path)
 
         let grandchildChildren = viewModel.childSubfolders(of: grandchildURL)
-        XCTAssertTrue(grandchildChildren.isEmpty)
+        #expect(grandchildChildren.isEmpty)
 
         // 2. Verify recursive photo counts
-        XCTAssertEqual(viewModel.recursivePhotoCount(in: parentURL), 3)
-        XCTAssertEqual(viewModel.recursivePhotoCount(in: childURL), 2)
-        XCTAssertEqual(viewModel.recursivePhotoCount(in: grandchildURL), 1)
+        #expect(viewModel.recursivePhotoCount(in: parentURL) == 3)
+        #expect(viewModel.recursivePhotoCount(in: childURL) == 2)
+        #expect(viewModel.recursivePhotoCount(in: grandchildURL) == 1)
     }
 }

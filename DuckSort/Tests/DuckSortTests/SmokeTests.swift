@@ -1,24 +1,27 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class SmokeTests: XCTestCase {
-    func test_metadataSnapshot_defaultsAreNil() {
+struct SmokeTests {
+    @Test
+    func metadataSnapshot_defaultsAreNil() {
         let snapshot = MetadataSnapshot()
-        XCTAssertNil(snapshot.cameraModel)
-        XCTAssertNil(snapshot.captureDate)
+        #expect(snapshot.cameraModel == nil)
+        #expect(snapshot.captureDate == nil)
     }
 
-    func test_photoFilterRule_matchesCorrectly() {
+    @Test
+    func photoFilterRule_matchesCorrectly() {
         let setWithEdit = PhotoSet(id: UUID(), baseName: "photo1", mediaFiles: [URL(fileURLWithPath: "photo1.jpg")], editPath: URL(fileURLWithPath: "photo1.photo-edit"))
         let setWithoutEdit = PhotoSet(id: UUID(), baseName: "photo2", mediaFiles: [URL(fileURLWithPath: "photo2.jpg")], editPath: nil)
         
-        XCTAssertTrue(PhotoFilterRule.allPhotos.matches(setWithEdit))
-        XCTAssertTrue(PhotoFilterRule.allPhotos.matches(setWithoutEdit))
+        #expect(PhotoFilterRule.allPhotos.matches(setWithEdit))
+        #expect(PhotoFilterRule.allPhotos.matches(setWithoutEdit))
         
-        XCTAssertTrue(PhotoFilterRule.editedOnly.matches(setWithEdit))
-        XCTAssertFalse(PhotoFilterRule.editedOnly.matches(setWithoutEdit))
+        #expect(PhotoFilterRule.editedOnly.matches(setWithEdit))
+        #expect(!(PhotoFilterRule.editedOnly.matches(setWithoutEdit)))
         
-        XCTAssertFalse(PhotoFilterRule.uneditedOnly.matches(setWithEdit))
-        XCTAssertTrue(PhotoFilterRule.uneditedOnly.matches(setWithoutEdit))
+        #expect(!(PhotoFilterRule.uneditedOnly.matches(setWithEdit)))
+        #expect(PhotoFilterRule.uneditedOnly.matches(setWithoutEdit))
     }
 }

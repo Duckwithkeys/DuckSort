@@ -154,7 +154,7 @@ private struct RuleSidebarRow: View {
         .buttonStyle(.plain)
         .padding(.horizontal, Theme.Space.s8)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
         .contextMenu {
             Button("Delete Rule Set", role: .destructive, action: onDelete)
@@ -378,7 +378,7 @@ private struct RuleComponentRow: View {
                 .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
     }
 

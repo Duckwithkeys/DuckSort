@@ -123,10 +123,10 @@ struct PhotoSetCell: View, Equatable {
             .padding(Theme.Space.s4)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.responsive(scale: 0.98))
         .scaleEffect(isHovered ? 1.02 : 1.0)
         .shadow(color: isHovered ? Theme.Color.overlayScrim : .clear, radius: isHovered ? 6 : 0)
-        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(Theme.Motion.snappy, value: isHovered)
         .onHover { hovering in
             isHovered = hovering
             if hovering {

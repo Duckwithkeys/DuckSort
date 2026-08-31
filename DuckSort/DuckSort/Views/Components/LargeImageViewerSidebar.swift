@@ -13,25 +13,215 @@ struct LargeImageViewerSidebar: View {
     @State private var isFlagHovered = false
     @State private var isRejectHovered = false
     @State private var hoverStarRating: Int? = nil
+    @State private var tagSearchText = ""
+    @State private var targetCategoryID: UUID? = nil
+    @FocusState private var isTagSearchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Space.s20) {
-                    // Auto-Advance (and its haptic / sound toggles + shortcut)
-                    // moved to Settings → Mode Switching, so it can be configured
-                    // once and stays out of the way of the inspector workflow.
-
                     quickActionsSection
 
-                    // Section 1: Tags
+                    // Section 1: Tags with Search & In-Place Creation
                     VStack(alignment: .leading, spacing: Theme.Space.s10) {
-                        sectionHeader("ACTIVE TAGS")
+                        HStack {
+                            sectionHeader("TAGS")
+                            Spacer()
+                            if let photo = viewModel.currentFocusedPhotoSet {
+                                Menu {
+                                    ForEach(viewModel.tagStore.categories) { category in
+                                        let catTags = viewModel.tags(in: category.id)
+                                        if !catTags.isEmpty {
+                                            Section(category.name) {
+                                                ForEach(catTags) { tag in
+                                                    Button {
+                                                        let isAssigned = viewModel.assignedTags(for: photo).contains(where: { $0.id == tag.id })
+                                                        if isAssigned {
+                                                            viewModel.removeTag(tag, from: photo.id)
+                                                        } else {
+                                                            viewModel.applyTag(tag, to: photo.id)
+                                                        }
+                                                        dismissFocus()
+                                                    } label: {
+                                                        let isAssigned = viewModel.assignedTags(for: photo).contains(where: { $0.id == tag.id })
+                                                        Label(tag.name, systemImage: isAssigned ? "checkmark" : "tag")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    HStack(spacing: 3) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.system(size: 11, weight: .semibold))
+                                        Text("Add Tag")
+                                            .font(Theme.Font.caption2)
+                                    }
+                                    .foregroundStyle(Theme.Color.accent)
+                                }
+                                .menuStyle(.borderlessButton)
+                                .fixedSize()
+                            }
+                        }
 
                         if let photo = viewModel.currentFocusedPhotoSet {
-                            let assignedTags = viewModel.assignedTags(for: photo)
+                            // Category Selector for New Tag Creation
+                            if !viewModel.tagStore.categories.isEmpty {
+                                HStack(spacing: Theme.Space.s4) {
+                                    Text("Category:")
+                                        .font(Theme.Font.caption2)
+                                        .foregroundStyle(Theme.Color.textSecondary)
 
-                            if assignedTags.isEmpty {
+                                    Menu {
+                                        Button("Default / First Category") {
+                                            targetCategoryID = nil
+                                        }
+                                        Divider()
+                                        ForEach(viewModel.tagStore.categories) { cat in
+                                            Button {
+                                                targetCategoryID = cat.id
+                                            } label: {
+                                                HStack {
+                                                    Text(cat.name)
+                                                    if (targetCategoryID ?? viewModel.tagStore.categories.first?.id) == cat.id {
+                                                        Image(systemName: "checkmark")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } label: {
+                                        let catName = targetCategoryID.flatMap { viewModel.tagStore.categoryName(id: $0) } ?? viewModel.tagStore.categories.first?.name ?? "General"
+                                        Text(catName)
+                                            .font(Theme.Font.caption2)
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(Theme.Color.accent)
+                                    }
+                                    .menuStyle(.borderlessButton)
+                                    .fixedSize()
+
+                                    Spacer()
+                                }
+                            }
+
+                            // Inline Tag Search / Add Field
+                            HStack(spacing: Theme.Space.s6) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(Theme.Font.caption2)
+                                    .foregroundStyle(Theme.Color.textSecondary)
+
+                                TextField("Search or add custom tag…", text: $tagSearchText)
+                                    .textFieldStyle(.plain)
+                                    .font(Theme.Font.caption)
+                                    .focused($isTagSearchFocused)
+                                    .autocorrectionDisabled()
+                                    .writingToolsBehavior(.disabled)
+                                    .onSubmit {
+                                        let trimmed = tagSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                        if !trimmed.isEmpty {
+                                            viewModel.createAndApplyTag(named: trimmed, categoryID: targetCategoryID, to: photo.id)
+                                            tagSearchText = ""
+                                        }
+                                        dismissFocus()
+                                    }
+
+                                if !tagSearchText.isEmpty {
+                                    Button {
+                                        tagSearchText = ""
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(Theme.Font.caption2)
+                                            .foregroundStyle(Theme.Color.textSecondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, Theme.Space.s8)
+                            .padding(.vertical, Theme.Space.s6)
+                            .background(Color(NSColor.textBackgroundColor).opacity(0.4), in: RoundedRectangle(cornerRadius: Theme.Radius.m))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: Theme.Radius.m)
+                                    .stroke(isTagSearchFocused ? Theme.Color.accent : Theme.Color.separator.opacity(0.6), lineWidth: isTagSearchFocused ? 1.5 : Theme.Stroke.hairline)
+                            )
+                            .background {
+                                Button("") {
+                                    dismissFocus()
+                                }
+                                .keyboardShortcut(.cancelAction)
+                                .opacity(0)
+                                .frame(width: 0, height: 0)
+                            }
+
+                            // Matching Tag Suggestions / Create Tag Pill
+                            if !tagSearchText.isEmpty {
+                                let query = tagSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                let assignedIDs = Set(viewModel.assignedTags(for: photo).map(\.id))
+                                let matchingUnassigned = viewModel.tagStore.tags.filter {
+                                    $0.name.localizedCaseInsensitiveContains(query) && !assignedIDs.contains($0.id)
+                                }
+                                let exactMatchExists = viewModel.tagStore.tags.contains {
+                                    $0.name.localizedCaseInsensitiveCompare(query) == .orderedSame
+                                }
+
+                                VStack(alignment: .leading, spacing: Theme.Space.s4) {
+                                    ForEach(matchingUnassigned.prefix(4)) { tag in
+                                        Button {
+                                            viewModel.applyTag(tag, to: photo.id)
+                                            tagSearchText = ""
+                                            dismissFocus()
+                                        } label: {
+                                            HStack(spacing: Theme.Space.s6) {
+                                                Circle().fill(tag.color).frame(width: 7, height: 7)
+                                                Text("Add \(tag.name)")
+                                                    .font(Theme.Font.caption)
+                                                    .foregroundStyle(Theme.Color.textPrimary)
+                                                Spacer()
+                                                if let catName = viewModel.tagStore.categoryName(id: tag.categoryID) {
+                                                    Text(catName)
+                                                        .font(Theme.Font.badgeTiny)
+                                                        .foregroundStyle(Theme.Color.textTertiary)
+                                                }
+                                                Image(systemName: "plus")
+                                                    .font(.system(size: 9, weight: .bold))
+                                                    .foregroundStyle(Theme.Color.accent)
+                                            }
+                                            .padding(.horizontal, Theme.Space.s8)
+                                            .padding(.vertical, Theme.Space.s4)
+                                            .background(Theme.Color.rowHoverFill, in: RoundedRectangle(cornerRadius: Theme.Radius.s))
+                                        }
+                                        .buttonStyle(.responsive)
+                                    }
+
+                                    if !exactMatchExists && !query.isEmpty {
+                                        let catName = targetCategoryID.flatMap { viewModel.tagStore.categoryName(id: $0) } ?? viewModel.tagStore.categories.first?.name ?? "General"
+                                        Button {
+                                            viewModel.createAndApplyTag(named: query, categoryID: targetCategoryID, to: photo.id)
+                                            tagSearchText = ""
+                                            dismissFocus()
+                                        } label: {
+                                            HStack(spacing: Theme.Space.s6) {
+                                                Image(systemName: "plus.circle.fill")
+                                                    .foregroundStyle(Theme.Color.accent)
+                                                    .font(.system(size: 11, weight: .bold))
+                                                Text("Create tag \"\(query)\" in \(catName)")
+                                                    .font(Theme.Font.caption)
+                                                    .fontWeight(.semibold)
+                                                    .foregroundStyle(Theme.Color.accent)
+                                                Spacer()
+                                            }
+                                            .padding(.horizontal, Theme.Space.s8)
+                                            .padding(.vertical, Theme.Space.s6)
+                                            .background(Theme.Color.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.s))
+                                        }
+                                        .buttonStyle(.responsive)
+                                    }
+                                }
+                                .padding(.vertical, 2)
+                            }
+
+                            // Active Tags List with Two-Finger Click / Right-Click Category Switcher
+                            let assignedTags = viewModel.assignedTags(for: photo)
+                            if assignedTags.isEmpty && tagSearchText.isEmpty {
                                 Text("No tags applied")
                                     .font(Theme.Font.caption)
                                     .foregroundStyle(Theme.Color.textSecondary)
@@ -46,6 +236,11 @@ struct LargeImageViewerSidebar: View {
                                                 .font(Theme.Font.caption)
                                                 .foregroundStyle(Theme.Color.textPrimary)
                                             Spacer()
+                                            if let catName = viewModel.tagStore.categoryName(id: tag.categoryID) {
+                                                Text(catName)
+                                                    .font(Theme.Font.badgeTiny)
+                                                    .foregroundStyle(Theme.Color.textTertiary)
+                                            }
                                             Button {
                                                 viewModel.removeTag(tag, from: photo.id)
                                             } label: {
@@ -59,6 +254,28 @@ struct LargeImageViewerSidebar: View {
                                         .padding(.horizontal, Theme.Space.s8)
                                         .padding(.vertical, Theme.Space.s4)
                                         .background(tag.color.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.Radius.m))
+                                        .contextMenu {
+                                            Menu("Move to Category") {
+                                                ForEach(viewModel.tagStore.categories) { category in
+                                                    Button {
+                                                        viewModel.moveTag(tag, to: category.id)
+                                                    } label: {
+                                                        HStack {
+                                                            Text(category.name)
+                                                            if tag.categoryID == category.id {
+                                                                Image(systemName: "checkmark")
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Divider()
+
+                                            Button("Remove from this Photo") {
+                                                viewModel.removeTag(tag, from: photo.id)
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -250,7 +467,7 @@ struct LargeImageViewerSidebar: View {
             }
         }
         .frame(width: 290)
-        .background(Theme.Color.sidebarBackground)
+        .background(.regularMaterial)
         .overlay(Divider(), alignment: .leading)
     }
 
@@ -384,6 +601,11 @@ struct LargeImageViewerSidebar: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func dismissFocus() {
+        isTagSearchFocused = false
+        NSApp.keyWindow?.makeFirstResponder(nil)
     }
 
     /// Replaces the old "N files + edit" summary with a real file list.
@@ -543,7 +765,7 @@ private struct FileListRow: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) { isHovered = hovering }
+            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
         }
         .contextMenu {
             Button("Reveal in Finder") {

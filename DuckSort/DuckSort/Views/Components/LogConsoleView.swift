@@ -79,7 +79,7 @@ struct LogConsoleView: View {
                 .buttonStyle(.bordered)
             }
             .padding(Theme.Space.s12)
-            .background(Theme.Color.sidebarBackground)
+            .background(.regularMaterial)
 
             Divider()
 

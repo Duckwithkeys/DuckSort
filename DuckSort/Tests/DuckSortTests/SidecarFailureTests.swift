@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 @testable import DuckSort
 
-final class SidecarFailureTests: XCTestCase {
-    func test_readOnlyDestination_transferSucceeds_failureCounted() async throws {
+struct SidecarFailureTests {
+    @Test
+    func readOnlyDestination_transferSucceeds_failureCounted() async throws {
         let src = try TempDir.make(); let dst = try TempDir.make()
         defer {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dst.path)
@@ -36,7 +38,7 @@ final class SidecarFailureTests: XCTestCase {
         )
         let summary = try await FileTransferService().execute(plan)
 
-        XCTAssertEqual(summary.fileCount, 1)          // transfer still reported success
-        XCTAssertGreaterThanOrEqual(summary.sidecarFailures, 1)    // sidecar write failed but was counted
+        #expect(summary.fileCount == 1)          // transfer still reported success
+        #expect(summary.sidecarFailures >= 1)    // sidecar write failed but was counted
     }
 }

@@ -112,7 +112,7 @@ struct SettingsXMPTagsPane: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
         .onTapGesture { targetCategoryID = cat.id }
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .animation(.spring(response: 0.25, dampingFraction: 1.0), value: isSelected)
     }
 
     private var newCategorySheet: some View {
@@ -235,7 +235,7 @@ struct SettingsXMPTagsPane: View {
                         .foregroundStyle(.white)
                 }
             }
-            .animation(.easeInOut(duration: 0.12), value: isChecked)
+            .animation(.spring(response: 0.25, dampingFraction: 1.0), value: isChecked)
 
             // Tag chip
             HStack(spacing: Theme.Space.s6) {
@@ -273,7 +273,7 @@ struct SettingsXMPTagsPane: View {
                 selected.insert(tagName)
             }
         }
-        .animation(.easeInOut(duration: 0.1), value: isChecked)
+        .animation(.spring(response: 0.25, dampingFraction: 1.0), value: isChecked)
     }
 
     // MARK: - Empty State

@@ -24,6 +24,10 @@ enum FileExtension: String, CaseIterable, Sendable {
     case hif         = "hif"
     case heic        = "heic"
     case heif        = "heif"
+    case heics       = "heics"
+    case heifs       = "heifs"
+    case avif        = "avif"
+    case avifs       = "avifs"
     
     case jpeg        = "jpg"
     case jpegExtended = "jpeg"
@@ -32,17 +36,35 @@ enum FileExtension: String, CaseIterable, Sendable {
 
     static let imageExtensions: Set<FileExtension> = [
         .rawFuji, .rawGeneric, .rawSony, .rawCanon2, .rawCanon3, .rawNikon, .rawAdobe, .rawOlympus, .rawPanasonic, .rawPentax,
-        .hif, .heic, .heif, .jpeg, .jpegExtended
+        .hif, .heic, .heif, .heics, .heifs, .avif, .avifs, .jpeg, .jpegExtended
     ]
 
     static let rawLikeExtensions: Set<String> = [
-        "heic", "heif", "hif", "raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"
+        "heic", "heif", "hif", "heics", "heifs", "avif", "avifs", "raf", "arw", "cr2", "cr3", "nef", "dng", "orf", "rw2", "pef"
     ]
 
     /// Extensions that should be treated as HEIF-family image containers.
     /// Used to pick the right decode path (NSImage native vs. ImageIO
     /// embedded thumbnail).
-    static let heifLikeExtensions: Set<String> = ["heic", "heif", "hif"]
+    static let heifLikeExtensions: Set<String> = ["heic", "heif", "hif", "heics", "heifs", "avif", "avifs"]
+
+    /// Returns a direct UTType / ImageIO hint to bypass container sniffing and unlock hardware decoders.
+    static func typeIdentifierHint(for ext: String) -> CFString? {
+        switch ext.lowercased() {
+        case "heic", "heics":
+            return "public.heic" as CFString
+        case "heif", "heifs", "hif":
+            return "public.heif" as CFString
+        case "avif", "avifs":
+            return "public.avif" as CFString
+        case "jpg", "jpeg":
+            return "public.jpeg" as CFString
+        case "png":
+            return "public.png" as CFString
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - Scanner
@@ -85,7 +107,7 @@ struct FileScanner: Sendable {
 
     func scanDirectory(_ url: URL) async throws -> ScanResult {
         AppLogger.scanner.info("Starting scan of directory: \(url.path)")
-        return try await Task.detached(priority: .userInitiated) {
+        return try await Task(priority: .userInitiated) {
             let fm = FileManager.default
             guard fm.isReadableFile(atPath: url.path),
                   fm.isDirectory(atPath: url.path)
@@ -163,7 +185,7 @@ struct FileScanner: Sendable {
     /// recursive directory scan.
     func scanFiles(_ urls: [URL]) async -> ScanResult {
         AppLogger.scanner.info("Starting scan of \(urls.count) individual files")
-        return await Task.detached(priority: .userInitiated) {
+        return await Task(priority: .userInitiated) {
             let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isRegularFileKey]
 
             var mediaURLsByBaseName: [String: [URL]] = [:]
