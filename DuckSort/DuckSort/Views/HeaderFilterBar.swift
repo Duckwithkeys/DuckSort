@@ -59,36 +59,13 @@ struct HeaderFilterBar: View {
                 .foregroundStyle(Theme.Color.textSecondary)
 
             // Date Sort Button
-            Button {
-                withAnimation(Theme.Motion.snappy) {
-                    viewModel.sortOrder = .date
-                }
-            } label: {
-                Text("Date")
-                    .font(Theme.Font.bodyBold)
-                    .padding(.horizontal, Theme.Space.s10)
-                    .padding(.vertical, Theme.Space.s4)
-                    .background(viewModel.sortOrder == .date ? Theme.Color.accent : Color.primary.opacity(0.04))
-                    .foregroundStyle(viewModel.sortOrder == .date ? Theme.Color.textInverse : Theme.Color.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
-            }
-            .buttonStyle(.responsive)
+            sortButton(title: "Date", order: .date)
 
             // Name Sort Button
-            Button {
-                withAnimation(Theme.Motion.snappy) {
-                    viewModel.sortOrder = .name
-                }
-            } label: {
-                Text("Name")
-                    .font(Theme.Font.bodyBold)
-                    .padding(.horizontal, Theme.Space.s10)
-                    .padding(.vertical, Theme.Space.s4)
-                    .background(viewModel.sortOrder == .name ? Theme.Color.accent : Color.primary.opacity(0.04))
-                    .foregroundStyle(viewModel.sortOrder == .name ? Theme.Color.textInverse : Theme.Color.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
-            }
-            .buttonStyle(.responsive)
+            sortButton(title: "Name", order: .name)
+
+            // File Size Sort Button
+            sortButton(title: "Size", order: .size)
 
             // Direction Toggle Button
             Button {
@@ -104,8 +81,26 @@ struct HeaderFilterBar: View {
                     .foregroundStyle(Theme.Color.textPrimary)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
             }
-            .buttonStyle(.responsive).help("Toggle Sort Direction")
+            .buttonStyle(.responsive)
+            .help("Sort Direction: \(viewModel.sortDirection.rawValue)")
         }
+    }
+
+    private func sortButton(title: String, order: PhotoLibraryViewModel.SortOrder) -> some View {
+        Button {
+            withAnimation(Theme.Motion.snappy) {
+                viewModel.sortOrder = order
+            }
+        } label: {
+            Text(title)
+                .font(Theme.Font.bodyBold)
+                .padding(.horizontal, Theme.Space.s10)
+                .padding(.vertical, Theme.Space.s4)
+                .background(viewModel.sortOrder == order ? Theme.Color.accent : Color.primary.opacity(0.04))
+                .foregroundStyle(viewModel.sortOrder == order ? Theme.Color.textInverse : Theme.Color.textPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
+        }
+        .buttonStyle(.responsive)
     }
 }
 
@@ -152,6 +147,48 @@ struct FilterPopoverContent: View {
             // Content List of filters
             ScrollView {
                 VStack(spacing: 12) {
+                    // 0. Sort By Row inside Popover
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .frame(width: 16)
+
+                        Text("Sort By")
+                            .font(Theme.Font.body)
+                            .foregroundStyle(Theme.Color.textPrimary)
+
+                        Spacer()
+
+                        Picker("", selection: $viewModel.sortOrder) {
+                            Text("Date").tag(PhotoLibraryViewModel.SortOrder.date)
+                            Text("Name").tag(PhotoLibraryViewModel.SortOrder.name)
+                            Text("Size").tag(PhotoLibraryViewModel.SortOrder.size)
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .frame(width: 90)
+                        .controlSize(.small)
+
+                        Button {
+                            withAnimation(Theme.Motion.snappy) {
+                                viewModel.sortDirection = viewModel.sortDirection == .ascending ? .descending : .ascending
+                            }
+                        } label: {
+                            Image(systemName: viewModel.sortDirection == .ascending ? "arrow.up" : "arrow.down")
+                                .font(.system(size: 11, weight: .bold))
+                                .frame(width: 22, height: 22)
+                                .background(Color.primary.opacity(0.06))
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Toggle Sort Direction (\(viewModel.sortDirection.rawValue))")
+                    }
+                    .frame(height: 28)
+
+                    Divider()
+                        .background(Theme.Color.separator.opacity(0.5))
+
                     // 1. Edited Filter Row
                     FilterRow(
                         isActive: $viewModel.filterEditedActive,

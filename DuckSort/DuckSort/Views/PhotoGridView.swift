@@ -38,6 +38,8 @@ struct PhotoGridView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            HeaderFilterBar(viewModel: viewModel)
+
             ScrollViewReader { scrollProxy in
                 ZStack(alignment: .topLeading) {
                     // Layer 1: Empty-space hit area for marquee drag. Cells (above)

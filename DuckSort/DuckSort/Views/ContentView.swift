@@ -136,6 +136,25 @@ struct ContentView: View {
 
             ToolbarItem(placement: .primaryAction) {
                 Menu {
+                    Picker("Sort By", selection: $viewModel.sortOrder) {
+                        Label("Date", systemImage: "calendar").tag(PhotoLibraryViewModel.SortOrder.date)
+                        Label("Name", systemImage: "textformat").tag(PhotoLibraryViewModel.SortOrder.name)
+                        Label("File Size", systemImage: "internaldrive").tag(PhotoLibraryViewModel.SortOrder.size)
+                    }
+                    Divider()
+                    Picker("Direction", selection: $viewModel.sortDirection) {
+                        Label("Ascending", systemImage: "arrow.up").tag(PhotoLibraryViewModel.SortDirection.ascending)
+                        Label("Descending", systemImage: "arrow.down").tag(PhotoLibraryViewModel.SortDirection.descending)
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .help("Sort photos by Date, Name, or File Size")
+            }
+
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
                     ForEach(viewModel.ruleStore.rules) { rule in
                         Button {
                             viewModel.ruleStore.selectRule(id: rule.id)

@@ -34,6 +34,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var destinationDirectory: URL?
     @Published var photoSets: [PhotoSet] = [] {
         didSet {
+            photoFileSizeCache.removeAll(keepingCapacity: true)
             rebuildPhotoSetIndex()
             updateGlobalCounts()
             setNeedsDerivedUpdate()
@@ -73,6 +74,12 @@ final class PhotoLibraryViewModel: ObservableObject {
         didSet {
             photoDateCache.removeAll(keepingCapacity: true)
         }
+    }
+
+    func setPhotoMetadata(for id: UUID, metadata: MetadataSnapshot) {
+        photoMetadata[id] = metadata
+        photoDateCache.removeValue(forKey: id)
+        setNeedsDerivedUpdate()
     }
     @Published private(set) var photoCaptions: [UUID: String] = [:]
     /// XMP tag names read from on-disk sidecars that have no matching tag
@@ -132,6 +139,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     enum SortOrder: String, CaseIterable {
         case name = "Name"
         case date = "Date"
+        case size = "File Size"
     }
 
     enum SortDirection: String, CaseIterable {
@@ -2094,6 +2102,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     // MARK: - Count Memoization & Index Clamping
     
     private var photoDateCache: [UUID: Date] = [:]
+    private var photoFileSizeCache: [UUID: Int64] = [:]
 
     func photoDate(for photoSet: PhotoSet) -> Date {
         if let cached = photoDateCache[photoSet.id] {
@@ -2112,6 +2121,20 @@ final class PhotoLibraryViewModel: ObservableObject {
         let fallback = Date.distantPast
         photoDateCache[photoSet.id] = fallback
         return fallback
+    }
+
+    func photoFileSize(for photoSet: PhotoSet) -> Int64 {
+        if let cached = photoFileSizeCache[photoSet.id] {
+            return cached
+        }
+        var total: Int64 = 0
+        for file in photoSet.allFiles {
+            if let values = try? file.resourceValues(forKeys: [.fileSizeKey]), let size = values.fileSize {
+                total += Int64(size)
+            }
+        }
+        photoFileSizeCache[photoSet.id] = total
+        return total
     }
 
     func updateDerivedState() {
@@ -2271,6 +2294,13 @@ final class PhotoLibraryViewModel: ObservableObject {
                     return lhs.baseName.localizedStandardCompare(rhs.baseName) == .orderedAscending
                 }
                 return ascending ? (d1 < d2) : (d1 > d2)
+            case .size:
+                let s1 = photoFileSize(for: lhs)
+                let s2 = photoFileSize(for: rhs)
+                if s1 == s2 {
+                    return lhs.baseName.localizedStandardCompare(rhs.baseName) == .orderedAscending
+                }
+                return ascending ? (s1 < s2) : (s1 > s2)
             }
         }
 
