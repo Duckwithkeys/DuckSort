@@ -141,7 +141,7 @@ struct OnboardingFlow: View {
                 .font(Theme.Font.title)
                 .foregroundStyle(Theme.Color.textInverse)
 
-            Text("Let's get your library set up. Five quick steps — each one maps to a place in the app you can revisit later from the sidebar.")
+            Text("Let's get your library set up. Five quick steps — each one maps to a place in the app you can revisit later from Settings or the toolbar.")
                 .font(Theme.Font.subheadline)
                 .foregroundStyle(Theme.Color.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -150,7 +150,7 @@ struct OnboardingFlow: View {
                 OnboardingBullet(
                     number: "1",
                     title: "Pick a shoot folder",
-                    detail: "Sidebar → Toolbar → Add Source, or drag a folder into the window."
+                    detail: "Toolbar → Add Source Folder (⇧⌘O), or drag a folder into the window."
                 )
                 OnboardingBullet(
                     number: "2",
@@ -160,7 +160,7 @@ struct OnboardingFlow: View {
                 OnboardingBullet(
                     number: "3",
                     title: "Choose a destination",
-                    detail: "Toolbar → Choose Destination. This is where exports land."
+                    detail: "Toolbar / Footer → Choose Destination. This is where exports land."
                 )
                 OnboardingBullet(
                     number: "4",
@@ -170,7 +170,7 @@ struct OnboardingFlow: View {
                 OnboardingBullet(
                     number: "5",
                     title: "You're ready",
-                    detail: "Start culling with rating keys (1–5), X to reject, U to clear pick, or any tag hotkey in the grid or large viewer."
+                    detail: "Start culling with rating keys (1–5), P / Z to flag, X to reject, U to clear pick, or any tag hotkey in the grid or large viewer."
                 )
             }
             .padding(.top, Theme.Space.s4)
@@ -476,9 +476,14 @@ struct OnboardingFlow: View {
                     detail: "Settings → Copyright"
                 )
                 OnboardingRecapLink(
-                    icon: "info.circle",
-                    label: "See advanced EXIF in inspector",
-                    detail: "View → Show Advanced EXIF (⇧⌘E)"
+                    icon: "keyboard.badge.ellipsis",
+                    label: "Customize keyboard shortcuts",
+                    detail: "Settings → Shortcuts"
+                )
+                OnboardingRecapLink(
+                    icon: "paintpalette.fill",
+                    label: "Choose custom accent colors & theme",
+                    detail: "Settings → Appearance"
                 )
             }
             .padding(.top, Theme.Space.s8)
