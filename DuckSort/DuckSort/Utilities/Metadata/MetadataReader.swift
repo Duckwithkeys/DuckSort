@@ -53,6 +53,23 @@ struct MetadataReader: Sendable {
         return dict
     }()
 
+    private static let subjectRegex = try! NSRegularExpression(
+        pattern: #"(?i)<dc:subject[^>]*>(.*?)</dc:subject>"#,
+        options: [.dotMatchesLineSeparators]
+    )
+    private static let lrHierarchicalRegex = try! NSRegularExpression(
+        pattern: #"(?i)<lr:hierarchicalSubject[^>]*>(.*?)</lr:hierarchicalSubject>"#,
+        options: [.dotMatchesLineSeparators]
+    )
+    private static let liItemRegex = try! NSRegularExpression(
+        pattern: #"<rdf:li[^>]*>(.*?)</rdf:li>"#,
+        options: [.dotMatchesLineSeparators]
+    )
+    private static let descriptionRegex = try! NSRegularExpression(
+        pattern: #"(?is)<dc:description\b[^>]*>(.*?)</dc:description>"#,
+        options: []
+    )
+
     func metadata(for url: URL) -> MetadataSnapshot {
         AppLogger.metadata.debug("Reading metadata: \(url.lastPathComponent)")
 
@@ -139,21 +156,49 @@ struct MetadataReader: Sendable {
 
             var rating: Int? = nil
             var pick: Int? = nil
+            var keywords = Set<String>()
+            var caption: String? = nil
+
             if let iptc = iptc {
                 rating = iptc[kCGImagePropertyIPTCStarRating] as? Int
+
+                if let kwList = iptc[kCGImagePropertyIPTCKeywords] as? [String] {
+                    for kw in kwList {
+                        let trimmed = kw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { keywords.insert(trimmed) }
+                    }
+                } else if let kwList = iptc[kCGImagePropertyIPTCKeywords] as? [Any] {
+                    for kw in kwList {
+                        if let s = kw as? String {
+                            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty { keywords.insert(trimmed) }
+                        }
+                    }
+                } else if let kwStr = iptc[kCGImagePropertyIPTCKeywords] as? String {
+                    let parts = kwStr.components(separatedBy: CharacterSet(charactersIn: ",;"))
+                    for p in parts {
+                        let trimmed = p.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { keywords.insert(trimmed) }
+                    }
+                }
+
+                if let iptcCaption = iptc[kCGImagePropertyIPTCCaptionAbstract] as? String {
+                    let trimmed = iptcCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { caption = trimmed }
+                }
             }
 
-            // Check embedded XMP only if we still need rating, pick, or captureDate
-            if rating == nil || pick == nil || captureDate == nil {
-                if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
-                   let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
-                   let xmpString = String(data: xmpData, encoding: .utf8) {
+            // Always check embedded XMP for tags, ratings, and capture date
+            if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
+               let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
+               let xmpString = String(data: xmpData, encoding: .utf8) {
 
-                    let xmpSnapshot = parseXMPText(xmpString)
-                    if rating == nil { rating = xmpSnapshot.rating }
-                    if pick == nil   { pick   = xmpSnapshot.pick   }
-                    if captureDate == nil { captureDate = xmpSnapshot.captureDate }
-                }
+                let xmpSnapshot = parseXMPText(xmpString)
+                if rating == nil { rating = xmpSnapshot.rating }
+                if pick == nil   { pick   = xmpSnapshot.pick   }
+                if captureDate == nil { captureDate = xmpSnapshot.captureDate }
+                if caption == nil { caption = xmpSnapshot.caption }
+                keywords.formUnion(xmpSnapshot.keywords)
             }
 
             // Final File System Fallback
@@ -188,7 +233,9 @@ struct MetadataReader: Sendable {
                 gpsAltitude: gpsAltitude,
                 exposureProgram: Self.exposureProgramLabel(exposureProgramRaw),
                 meteringMode: Self.meteringModeLabel(meteringModeRaw),
-                exposureBias: exposureBias
+                exposureBias: exposureBias,
+                caption: caption,
+                keywords: keywords
             )
         } // end autoreleasepool
     }
@@ -461,6 +508,10 @@ struct MetadataReader: Sendable {
             pick = val
         }
 
+        // 11. Keywords & Caption
+        let keywords = Self.extractKeywords(from: xml)
+        let caption = Self.extractDescription(from: xml)
+
         return MetadataSnapshot(
             cameraModel: cameraModel,
             lensModel: lensModel,
@@ -485,8 +536,76 @@ struct MetadataReader: Sendable {
             gpsAltitude: nil,
             exposureProgram: nil,
             meteringMode: nil,
-            exposureBias: nil
+            exposureBias: nil,
+            caption: caption,
+            keywords: keywords
         )
+    }
+
+    static func extractKeywords(from xml: String) -> Set<String> {
+        var keywords = Set<String>()
+        let xmlRange = NSRange(xml.startIndex..., in: xml)
+
+        // 1. dc:subject
+        if let subjectMatch = subjectRegex.firstMatch(in: xml, options: [], range: xmlRange),
+           let subjectRange = Range(subjectMatch.range(at: 1), in: xml) {
+            let block = String(xml[subjectRange])
+            let blockRange = NSRange(block.startIndex..., in: block)
+            liItemRegex.enumerateMatches(in: block, options: [], range: blockRange) { match, _, _ in
+                guard let match, let r = Range(match.range(at: 1), in: block) else { return }
+                let cleaned = unescapeXMP(String(block[r]))
+                if !cleaned.isEmpty { keywords.insert(cleaned) }
+            }
+        }
+
+        // 2. lr:hierarchicalSubject (Lightroom hierarchical tags e.g. "Places|Europe|Paris")
+        if let lrMatch = lrHierarchicalRegex.firstMatch(in: xml, options: [], range: xmlRange),
+           let lrRange = Range(lrMatch.range(at: 1), in: xml) {
+            let block = String(xml[lrRange])
+            let blockRange = NSRange(block.startIndex..., in: block)
+            liItemRegex.enumerateMatches(in: block, options: [], range: blockRange) { match, _, _ in
+                guard let match, let r = Range(match.range(at: 1), in: block) else { return }
+                let cleaned = unescapeXMP(String(block[r]))
+                if !cleaned.isEmpty {
+                    keywords.insert(cleaned)
+                    // If hierarchical with '|', also include leaf name (e.g. "Paris")
+                    if let leaf = cleaned.split(separator: "|").last {
+                        let trimmedLeaf = leaf.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmedLeaf.isEmpty {
+                            keywords.insert(trimmedLeaf)
+                        }
+                    }
+                }
+            }
+        }
+
+        return keywords
+    }
+
+    static func extractDescription(from xml: String) -> String? {
+        let xmlRange = NSRange(xml.startIndex..., in: xml)
+        if let match = descriptionRegex.firstMatch(in: xml, options: [], range: xmlRange),
+           let range = Range(match.range(at: 1), in: xml) {
+            var raw = String(xml[range])
+            let rawRange = NSRange(raw.startIndex..., in: raw)
+            if let liMatch = liItemRegex.firstMatch(in: raw, options: [], range: rawRange),
+               let liRange = Range(liMatch.range(at: 1), in: raw) {
+                raw = String(raw[liRange])
+            }
+            let cleaned = unescapeXMP(raw)
+            return cleaned.isEmpty ? nil : cleaned
+        }
+        return nil
+    }
+
+    static func unescapeXMP(_ value: String) -> String {
+        var s = value
+        s = s.replacingOccurrences(of: "&lt;",   with: "<")
+        s = s.replacingOccurrences(of: "&gt;",   with: ">")
+        s = s.replacingOccurrences(of: "&quot;", with: "\"")
+        s = s.replacingOccurrences(of: "&apos;", with: "'")
+        s = s.replacingOccurrences(of: "&amp;",  with: "&")
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

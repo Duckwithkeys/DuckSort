@@ -793,13 +793,32 @@ final class PhotoLibraryViewModel: ObservableObject {
                         metadata = MetadataSnapshot()
                     }
                     let sidecar = xmpTagging.readSidecarData(from: photo)
+
+                    var combinedTags = sidecar.tags
+                    combinedTags.formUnion(metadata.keywords)
+
+                    if metadata.keywords.isEmpty {
+                        for file in photo.mediaFiles where file != photo.preferredPreviewURL {
+                            let ext = file.pathExtension.lowercased()
+                            if ext == "jpg" || ext == "jpeg" || FileExtension.heifLikeExtensions.contains(ext) {
+                                let extra = metadataReader.metadata(for: file)
+                                if !extra.keywords.isEmpty {
+                                    combinedTags.formUnion(extra.keywords)
+                                    break
+                                }
+                            }
+                        }
+                    }
+
+                    let combinedDescription = sidecar.description ?? metadata.caption
+
                     return LoadedPhotoInfo(
                         id: photo.id,
                         metadata: metadata,
-                        sidecarTags: sidecar.tags,
+                        sidecarTags: combinedTags,
                         sidecarRating: sidecar.rating,
                         sidecarPick: sidecar.pick,
-                        sidecarDescription: sidecar.description
+                        sidecarDescription: combinedDescription
                     )
                 }
             }
