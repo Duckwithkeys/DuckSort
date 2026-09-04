@@ -41,6 +41,21 @@ struct DuckSortApp: App {
             SidebarCommands()
             TextEditingCommands()
 
+            CommandMenu("Sort") {
+                ForEach(PhotoLibraryViewModel.SortOption.allCases) { option in
+                    Button {
+                        FloatingWindowManager.shared.activeViewModel?.sortOption = option
+                    } label: {
+                        if FloatingWindowManager.shared.activeViewModel?.sortOption == option {
+                            Text("✓ " + option.rawValue)
+                        } else {
+                            Text(option.rawValue)
+                        }
+                    }
+                    .disabled(!windowManager.isReady)
+                }
+            }
+
             CommandGroup(after: .sidebar) {
                 Toggle("Show Advanced EXIF", isOn: Binding(
                     get: { preferences.showAdvancedEXIF },

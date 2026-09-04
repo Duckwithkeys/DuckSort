@@ -174,59 +174,7 @@ struct PhotoGridView: View {
                         .padding(.top, Theme.Space.s12)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                cornerSortDropdown
-            }
         }
-    }
-
-    // MARK: - Fast Corner Sort Dropdown
-    private var cornerSortDropdown: some View {
-        Menu {
-            ForEach(PhotoLibraryViewModel.SortOption.allCases) { option in
-                Button {
-                    withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOption = option
-                    }
-                } label: {
-                    if viewModel.sortOption == option {
-                        Label(option.rawValue, systemImage: "checkmark")
-                    } else {
-                        Text(option.rawValue)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.Color.textSecondary)
-
-                Text(viewModel.sortOption.rawValue)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textPrimary)
-                    .lineLimit(1)
-
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(Theme.Color.textSecondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
-            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.m)
-                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .help("Sort: \(viewModel.sortOption.rawValue)")
-        .padding(.top, Theme.Space.s12)
-        .padding(.trailing, Theme.Space.s20)
-        .zIndex(100)
     }
 
     private func isPointInAnyCell(_ point: CGPoint) -> Bool {
