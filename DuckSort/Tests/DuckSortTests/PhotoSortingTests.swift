@@ -72,7 +72,6 @@ struct PhotoSortingTests {
 
         let vm = PhotoLibraryViewModel()
         vm.photoSets = [setMedium, setLarge, setSmall]
-
         vm.sortOrder = .size
         vm.sortDirection = .ascending
         vm.updateDerivedState()
@@ -83,5 +82,24 @@ struct PhotoSortingTests {
         vm.updateDerivedState()
 
         #expect(vm.filteredPhotoSets.map(\.baseName) == ["Large", "Medium", "Small"])
+    }
+
+    @Test
+    func sortByOption_directAssignment() {
+        let vm = PhotoLibraryViewModel()
+        let setA = PhotoSet(baseName: "Alpha", mediaFiles: [], editPath: nil)
+        let setB = PhotoSet(baseName: "Bravo", mediaFiles: [], editPath: nil)
+        let setC = PhotoSet(baseName: "Charlie", mediaFiles: [], editPath: nil)
+
+        vm.photoSets = [setB, setC, setA]
+        vm.sortOption = .nameAscending
+        vm.updateDerivedState()
+
+        #expect(vm.filteredPhotoSets.map(\.baseName) == ["Alpha", "Bravo", "Charlie"])
+
+        vm.sortOption = .nameDescending
+        vm.updateDerivedState()
+
+        #expect(vm.filteredPhotoSets.map(\.baseName) == ["Charlie", "Bravo", "Alpha"])
     }
 }

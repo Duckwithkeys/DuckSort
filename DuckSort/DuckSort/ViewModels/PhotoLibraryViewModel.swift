@@ -135,6 +135,17 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     // MARK: - Sorting and Filtering State
+
+    enum SortOption: String, CaseIterable, Identifiable {
+        case dateDescending = "Date Descending (Newest First)"
+        case dateAscending = "Date Ascending (Oldest First)"
+        case nameAscending = "Name (A–Z)"
+        case nameDescending = "Name (Z–A)"
+        case fileSizeDescending = "File Size (Largest / Smallest)"
+        case fileSizeAscending = "File Size (Smallest / Largest)"
+
+        var id: String { rawValue }
+    }
     
     enum SortOrder: String, CaseIterable {
         case name = "Name"
@@ -172,11 +183,60 @@ final class PhotoLibraryViewModel: ObservableObject {
         case endsWith = "Ends with"
     }
 
-    @Published var sortOrder: SortOrder = .name {
-        didSet { setNeedsDerivedUpdate() }
+    @Published var sortOption: SortOption = .dateDescending {
+        didSet {
+            switch sortOption {
+            case .dateDescending:
+                sortOrder = .date
+                sortDirection = .descending
+            case .dateAscending:
+                sortOrder = .date
+                sortDirection = .ascending
+            case .nameAscending:
+                sortOrder = .name
+                sortDirection = .ascending
+            case .nameDescending:
+                sortOrder = .name
+                sortDirection = .descending
+            case .fileSizeDescending:
+                sortOrder = .size
+                sortDirection = .descending
+            case .fileSizeAscending:
+                sortOrder = .size
+                sortDirection = .ascending
+            }
+            setNeedsDerivedUpdate()
+        }
     }
-    @Published var sortDirection: SortDirection = .ascending {
-        didSet { setNeedsDerivedUpdate() }
+
+    @Published var sortOrder: SortOrder = .date {
+        didSet {
+            syncSortOption()
+            setNeedsDerivedUpdate()
+        }
+    }
+    @Published var sortDirection: SortDirection = .descending {
+        didSet {
+            syncSortOption()
+            setNeedsDerivedUpdate()
+        }
+    }
+
+    private func syncSortOption() {
+        switch (sortOrder, sortDirection) {
+        case (.date, .descending):
+            if sortOption != .dateDescending { sortOption = .dateDescending }
+        case (.date, .ascending):
+            if sortOption != .dateAscending { sortOption = .dateAscending }
+        case (.name, .ascending):
+            if sortOption != .nameAscending { sortOption = .nameAscending }
+        case (.name, .descending):
+            if sortOption != .nameDescending { sortOption = .nameDescending }
+        case (.size, .descending):
+            if sortOption != .fileSizeDescending { sortOption = .fileSizeDescending }
+        case (.size, .ascending):
+            if sortOption != .fileSizeAscending { sortOption = .fileSizeAscending }
+        }
     }
     @Published var isFilterPopoverEnabled: Bool = true {
         didSet { setNeedsDerivedUpdate() }

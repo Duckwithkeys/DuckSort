@@ -175,117 +175,55 @@ struct PhotoGridView: View {
                 }
             }
             .overlay(alignment: .topTrailing) {
-                cornerSortButton
+                cornerSortDropdown
             }
         }
     }
 
-    // MARK: - Fast Corner Sort Button
-    private var cornerSortButton: some View {
+    // MARK: - Fast Corner Sort Dropdown
+    private var cornerSortDropdown: some View {
         Menu {
-            Section("Date") {
+            ForEach(PhotoLibraryViewModel.SortOption.allCases) { option in
                 Button {
                     withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOrder = .date
-                        viewModel.sortDirection = .descending
+                        viewModel.sortOption = option
                     }
                 } label: {
-                    if viewModel.sortOrder == .date && viewModel.sortDirection == .descending {
-                        Label("Date Descending", systemImage: "checkmark")
+                    if viewModel.sortOption == option {
+                        Label(option.rawValue, systemImage: "checkmark")
                     } else {
-                        Text("Date Descending")
-                    }
-                }
-
-                Button {
-                    withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOrder = .date
-                        viewModel.sortDirection = .ascending
-                    }
-                } label: {
-                    if viewModel.sortOrder == .date && viewModel.sortDirection == .ascending {
-                        Label("Date Ascending", systemImage: "checkmark")
-                    } else {
-                        Text("Date Ascending")
-                    }
-                }
-            }
-
-            Section("Name") {
-                Button {
-                    withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOrder = .name
-                        viewModel.sortDirection = .ascending
-                    }
-                } label: {
-                    if viewModel.sortOrder == .name && viewModel.sortDirection == .ascending {
-                        Label("Name (A–Z)", systemImage: "checkmark")
-                    } else {
-                        Text("Name (A–Z)")
-                    }
-                }
-
-                Button {
-                    withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOrder = .name
-                        viewModel.sortDirection = .descending
-                    }
-                } label: {
-                    if viewModel.sortOrder == .name && viewModel.sortDirection == .descending {
-                        Label("Name (Z–A)", systemImage: "checkmark")
-                    } else {
-                        Text("Name (Z–A)")
-                    }
-                }
-            }
-
-            Section("File Size") {
-                Button {
-                    withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOrder = .size
-                        viewModel.sortDirection = .descending
-                    }
-                } label: {
-                    if viewModel.sortOrder == .size && viewModel.sortDirection == .descending {
-                        Label("File Size (Largest)", systemImage: "checkmark")
-                    } else {
-                        Text("File Size (Largest)")
-                    }
-                }
-
-                Button {
-                    withAnimation(Theme.Motion.snappy) {
-                        viewModel.sortOrder = .size
-                        viewModel.sortDirection = .ascending
-                    }
-                } label: {
-                    if viewModel.sortOrder == .size && viewModel.sortDirection == .ascending {
-                        Label("File Size (Smallest)", systemImage: "checkmark")
-                    } else {
-                        Text("File Size (Smallest)")
+                        Text(option.rawValue)
                     }
                 }
             }
         } label: {
-            ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 32, height: 32)
-                    .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
-                    )
-
+            HStack(spacing: 6) {
                 Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Color.textSecondary)
+
+                Text(viewModel.sortOption.rawValue)
+                    .font(Theme.Font.caption)
                     .foregroundStyle(Theme.Color.textPrimary)
+                    .lineLimit(1)
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Theme.Color.textSecondary)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
+            .shadow(color: Color.black.opacity(0.12), radius: 4, x: 0, y: 2)
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.Radius.m)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 0.8)
+            )
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 32, height: 32)
-        .help("Sort: \(viewModel.sortOrder.rawValue) (\(viewModel.sortDirection.rawValue))")
+        .help("Sort: \(viewModel.sortOption.rawValue)")
         .padding(.top, Theme.Space.s12)
         .padding(.trailing, Theme.Space.s20)
         .zIndex(100)
