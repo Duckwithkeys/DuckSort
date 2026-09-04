@@ -157,6 +157,7 @@ struct ContentView: View {
                             .foregroundStyle(Theme.Color.textSecondary)
                     }
                 }
+                .menuIndicator(.hidden)
                 .help("Sort photos: \(viewModel.sortOption.rawValue)")
             }
 
