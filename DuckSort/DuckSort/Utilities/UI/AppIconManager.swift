@@ -30,7 +30,9 @@ final class AppIconManager: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.updateDockIcon()
+            Task { @MainActor in
+                self?.updateDockIcon()
+            }
         }
 
         // Distributed notification for macOS system-wide theme changes
