@@ -101,7 +101,9 @@ final class UserPreferences: ObservableObject {
     @Published var appIconStyle: AppIconStyle = .system {
         didSet {
             save()
-            AppIconManager.shared.updateDockIcon()
+            DispatchQueue.main.async {
+                AppIconManager.shared.updateDockIcon()
+            }
         }
     }
     @Published var customAccent: CustomAccentColor = .system {
