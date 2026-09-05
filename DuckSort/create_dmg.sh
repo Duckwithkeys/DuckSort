@@ -23,6 +23,13 @@ cp -R "$APP_NAME" "$WORKSPACE/"
 echo "=== Creating Applications Symlink ==="
 ln -s /Applications "$WORKSPACE/Applications"
 
+echo "=== Setting Volume Icon ==="
+if [ -f "$WORKSPACE/$APP_NAME/Contents/Resources/AppIcon.icns" ]; then
+    cp "$WORKSPACE/$APP_NAME/Contents/Resources/AppIcon.icns" "$WORKSPACE/.VolumeIcon.icns"
+    SetFile -c icnC "$WORKSPACE/.VolumeIcon.icns" 2>/dev/null || true
+    SetFile -a C "$WORKSPACE" 2>/dev/null || true
+fi
+
 echo "=== Building Compressed DMG ==="
 rm -f "$DMG_NAME"
 hdiutil create -volname "DuckSort" -srcfolder "$WORKSPACE" -ov -format UDZO "$DMG_NAME"

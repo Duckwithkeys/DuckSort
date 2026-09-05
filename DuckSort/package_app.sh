@@ -17,12 +17,17 @@ APP_DIR="DuckSort.app"
 rm -rf "$APP_DIR"
 cp -R build/Release/DuckSort.app ./
 
+# Ensure the AppIcon.icns is placed inside Resources
+mkdir -p "$APP_DIR/Contents/Resources"
+cp DuckSort/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
+
 echo "=== Codesigning App Bundle ==="
 find build/Release -name "._*" -exec rm -f {} + || true
 find "$APP_DIR" -name "._*" -exec rm -f {} + || true
 xattr -cr build/Release || true
 xattr -cr "$APP_DIR"
 codesign --force --deep --sign - "$APP_DIR"
+touch "$APP_DIR"
 
 echo "=== Package Complete: DuckSort.app ==="
 
