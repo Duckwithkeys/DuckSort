@@ -25,6 +25,14 @@ enum GlassTranslucencyMode: String, Codable, CaseIterable, Identifiable, Sendabl
     var id: String { rawValue }
 }
 
+enum AppIconStyle: String, Codable, CaseIterable, Identifiable, Sendable {
+    case system = "Auto (System Light / Dark)"
+    case light = "Always Light"
+    case dark = "Always Dark"
+
+    var id: String { rawValue }
+}
+
 enum CustomAccentColor: String, Codable, CaseIterable, Identifiable, Sendable {
     case system = "System Accent"
     case emerald = "Emerald Green"
@@ -90,6 +98,12 @@ final class UserPreferences: ObservableObject {
     }
 
     // MARK: - Appearance & Haptics
+    @Published var appIconStyle: AppIconStyle = .system {
+        didSet {
+            save()
+            AppIconManager.shared.updateDockIcon()
+        }
+    }
     @Published var customAccent: CustomAccentColor = .system {
         didSet { save() }
     }
@@ -180,6 +194,7 @@ final class UserPreferences: ObservableObject {
         static let autoAdvanceToggleHotkey = "autoAdvanceToggleHotkey"
 
         // Appearance & Haptics
+        static let appIconStyle = "appIconStyle"
         static let customAccent = "customAccent"
         static let glassTranslucency = "glassTranslucency"
         static let highContrastEnabled = "highContrastEnabled"
@@ -244,6 +259,7 @@ final class UserPreferences: ObservableObject {
         UserDefaults.standard.set(autoAdvanceToggleHotkey, forKey: Keys.autoAdvanceToggleHotkey)
 
         // Appearance & Haptics
+        UserDefaults.standard.set(appIconStyle.rawValue, forKey: Keys.appIconStyle)
         UserDefaults.standard.set(customAccent.rawValue, forKey: Keys.customAccent)
         UserDefaults.standard.set(glassTranslucency.rawValue, forKey: Keys.glassTranslucency)
         UserDefaults.standard.set(highContrastEnabled, forKey: Keys.highContrastEnabled)
@@ -296,6 +312,9 @@ final class UserPreferences: ObservableObject {
         autoAdvanceToggleHotkey = UserDefaults.standard.string(forKey: Keys.autoAdvanceToggleHotkey)
         activeTagPackID = UserDefaults.standard.string(forKey: Keys.activeTagPackID) ?? TagPack.defaultPackID
 
+        if let rawIcon = UserDefaults.standard.string(forKey: Keys.appIconStyle), let style = AppIconStyle(rawValue: rawIcon) {
+            appIconStyle = style
+        }
         if let rawAccent = UserDefaults.standard.string(forKey: Keys.customAccent), let acc = CustomAccentColor(rawValue: rawAccent) {
             customAccent = acc
         }
@@ -367,6 +386,7 @@ final class UserPreferences: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Keys.iptcContactPhone)
         UserDefaults.standard.removeObject(forKey: Keys.iptcContactWebsite)
         UserDefaults.standard.removeObject(forKey: Keys.iptcRightsUsageTerms)
+        UserDefaults.standard.removeObject(forKey: Keys.appIconStyle)
 
         lastSourceDirectoryIDs = []
         lastLooseFilePaths = []
@@ -379,6 +399,7 @@ final class UserPreferences: ObservableObject {
         autoAdvanceSoundEnabled = false
         autoAdvanceToggleHotkey = ""
         activeTagPackID = TagPack.defaultPackID
+        appIconStyle = .system
 
         // Auto tagging
         autoTaggingEnabled = true

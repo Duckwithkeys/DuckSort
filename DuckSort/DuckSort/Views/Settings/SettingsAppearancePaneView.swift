@@ -14,6 +14,20 @@ struct SettingsAppearancePaneView: View {
     var body: some View {
         Form {
             Section {
+                Picker("App Icon Mode", selection: $preferences.appIconStyle) {
+                    ForEach(AppIconStyle.allCases) { style in
+                        Text(style.rawValue).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("App & Dock Icon")
+            } footer: {
+                Text("Automatically match macOS Light/Dark appearance or lock to a specific variant.")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: Theme.Space.s12) {
                     ForEach(CustomAccentColor.allCases) { accent in
                         Button {

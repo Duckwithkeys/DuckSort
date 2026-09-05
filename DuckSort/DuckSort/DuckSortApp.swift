@@ -11,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSSetUncaughtExceptionHandler { exception in
             AppLogger.ui.fault("CRASH: Uncaught exception: \(exception.name.rawValue) - \(exception.reason ?? "")\nStack trace: \(exception.callStackSymbols.joined(separator: "\n"))")
         }
+        AppIconManager.shared.startObserving()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -31,6 +32,7 @@ struct DuckSortApp: App {
         NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         NSWindow.allowsAutomaticWindowTabbing = false
+        AppIconManager.shared.startObserving()
     }
 
     var body: some Scene {

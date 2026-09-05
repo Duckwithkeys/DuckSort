@@ -8,6 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		003EF57C9D02936C37FA0D53 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 4D239475BFC81BE1C0BA3E3E /* AppIcon.icns */; };
+		A1A100012D00000100000001 /* AppIcon-Dark.icns in Resources */ = {isa = PBXBuildFile; fileRef = B1B100012D00000100000001 /* AppIcon-Dark.icns */; };
+		A1A100022D00000100000002 /* AppIcon-Light.icns in Resources */ = {isa = PBXBuildFile; fileRef = B1B100022D00000100000002 /* AppIcon-Light.icns */; };
+		A1A100032D00000100000003 /* AppIcon-Dark.png in Resources */ = {isa = PBXBuildFile; fileRef = B1B100032D00000100000003 /* AppIcon-Dark.png */; };
+		A1A100042D00000100000004 /* AppIcon-Light.png in Resources */ = {isa = PBXBuildFile; fileRef = B1B100042D00000100000004 /* AppIcon-Light.png */; };
+		A1A100052D00000100000005 /* AppIconManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B100052D00000100000005 /* AppIconManager.swift */; };
 		02C7552AF38FBC4AE1426363 /* DiskThumbnailCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0367566A55DB86AFA0428E62 /* DiskThumbnailCache.swift */; };
 		0571539967A10143E65D0696 /* ExportRuleStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0080F127A4484E5A56F61F59 /* ExportRuleStore.swift */; };
 		06F8DA57725A606FD4E48A93 /* MetadataBatchingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4C152E80A6AA5B940DB8449 /* MetadataBatchingTests.swift */; };
@@ -132,6 +137,11 @@
 		47D04DD3BEC871500499CABC /* TagPackLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagPackLibrary.swift; sourceTree = "<group>"; };
 		4BDA7E931BABADAED5B13813 /* FileManager+Directory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FileManager+Directory.swift"; sourceTree = "<group>"; };
 		4D239475BFC81BE1C0BA3E3E /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		B1B100012D00000100000001 /* AppIcon-Dark.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = "AppIcon-Dark.icns"; sourceTree = "<group>"; };
+		B1B100022D00000100000002 /* AppIcon-Light.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = "AppIcon-Light.icns"; sourceTree = "<group>"; };
+		B1B100032D00000100000003 /* AppIcon-Dark.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcons/AppIcon-Dark.png"; sourceTree = "<group>"; };
+		B1B100042D00000100000004 /* AppIcon-Light.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "AppIcons/AppIcon-Light.png"; sourceTree = "<group>"; };
+		B1B100052D00000100000005 /* AppIconManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppIconManager.swift; sourceTree = "<group>"; };
 		4E15850547ABB0DC01983628 /* LogConsoleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogConsoleView.swift; sourceTree = "<group>"; };
 		4E2D82FBB1499652691B819F /* SettingsRulesPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRulesPaneView.swift; sourceTree = "<group>"; };
 		4EC5B7910C6FFBE1009F8969 /* RoutedTransferService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutedTransferService.swift; sourceTree = "<group>"; };
@@ -294,6 +304,10 @@
 			isa = PBXGroup;
 			children = (
 				4D239475BFC81BE1C0BA3E3E /* AppIcon.icns */,
+				B1B100012D00000100000001 /* AppIcon-Dark.icns */,
+				B1B100022D00000100000002 /* AppIcon-Light.icns */,
+				B1B100032D00000100000003 /* AppIcon-Dark.png */,
+				B1B100042D00000100000004 /* AppIcon-Light.png */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -424,6 +438,7 @@
 		D6255D5F315AB4A06E3BE64A /* UI */ = {
 			isa = PBXGroup;
 			children = (
+				B1B100052D00000100000005 /* AppIconManager.swift */,
 				4BDA7E931BABADAED5B13813 /* FileManager+Directory.swift */,
 				7C15252EAB38589686E1A606 /* FloatingWindowManager.swift */,
 				B86F548BB138B2D82A4B9469 /* HapticFeedbackManager.swift */,
@@ -549,6 +564,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				003EF57C9D02936C37FA0D53 /* AppIcon.icns in Resources */,
+				A1A100012D00000100000001 /* AppIcon-Dark.icns in Resources */,
+				A1A100022D00000100000002 /* AppIcon-Light.icns in Resources */,
+				A1A100032D00000100000003 /* AppIcon-Dark.png in Resources */,
+				A1A100042D00000100000004 /* AppIcon-Light.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -582,6 +601,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1A100052D00000100000005 /* AppIconManager.swift in Sources */,
 				6786FF5FB80A4329CAD65B70 /* AppLogger.swift in Sources */,
 				9679B5EC085C73415D1AB906 /* AutoTagEngine.swift in Sources */,
 				F765AC063F4121934B5C441B /* AutoTagRule.swift in Sources */,
