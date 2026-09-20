@@ -8,30 +8,6 @@ import Foundation
 // following the shape of `RoutedSidecarTests`.
 struct RoutedMoveSafetyTests {
 
-    /// Recursively finds every regular file under `root` (excluding
-    /// `excludedPath`) whose bytes match `bytes`. Used to prove a copy
-    /// exists somewhere other than the source, without hard-coding the
-    /// exact sanitized name a later fix (Task 2) will produce for it.
-    private func filesWithIdenticalContent(
-        to bytes: Data,
-        under root: URL,
-        excludingPath excludedPath: String
-    ) -> [URL] {
-        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else {
-            return []
-        }
-        var matches: [URL] = []
-        for case let url as URL in enumerator {
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else { continue }
-            guard url.path != excludedPath else { continue }
-            if let data = try? Data(contentsOf: url), data == bytes {
-                matches.append(url)
-            }
-        }
-        return matches
-    }
-
     @Test
     func moveOriginals_baseEqualsSourceWithEmptyRule_throwsAndKeepsSource() async throws {
         let src = try TempDir.make()

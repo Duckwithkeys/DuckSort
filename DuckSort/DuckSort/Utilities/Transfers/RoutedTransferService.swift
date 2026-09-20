@@ -82,11 +82,9 @@ actor RoutedTransferService {
         // directory is created or byte touched. FilenameSanitizer neutralizes
         // "."/".."-only components and ExportPathRule sanitizes the
         // "No <category>" fallback, but this is the one point that must hold
-        // regardless of what produced the folder. Every job's destination
-        // sidecar is written beside `dest`, which is always built from one of
-        // these same folders (CollisionResolver and FileNaming both derive
-        // `dest` from `destinationFolder`), so this single check covers the
-        // sidecar path too.
+        // regardless of what produced the folder. `executeJob` re-checks the
+        // sidecar folder separately, since it's derived from CollisionResolver's
+        // resolved `dest`, not directly from one of these folders.
         try Self.verifyContained(routingResults.flatMap(\.folders), under: plan.baseDestination)
 
         // 1. Pre-walk & compute multipliers
@@ -189,7 +187,10 @@ actor RoutedTransferService {
                 index += 1
                 runningTasks += 1
                 group.addTask {
-                    try await self.executeJob(job, operation: plan.operation, sidecarService: localSidecarService)
+                    try await self.executeJob(
+                        job, operation: plan.operation, baseDestination: plan.baseDestination,
+                        sidecarService: localSidecarService
+                    )
                 }
             }
 
@@ -223,7 +224,10 @@ actor RoutedTransferService {
                     index += 1
                     runningTasks += 1
                     group.addTask {
-                        try await self.executeJob(job, operation: plan.operation, sidecarService: localSidecarService)
+                        try await self.executeJob(
+                            job, operation: plan.operation, baseDestination: plan.baseDestination,
+                            sidecarService: localSidecarService
+                        )
                     }
                 }
             }
@@ -272,6 +276,7 @@ actor RoutedTransferService {
     nonisolated private func executeJob(
         _ job: RoutedJob,
         operation: RoutedOperation,
+        baseDestination: URL,
         sidecarService: XMPTaggingService
     ) async throws -> (Int64, Bool, URL, URL, Bool) {
         let fm = FileManager.default
@@ -315,6 +320,13 @@ actor RoutedTransferService {
                 capture: job.metadata,
                 iptc: XMPTaggingService.iptcFromPreferences()
             )
+            // The sidecar path is derived from `dest`, a CollisionResolver
+            // result, not directly from one of the folders the phase-0
+            // containment guard checked. Nothing else enforces that the
+            // resolver stays inside the destination, so re-check before
+            // writing the sidecar.
+            let sidecarFolder = XMPTaggingService.exportSidecarURL(for: dest).deletingLastPathComponent()
+            try Self.verifyContained([sidecarFolder], under: baseDestination)
             do {
                 try sidecarService.writeExportSidecar(
                     payload,

@@ -144,7 +144,7 @@ struct RoutedSidecarTests {
     // point that must hold regardless of what produced a routed folder, so
     // it is tested directly against URLs outside, equal to, and inside base.
     @Test
-    func execute_routedFolderOutsideBase_throwsBeforeCreatingAnything() throws {
+    func verifyContained_folderOutsideBase_throws() throws {
         let base = URL(fileURLWithPath: "/tmp/DuckSortTests-containment/dest", isDirectory: true)
 
         // Ancestor of base: escapes.
