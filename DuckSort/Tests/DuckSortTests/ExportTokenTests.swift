@@ -210,4 +210,90 @@ struct ExportTokenTests {
         )
         #expect(folders.first?.lastPathComponent == "1.5s")
     }
+
+    // Finding 1: an attacker-controlled camera model of ".." used to survive
+    // FilenameSanitizer unchanged and climb one level above the export base.
+    @Test
+    func cameraModelDotDot_staysInsideBase() {
+        let base = URL(fileURLWithPath: "/tmp/export")
+        let metadata = MetadataSnapshot(cameraModel: "..", captureDate: Date())
+        let dummyCategoryMap: (UUID) -> String? = { _ in nil }
+
+        let folders = ExportPathRouter.destinationFolders(
+            base: base,
+            rule: [.cameraModel, .captureDate],
+            metadata: metadata,
+            assignedTags: [],
+            categoryNameProvider: dummyCategoryMap
+        )
+
+        let basePath = base.standardizedFileURL.path
+        for folder in folders {
+            #expect(folder.standardizedFileURL.path.hasPrefix(basePath + "/"))
+        }
+        #expect(folders.first?.pathComponents.dropFirst(base.pathComponents.count).first == "Unknown Camera")
+    }
+
+    // Finding 2: `.tagCategory` with no matching tag built "No <category>"
+    // straight from the unsanitized category name, so a category name of
+    // "../../../outside/pwn" could descend to an arbitrary absolute path.
+    @Test
+    func tagCategory_noMatch_sanitizesCategoryName() {
+        let base = URL(fileURLWithPath: "/tmp/export")
+        let categoryID = UUID()
+        let metadata = MetadataSnapshot()
+        let categoryMap: (UUID) -> String? = { _ in "../../../outside/pwn" }
+
+        let folders = ExportPathRouter.destinationFolders(
+            base: base,
+            rule: [.tagCategory(categoryID)],
+            metadata: metadata,
+            assignedTags: [],
+            categoryNameProvider: categoryMap
+        )
+
+        #expect(folders.first?.lastPathComponent == "No ..-..-..-outside-pwn")
+        let basePath = base.standardizedFileURL.path
+        #expect(folders.first?.standardizedFileURL.path.hasPrefix(basePath + "/") == true)
+    }
+
+    @Test
+    func tagCategory_noMatch_nilCategory_fallsBack() {
+        let base = URL(fileURLWithPath: "/tmp/export")
+        let categoryID = UUID()
+        let metadata = MetadataSnapshot()
+        let categoryMap: (UUID) -> String? = { _ in nil }
+
+        let folders = ExportPathRouter.destinationFolders(
+            base: base,
+            rule: [.tagCategory(categoryID)],
+            metadata: metadata,
+            assignedTags: [],
+            categoryNameProvider: categoryMap
+        )
+
+        #expect(folders.first?.lastPathComponent == "No Uncategorized")
+    }
+
+    @Test
+    func tagCategory_match_dotDotTagName_isNeutralized() {
+        let base = URL(fileURLWithPath: "/tmp/export")
+        let categoryID = UUID()
+        let metadata = MetadataSnapshot()
+        let assignedTags = [CustomTag(name: "..", categoryID: categoryID)]
+        let categoryMap: (UUID) -> String? = { _ in "People" }
+
+        let folders = ExportPathRouter.destinationFolders(
+            base: base,
+            rule: [.tagCategory(categoryID)],
+            metadata: metadata,
+            assignedTags: assignedTags,
+            categoryNameProvider: categoryMap
+        )
+
+        let basePath = base.standardizedFileURL.path
+        for folder in folders {
+            #expect(folder.standardizedFileURL.path.hasPrefix(basePath + "/"))
+        }
+    }
 }

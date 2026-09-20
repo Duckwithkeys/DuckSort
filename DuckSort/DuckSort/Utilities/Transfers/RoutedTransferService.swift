@@ -77,6 +77,18 @@ actor RoutedTransferService {
             return RoutingResult(routed: routed, folders: folders)
         }
 
+        // Containment guard (Finding 1, Finding 2): every routed folder must
+        // stay under the base destination the user chose, checked before any
+        // directory is created or byte touched. FilenameSanitizer neutralizes
+        // "."/".."-only components and ExportPathRule sanitizes the
+        // "No <category>" fallback, but this is the one point that must hold
+        // regardless of what produced the folder. Every job's destination
+        // sidecar is written beside `dest`, which is always built from one of
+        // these same folders (CollisionResolver and FileNaming both derive
+        // `dest` from `destinationFolder`), so this single check covers the
+        // sidecar path too.
+        try Self.verifyContained(routingResults.flatMap(\.folders), under: plan.baseDestination)
+
         // 1. Pre-walk & compute multipliers
         var walkItems: [FileWalkItem] = []
         walkItems.reserveCapacity(routingResults.reduce(0) { $0 + $1.folders.count * $1.routed.photoSet.allFiles.count })
@@ -318,6 +330,25 @@ actor RoutedTransferService {
     }
 
 
+
+    // MARK: - Containment guard
+
+    /// Every routed folder must be `base` itself or a descendant of it.
+    /// Throws `TransferError.destinationEscapesBase` for the first folder
+    /// that isn't, before `execute` creates any directory or touches any
+    /// file. Compares standardized paths with a trailing-slash prefix check
+    /// (not a bare `hasPrefix`) so a sibling directory whose name merely
+    /// shares `base`'s prefix — e.g. `base` = `/x/dest`, folder = `/x/dest2`
+    /// — is correctly rejected rather than treated as contained.
+    static func verifyContained(_ folders: [URL], under base: URL) throws {
+        let basePath = base.standardizedFileURL.path
+        for folder in folders {
+            let folderPath = folder.standardizedFileURL.path
+            guard folderPath == basePath || folderPath.hasPrefix(basePath + "/") else {
+                throw TransferError.destinationEscapesBase(folder)
+            }
+        }
+    }
 
     // MARK: - Chunked file size computation
 

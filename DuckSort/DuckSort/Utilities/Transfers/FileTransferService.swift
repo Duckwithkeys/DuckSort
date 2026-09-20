@@ -270,6 +270,7 @@ enum TransferError: LocalizedError {
     case destinationUnavailable(String)
     case noSelection
     case sameSourceAndDestination
+    case destinationEscapesBase(URL)
 
     var errorDescription: String? {
         switch self {
@@ -279,6 +280,8 @@ enum TransferError: LocalizedError {
             return "Select at least one photo set before transferring."
         case .sameSourceAndDestination:
             return "Choose a different destination folder before moving files."
+        case .destinationEscapesBase(let url):
+            return "A routed destination folder would fall outside the chosen destination: \(url.path)"
         }
     }
 }

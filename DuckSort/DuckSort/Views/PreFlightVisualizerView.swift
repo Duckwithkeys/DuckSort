@@ -316,6 +316,10 @@ struct SimulatedFolderNodeView: View {
                             }
                         }
 
+                        if file.isOutsideDestination {
+                            outsideDestinationBadge
+                        }
+
                         resolutionPill(for: file.resolution)
                     }
                     .padding(.vertical, 3)
@@ -348,6 +352,20 @@ struct SimulatedFolderNodeView: View {
             .padding(.vertical, 4)
         }
         .tint(Theme.Color.textSecondary)
+    }
+
+    /// Flags a file whose routed destination resolved outside
+    /// `baseDestination` (Finding 1, Finding 2). `RoutedTransferService`
+    /// refuses to write such a folder at all, but this preview runs before
+    /// that guard, so the escape must be visible here rather than silently
+    /// folded into the root listing.
+    private var outsideDestinationBadge: some View {
+        Text("Outside Destination")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Theme.Color.textInverse)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Theme.Color.danger, in: RoundedRectangle(cornerRadius: Theme.Radius.s))
     }
 
     private func resolutionPill(for resolution: CollisionResolution) -> some View {
@@ -398,9 +416,17 @@ class SimulatedFolderTree {
     func insert(file: SimulatedFile, relativeTo base: URL) {
         let basePath = base.standardizedFileURL.path
         let destPath = file.destinationURL.deletingLastPathComponent().standardizedFileURL.path
-        
-        guard destPath.hasPrefix(basePath) else {
-            root.files.append(file)
+
+        // A routed folder built from attacker-controlled metadata can
+        // resolve outside `base` (Finding 1, Finding 2). The containment
+        // guard in RoutedTransferService refuses to write such a folder at
+        // all, but this dry-run preview ran before that guard and must not
+        // fold an escaped path into the root as if it belonged there — doing
+        // so hid the escape from the user instead of warning them.
+        guard destPath == basePath || destPath.hasPrefix(basePath + "/") else {
+            var escaped = file
+            escaped.isOutsideDestination = true
+            root.files.append(escaped)
             return
         }
         
@@ -448,4 +474,8 @@ struct SimulatedFile: Identifiable {
     let sourceURL: URL
     let destinationURL: URL
     let resolution: CollisionResolution
+    /// Set when this file's routed destination fell outside `baseDestination`
+    /// (Finding 1, Finding 2). Drives a visible warning badge instead of
+    /// silently drawing the file as if it belonged under the root.
+    var isOutsideDestination: Bool = false
 }

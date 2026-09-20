@@ -155,7 +155,15 @@ enum ExportPathRouter {
                     nextFolders.append(folder.appendingPathComponent(name))
 
                 case .tagCategory(let categoryID):
-                    let categoryName = categoryNameProvider(categoryID) ?? "Uncategorized"
+                    // The category name comes from an imported tag pack or
+                    // user-typed text with no other sanitizer in the chain
+                    // (Finding 2); unlike the sibling cases above, this is
+                    // the only unsanitized attacker-influenced component
+                    // builder in this switch.
+                    let categoryName = FilenameSanitizer.clean(
+                        categoryNameProvider(categoryID) ?? "",
+                        fallback: "Uncategorized"
+                    )
                     let matching = assignedTags
                         .filter { $0.categoryID == categoryID }
                         .map { FilenameSanitizer.clean($0.name, fallback: "Unnamed") }

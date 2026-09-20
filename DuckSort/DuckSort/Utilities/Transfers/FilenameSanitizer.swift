@@ -22,7 +22,17 @@ enum FilenameSanitizer {
         while result.contains("  ") {
             result = result.replacingOccurrences(of: "  ", with: " ")
         }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        let final = result.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // A value of exactly "." or ".." (or any run of only dots) is a
+        // parent/self-directory reference, not a filename. None of the
+        // illegal-character replacement above touches ".", so this would
+        // otherwise reach `folder.appendingPathComponent(...)` unchanged and
+        // climb one level above the intended export destination per "..".
+        if final.allSatisfy({ $0 == "." }) {
+            return fallback
+        }
+        return final
     }
 }
 
