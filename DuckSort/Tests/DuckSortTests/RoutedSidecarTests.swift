@@ -177,4 +177,52 @@ struct RoutedSidecarTests {
         try RoutedTransferService.verifyContained([base], under: base)
         try RoutedTransferService.verifyContained([base.appendingPathComponent("Sub")], under: base)
     }
+
+    // Finding 4: same exploit as FileTransferSidecarTests but through the
+    // routed (export-rule) transfer path.
+    @Test
+    func copyOriginals_symlinkedSourceSidecar_doesNotLeakBytesAndCountsSidecarFailure() async throws {
+        let src = try TempDir.make(); let dst = try TempDir.make(); let outside = try TempDir.make()
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: dst)
+            try? FileManager.default.removeItem(at: outside)
+        }
+
+        let media = src.appendingPathComponent("IMG_0088.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+
+        let secret = outside.appendingPathComponent("secret.txt")
+        let secretContents = "SECRET-DO-NOT-LEAK-\(UUID().uuidString)"
+        try secretContents.write(to: secret, atomically: true, encoding: .utf8)
+
+        let sourceSidecar = src.appendingPathComponent("IMG_0088.xmp")
+        try FileManager.default.createSymbolicLink(at: sourceSidecar, withDestinationURL: secret)
+
+        let set = PhotoSet(baseName: "IMG_0088", mediaFiles: [media], editPath: nil)
+        let routed = RoutedPhoto(
+            photoSet: set,
+            metadata: MetadataReader().metadata(for: media),
+            tags: [CustomTag(name: "Family", categoryID: UUID())]
+        )
+
+        let plan = RoutedPlan(
+            operation: .copyOriginals,
+            baseDestination: dst,
+            rule: [],
+            photos: [routed]
+        )
+        let summary = try await RoutedTransferService().execute(plan, categoryNameProvider: { _ in nil })
+
+        #expect(summary.sidecarFailures >= 1)
+
+        let destSidecar = dst.appendingPathComponent("IMG_0088.xmp")
+        if let destContents = try? String(contentsOf: destSidecar, encoding: .utf8) {
+            #expect(!destContents.contains(secretContents))
+        }
+
+        let type = try FileManager.default.attributesOfItem(atPath: sourceSidecar.path)[.type] as? FileAttributeType
+        #expect(type == .typeSymbolicLink)
+        #expect(try String(contentsOf: secret, encoding: .utf8) == secretContents)
+    }
 }

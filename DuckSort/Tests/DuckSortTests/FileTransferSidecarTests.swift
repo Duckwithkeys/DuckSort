@@ -135,4 +135,52 @@ struct FileTransferSidecarTests {
         #expect(xml.contains("<rdf:li>Family</rdf:li>"))
         #expect(xml.contains("tiff:Model=\"X-T5\""))
     }
+
+    // Finding 4: a source sidecar that's a symlink (planted beside
+    // attacker-controlled media) must not have its target's bytes read
+    // into the export, and the failed write must be counted so the user
+    // sees it rather than getting a silently empty/wrong sidecar.
+    @Test
+    func copy_symlinkedSourceSidecar_doesNotLeakBytesAndCountsSidecarFailure() async throws {
+        let src = try TempDir.make(); let dst = try TempDir.make(); let outside = try TempDir.make()
+        defer {
+            try? FileManager.default.removeItem(at: src)
+            try? FileManager.default.removeItem(at: dst)
+            try? FileManager.default.removeItem(at: outside)
+        }
+
+        let media = src.appendingPathComponent("IMG_0099.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+
+        let secret = outside.appendingPathComponent("secret.txt")
+        let secretContents = "SECRET-DO-NOT-LEAK-\(UUID().uuidString)"
+        try secretContents.write(to: secret, atomically: true, encoding: .utf8)
+
+        let sourceSidecar = src.appendingPathComponent("IMG_0099.xmp")
+        try FileManager.default.createSymbolicLink(at: sourceSidecar, withDestinationURL: secret)
+
+        let set = PhotoSet(baseName: "IMG_0099", mediaFiles: [media], editPath: nil)
+        let metadata = MetadataReader().metadata(for: media)
+
+        let plan = TransferPlan(
+            operation: .copy,
+            destinationDirectory: dst,
+            photoSets: [set],
+            tagNames: [set.id: ["Family"]],
+            metadata: [set.id: metadata]
+        )
+        let summary = try await FileTransferService().execute(plan)
+
+        #expect(summary.sidecarFailures >= 1)
+
+        let destSidecar = dst.appendingPathComponent("IMG_0099.xmp")
+        if let destContents = try? String(contentsOf: destSidecar, encoding: .utf8) {
+            #expect(!destContents.contains(secretContents))
+        }
+
+        // The symlink and its target are untouched by the failed attempt.
+        let type = try FileManager.default.attributesOfItem(atPath: sourceSidecar.path)[.type] as? FileAttributeType
+        #expect(type == .typeSymbolicLink)
+        #expect(try String(contentsOf: secret, encoding: .utf8) == secretContents)
+    }
 }

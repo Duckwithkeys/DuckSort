@@ -30,6 +30,15 @@ import ImageIO
 
 struct XMPTaggingService: Sendable {
 
+    /// Sidecar paths are derived from media filenames and never pass through
+    /// FileScanner, so an attacker-controlled folder can plant a symlink named
+    /// IMG_0001.xmp pointing anywhere on disk. attributesOfItem uses lstat and
+    /// does not follow links, so this rejects the link itself.
+    nonisolated private static func requireRegularSidecar(_ url: URL) throws {
+        let type = try FileManager.default.attributesOfItem(atPath: url.path)[.type] as? FileAttributeType
+        guard type == .typeRegular else { throw SidecarError.notRegularFile(url) }
+    }
+
     /// Reads extended attribute metadata digest from file to validate sidecar freshness without full XML parse.
     static func validateFreshness(for url: URL, expectedHash: String) -> Bool {
         let name = "com.ducksort.metadata.hash"
@@ -70,6 +79,9 @@ struct XMPTaggingService: Sendable {
         let urls = Self.xmpSidecarURLs(for: photoSet)
         let fm = FileManager.default
         for url in urls where fm.fileExists(atPath: url.path) {
+            // Don't silently unlink a planted symlink either; surface it so
+            // the user notices the folder isn't what it looks like.
+            try Self.requireRegularSidecar(url)
             try fm.removeItem(at: url)
         }
     }
@@ -135,6 +147,13 @@ struct XMPTaggingService: Sendable {
         let sortedNames = tagNames.sorted()
         let fm = FileManager.default
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        // A symlinked .xmp would have its target's bytes read below and then
+        // either merged back into a rename-over write or unlinked outright;
+        // refuse before touching it at all.
+        if fm.fileExists(atPath: url.path) {
+            try Self.requireRegularSidecar(url)
+        }
 
         if sortedNames.isEmpty {
             if let content = try? String(contentsOf: url, encoding: .utf8),
@@ -218,27 +237,69 @@ struct XMPTaggingService: Sendable {
             // Nothing to update; sidecar doesn't exist yet.
             return
         }
-        var content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        if let rating {
-            content = Self.upsertAttribute(name: "xmp:Rating", value: String(rating), in: content)
+        try Self.requireRegularSidecar(url)
+
+        let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        guard Self.looksLikeXMP(content) else {
+            // Not our XMP; don't echo an arbitrary regular file's bytes
+            // back out under a fresh rating/pick attribute.
+            throw SidecarError.notXMP(url)
         }
-        if let pick {
-            content = Self.upsertAttribute(name: "xmpDM:pick", value: String(pick), in: content)
+        // upsertAttribute's no-match fallback replaces every ">" in the
+        // string it's given (fine for the single opening tag mergeAttributes
+        // passes it, corrupting for a whole multi-tag document, which would
+        // mangle every other tag including </dc:subject> and silently drop
+        // tags on the next read). Scope it to just the <rdf:Description>
+        // opening tag, the same substring mergeAttributes already uses.
+        var updated = content
+        let range = NSRange(updated.startIndex..., in: updated)
+        if let match = Regex.descriptionTag.firstMatch(in: updated, options: [], range: range),
+           let tagRange = Range(match.range(at: 1), in: updated) {
+            var tagContent = String(updated[tagRange])
+            if let rating {
+                tagContent = Self.upsertAttribute(name: "xmp:Rating", value: String(rating), in: tagContent)
+            }
+            if let pick {
+                tagContent = Self.upsertAttribute(name: "xmpDM:pick", value: String(pick), in: tagContent)
+            }
+            updated.replaceSubrange(tagRange, with: tagContent)
         }
-        try content.write(to: url, atomically: true, encoding: .utf8)
+        try updated.write(to: url, atomically: true, encoding: .utf8)
     }
 
     private func updateSidecarCaption(url: URL, caption: String?) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path) else { return }
-        var content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        content = Self.mergeDescription(caption, into: content)
-        try content.write(to: url, atomically: true, encoding: .utf8)
+        try Self.requireRegularSidecar(url)
+
+        let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        guard Self.looksLikeXMP(content) else {
+            throw SidecarError.notXMP(url)
+        }
+        let updated = Self.mergeDescription(caption, into: content)
+        try updated.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    /// True only for content that already looks like an XMP packet. Guards
+    /// `updateSidecarRatingPick`/`updateSidecarCaption` against echoing an
+    /// unrelated regular file's bytes back out with an attribute appended.
+    nonisolated private static func looksLikeXMP(_ content: String) -> Bool {
+        content.contains("<x:xmpmeta") || content.contains("<rdf:Description")
     }
 
     // MARK: - Read
 
     private func readDataFromXMP(at url: URL) -> (tags: Set<String>, rating: Int?, pick: Int?, description: String?)? {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: url.path) {
+            // Scan-time reads must not follow a symlinked sidecar into an
+            // attacker-chosen file.
+            do {
+                try Self.requireRegularSidecar(url)
+            } catch {
+                return nil
+            }
+        }
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
 
         var names: Set<String> = []
@@ -310,14 +371,26 @@ struct XMPTaggingService: Sendable {
     /// load it and merge the new metadata, preserving all other existing tags (like ratings).
     func writeExportSidecar(_ payload: SidecarPayload, besideDestinationFile fileURL: URL, mergingSourceSidecar sourceSidecarURL: URL? = nil) throws {
         let url = Self.exportSidecarURL(for: fileURL)
-        try FileManager.default.createDirectory(
+        let fm = FileManager.default
+        try fm.createDirectory(
             at: url.deletingLastPathComponent(), withIntermediateDirectories: true
         )
 
-        let originalXMP: String? = {
-            guard let sourceSidecarURL else { return nil }
-            return try? String(contentsOf: sourceSidecarURL, encoding: .utf8)
-        }()
+        var originalXMP: String?
+        if let sourceSidecarURL, fm.fileExists(atPath: sourceSidecarURL.path) {
+            // The source sidecar belongs to the photo being exported and may
+            // be a symlink planted beside attacker-controlled media; refuse
+            // to read through it into the export.
+            try Self.requireRegularSidecar(sourceSidecarURL)
+            originalXMP = try? String(contentsOf: sourceSidecarURL, encoding: .utf8)
+        }
+
+        if fm.fileExists(atPath: url.path) {
+            // The destination sidecar path could itself already be a
+            // symlink (e.g. re-exporting into a previously planted folder);
+            // refuse to clobber it via rename-over.
+            try Self.requireRegularSidecar(url)
+        }
 
         let finalXMP: String
         if let originalXMP {
@@ -752,6 +825,24 @@ struct XMPTaggingService: Sendable {
         s = s.replacingOccurrences(of: "&apos;", with: "'")
         s = s.replacingOccurrences(of: "&amp;",  with: "&")
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+enum SidecarError: LocalizedError {
+    /// The path exists but is a symlink or other special file, not a
+    /// regular file — refused rather than read/written through.
+    case notRegularFile(URL)
+    /// The path is a regular file but its content doesn't look like XMP,
+    /// so a rating/pick/caption update won't echo its bytes back out.
+    case notXMP(URL)
+
+    var errorDescription: String? {
+        switch self {
+        case .notRegularFile(let url):
+            return "\(url.lastPathComponent) is a symlink or special file, not a sidecar, and was not touched."
+        case .notXMP(let url):
+            return "\(url.lastPathComponent) exists but isn't an XMP sidecar, and was not overwritten."
+        }
     }
 }
 
