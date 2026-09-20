@@ -78,6 +78,20 @@ struct RoutedMoveSafetyTests {
         #expect(FileManager.default.fileExists(atPath: xmp.path))
     }
 
+    // A camera model of ".." must never cause the source to be deleted
+    // without a copy of it existing somewhere else under the base
+    // destination. Before Task 2's sanitizer fix, ".." reached
+    // appendingPathComponent unchanged, so the routed folder `Sorted/..`
+    // resolved back onto the source's own directory and Task 1's
+    // same-location guard refused the whole plan (Finding 1) — the source
+    // survived because nothing ran. After the sanitizer fix, ".." is
+    // neutralized to "Unknown Camera", so the routed folder is a real,
+    // contained subfolder of the base destination rather than the source's
+    // own directory: the guard no longer fires, and the move legitimately
+    // succeeds — copying the file under the base and only then removing the
+    // source, which is correct Move Originals behavior once a copy exists.
+    // Either outcome is safe; what must never happen is the source vanishing
+    // with no copy anywhere.
     @Test
     func moveOriginals_cameraModelDotDot_doesNotDeleteSource() async throws {
         let src = try TempDir.make()
@@ -85,9 +99,6 @@ struct RoutedMoveSafetyTests {
         let sortedDir = src.appendingPathComponent("Sorted")
         try FileManager.default.createDirectory(at: sortedDir, withIntermediateDirectories: true)
 
-        // EXIF Model ".." makes the camera-first rule route the file back
-        // onto `Sorted/..`, which lexically resolves to `src` — the file's
-        // own directory.
         let media = src.appendingPathComponent("IMG.jpg")
         try ImageFixture.writeJPEG(to: media, cameraModel: "..", lensModel: "XF35mm", iso: 400)
         let originalBytes = try Data(contentsOf: media)
@@ -105,8 +116,6 @@ struct RoutedMoveSafetyTests {
             photos: [routed]
         )
 
-        // Single-photo plan, so this is also the "every job is
-        // same-location" case (Finding 1) — the guard still fires here.
         var thrown: Error?
         do {
             _ = try await RoutedTransferService().execute(plan, categoryNameProvider: { _ in nil })
@@ -114,17 +123,24 @@ struct RoutedMoveSafetyTests {
             thrown = error
         }
 
-        // The source must survive no matter what: either the operation
-        // throws (this task's fix), or — after Task 2 sanitizes ".." in
-        // routed path components — it succeeds and produces a copy at a
-        // different path. Either outcome is safe as long as the only
-        // existing copy of the file is never destroyed.
-        #expect(FileManager.default.fileExists(atPath: media.path))
-        #expect(try Data(contentsOf: media) == originalBytes)
-
-        if thrown == nil {
-            let copies = filesWithIdenticalContent(to: originalBytes, under: src, excludingPath: media.path)
-            #expect(!copies.isEmpty, "Expected a copy to exist somewhere other than the source when execute did not throw")
+        if thrown != nil {
+            // Refused before touching anything: the source must be
+            // untouched, byte-identical.
+            #expect(FileManager.default.fileExists(atPath: media.path))
+            #expect(try Data(contentsOf: media) == originalBytes)
+        } else {
+            // Ran as a real, sanitized, contained move: the source having
+            // been removed is correct, as long as a byte-identical copy
+            // exists at a different path under the base destination —
+            // exactly `sortedDir/Unknown Camera/IMG.jpg` given the
+            // sanitizer's fallback for a dot-only camera model.
+            let expectedCopy = sortedDir
+                .appendingPathComponent("Unknown Camera", isDirectory: true)
+                .appendingPathComponent("IMG.jpg")
+            #expect(expectedCopy.standardizedFileURL.path != media.standardizedFileURL.path)
+            #expect(expectedCopy.standardizedFileURL.path.hasPrefix(sortedDir.standardizedFileURL.path + "/"))
+            #expect(FileManager.default.fileExists(atPath: expectedCopy.path))
+            #expect(try Data(contentsOf: expectedCopy) == originalBytes)
         }
     }
 
