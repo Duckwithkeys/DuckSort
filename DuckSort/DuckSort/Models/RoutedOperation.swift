@@ -78,4 +78,10 @@ struct RoutedSummary: Sendable {
     let baseDestination: URL
     let foldersCreated: Int
     let sidecarFailures: Int
+    /// Files whose destination already held an identical copy (hash match)
+    /// or whose routed destination resolved back onto their own source —
+    /// neither case is treated as an error, but nothing was written or
+    /// deleted for them, so the count is surfaced instead of going silent
+    /// (Finding 2).
+    let filesLeftInPlace: Int
 }

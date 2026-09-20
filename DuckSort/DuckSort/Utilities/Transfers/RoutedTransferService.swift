@@ -45,7 +45,8 @@ actor RoutedTransferService {
                 fileCount: 0,
                 baseDestination: plan.baseDestination,
                 foldersCreated: 0,
-                sidecarFailures: 0
+                sidecarFailures: 0,
+                filesLeftInPlace: 0
             )
         }
 
@@ -117,20 +118,22 @@ actor RoutedTransferService {
             }
         }
 
-        // 4. Refuse to run at all if any job's destination resolves back
-        //     onto its own source file. A routed folder that lexically
-        //     collapses onto the source directory (empty rule with base ==
-        //     source, or a rule value of ".." — Finding 3) must never reach
-        //     phase 7's cleanup with that file treated as "copied"; failing
-        //     the whole plan up front, before any directory is created or
-        //     file written, is the only way to guarantee that.
-        for job in jobs {
-            let destPath = job.destinationFolder
+        // 4. A single job whose destination resolves back onto its own
+        //    source file is not an error — a mixed plan (some photos
+        //    already sitting in their routed folder, others not) must
+        //    still move the ones that aren't. Each such job is left alone
+        //    below (CollisionResolver resolves it to `.skip`, so it's
+        //    never copied or deleted — Finding 1). Only refuse the whole
+        //    plan, before any directory is created, when *every* job is
+        //    same-location: a plan that would touch nothing is the actual
+        //    "wrong destination" case Finding 3 was about.
+        let sameLocationFlags = jobs.map { job in
+            job.destinationFolder
                 .appendingPathComponent(job.sourceURL.lastPathComponent)
-                .standardizedFileURL
-            if destPath == job.sourceURL.standardizedFileURL {
-                throw TransferError.sameSourceAndDestination
-            }
+                .standardizedFileURL == job.sourceURL.standardizedFileURL
+        }
+        if !sameLocationFlags.isEmpty && sameLocationFlags.allSatisfy({ $0 }) {
+            throw TransferError.sameSourceAndDestination
         }
 
         // 5. Pre-create directories sequentially to avoid race conditions
@@ -154,6 +157,17 @@ actor RoutedTransferService {
         // set, so a source that was never copied can never be removed
         // (Finding 3).
         var copiedSources = Set<URL>()
+        // Sources whose destination sidecar write failed. Phase 7 must not
+        // delete a source's orphan `.xmp` unless a fresh export sidecar
+        // actually exists at the destination — otherwise a failed write
+        // (e.g. a read-only destination) would destroy the only copy of
+        // the tagging data with no replacement anywhere (Finding 3).
+        var sidecarFailedSources = Set<URL>()
+        // Jobs left untouched: an identical file already at the
+        // destination (hash match), or a destination that resolved back
+        // onto the source itself. Reported on `RoutedSummary` instead of
+        // going silent (Finding 2).
+        var filesLeftInPlace = 0
 
         try await withThrowingTaskGroup(of: (Int64, Bool, URL, URL, Bool).self) { group in
             var index = 0
@@ -173,9 +187,12 @@ actor RoutedTransferService {
                 completedBytes += fileSize
                 if sidecarFailed {
                     sidecarFailures += 1
+                    sidecarFailedSources.insert(sourceURL.standardizedFileURL)
                 }
                 if copied {
                     copiedSources.insert(sourceURL.standardizedFileURL)
+                } else {
+                    filesLeftInPlace += 1
                 }
 
                 let elapsed = Date().timeIntervalSince(startTime)
@@ -205,7 +222,10 @@ actor RoutedTransferService {
         //    `copiedSources`) is removed — a file that was skipped as an
         //    identical duplicate, or whose destination collapsed onto its
         //    own location, was never in `copiedSources` and is left alone
-        //    (Finding 3).
+        //    (Finding 3). The orphan `.xmp` is additionally left alone if
+        //    the destination sidecar write for that source failed, so a
+        //    failed write never leaves zero copies of the tagging data
+        //    (Finding 3 follow-up).
         if plan.operation == .moveOriginals {
             for routed in plan.photos {
                 let mediaSet = Set(routed.photoSet.mediaFiles.map { $0.standardizedFileURL })
@@ -214,7 +234,8 @@ actor RoutedTransferService {
                     if fm.fileExists(atPath: sourceURL.path) {
                         try? fm.removeItem(at: sourceURL)
                     }
-                    if mediaSet.contains(sourceURL.standardizedFileURL) {
+                    if mediaSet.contains(sourceURL.standardizedFileURL)
+                        && !sidecarFailedSources.contains(sourceURL.standardizedFileURL) {
                         let orphan = XMPTaggingService.exportSidecarURL(for: sourceURL)
                         if fm.fileExists(atPath: orphan.path) {
                             try? fm.removeItem(at: orphan)
@@ -229,7 +250,8 @@ actor RoutedTransferService {
             fileCount: processed,
             baseDestination: plan.baseDestination,
             foldersCreated: foldersCreated,
-            sidecarFailures: sidecarFailures
+            sidecarFailures: sidecarFailures,
+            filesLeftInPlace: filesLeftInPlace
         )
     }
 

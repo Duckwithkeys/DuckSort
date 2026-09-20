@@ -2072,6 +2072,9 @@ final class PhotoLibraryViewModel: ObservableObject {
                 if summary.sidecarFailures > 0 {
                     self.statusMessage += " (\(summary.sidecarFailures) sidecar(s) could not be written)"
                 }
+                if summary.filesLeftInPlace > 0 {
+                    self.statusMessage += " (\(summary.filesLeftInPlace) file(s) left in place, already present at destination)"
+                }
                 self.clearSelection()
                 if operation == .moveOriginals {
                     self.scanSourceDirectories(currentSources)
