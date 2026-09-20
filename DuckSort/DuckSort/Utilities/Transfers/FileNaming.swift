@@ -32,7 +32,19 @@ enum CollisionResolver {
         fileManager: FileManager = .default
     ) -> CollisionResolution {
         let originalDest = destinationDir.appendingPathComponent(source.lastPathComponent)
-        
+
+        // A routed destination folder can resolve back onto the source file's
+        // own directory (e.g. an export-rule value of ".." or an empty rule
+        // whose base is the source itself — Finding 3). When that happens
+        // `originalDest` and `source` are the same file: `fileExists` is
+        // trivially true and the hash trivially matches, so without this
+        // check `.overwrite` could be returned and the caller would delete
+        // the only copy of the file. Short-circuit to `.skip` so the source
+        // is never treated as a collision target.
+        if source.standardizedFileURL == originalDest.standardizedFileURL {
+            return .skip
+        }
+
         // If file doesn't exist, it's a normal transfer
         guard fileManager.fileExists(atPath: originalDest.path) else {
             return .normal(originalDest)
