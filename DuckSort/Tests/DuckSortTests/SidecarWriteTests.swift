@@ -324,6 +324,24 @@ struct SidecarWriteTests {
         #expect(try String(contentsOf: sidecar, encoding: .utf8) == plainText)
     }
 
+    // Discovered while fixing item 4: `mergeAttributes`'s namespace-presence
+    // check is `tagContent.contains(prefix)`, and "xmlns:xmp" is a literal
+    // substring of "xmlns:xmpDM". Swift's per-process Dictionary iteration
+    // order made this pass or fail non-deterministically depending on
+    // whether xmpDM's namespace got inserted before xmp's; seeding the
+    // content with xmlns:xmpDM already declared reproduces the false
+    // positive deterministically, independent of iteration order.
+    @Test
+    func mergeAttributes_xmpDMAlreadyDeclared_stillDeclaresXmpNamespace() {
+        let content = """
+        <rdf:Description xmlns:xmpDM="http://ns.adobe.com/xmp/1.0/DynamicMedia/">
+        </rdf:Description>
+        """
+        let updated = XMPTaggingService.mergeAttributes(["xmp:Rating": "5"], into: content)
+        #expect(updated.contains("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""))
+        #expect(updated.contains("xmp:Rating=\"5\""))
+    }
+
     @Test
     func regularNonXMPSidecar_clear_throwsNotXMPAndLeavesBytesUnchanged() async throws {
         let dir = try TempDir.make()

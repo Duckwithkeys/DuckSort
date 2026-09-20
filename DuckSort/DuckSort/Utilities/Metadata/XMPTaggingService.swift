@@ -631,7 +631,13 @@ struct XMPTaggingService: Sendable {
         var tagContent = String(updated[matchRange])
 
         for (prefix, uri) in namespaces {
-            if !tagContent.contains(prefix) {
+            // "xmlns:xmp" is a literal substring of "xmlns:xmpDM", so a bare
+            // `contains(prefix)` check gives a false positive whenever
+            // xmpDM's declaration lands first — order that depends on
+            // Swift's per-process Dictionary iteration, making the bug
+            // non-deterministic across runs. Check for the attribute
+            // assignment (`prefix=`), not just the prefix.
+            if !tagContent.contains("\(prefix)=") {
                 if tagContent.hasSuffix("/>") {
                     tagContent = tagContent.replacingOccurrences(of: "/>", with: " \(prefix)=\"\(uri)\"/>")
                 } else if tagContent.hasSuffix(">") {
