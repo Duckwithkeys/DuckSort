@@ -19,6 +19,13 @@ All paths below are relative to `DuckSort/DuckSort/` unless stated. Tests live i
 
 ## Finding 1 (High): `..` survives `FilenameSanitizer`, routed exports escape the destination
 
+**Status (2026-09-20):** Fixed on branch `wip/security-fixes`, commit `cacaffa`
+(sanitizer + lexical containment guard), with a follow-up in `435909e`
+(post-creation containment check with symlinks resolved, closing the gap a
+lexical check can't see). Pinned by `FilenameSanitizerTests.swift`,
+`ExportTokenTests.swift`, `RoutedSidecarTests.swift`, and
+`RoutedContainmentTests.swift`.
+
 **Root cause.** `FilenameSanitizer.clean` (`Utilities/Transfers/FilenameSanitizer.swift:9-26`)
 replaces `/\:?%*|"<>` with `-` and falls back only on the empty string. A value of `..`
 (or `.`, `...`) is returned unchanged.
@@ -79,6 +86,13 @@ replaced. Each attacker-controlled component climbs one level. Probe-confirmed.
 
 ## Finding 2 (Medium): unsanitized category name in the "No <category>" folder
 
+**Status (2026-09-20):** Fixed on branch `wip/security-fixes`, commit `cacaffa`
+(sanitize the fallback category name; the Finding 1 containment guard covers
+this path too). Pinned by `ExportTokenTests.swift`
+(`tagCategory_noMatch_sanitizesCategoryName`,
+`tagCategory_noMatch_nilCategory_fallsBack`,
+`tagCategory_match_dotDotTagName_isNeutralized`) and `RoutedSidecarTests.swift`.
+
 **Root cause.** `Models/ExportPathRule.swift:158-164`: `.tagCategory` with no matching
 tag appends `"No \(categoryName)"` where `categoryName` comes straight from
 `categoryNameProvider` with no sanitizer. Slashes and `..` survive, so one component can
@@ -118,6 +132,15 @@ right single point; rejecting on import alone would miss the user-typed path.
 ---
 
 ## Finding 3 (High): Move Originals deletes sources that were never copied
+
+**Status (2026-09-20):** Fixed on branch `wip/security-fixes`, commits
+`24e88c7` and `ff7e527` (same-location guard, phase-6 deletes only copied
+sources, `CollisionResolver` same-location early return). A view-model-level
+guard added alongside this was later removed in `435909e` as redundant and
+overly broad (it blocked sorting a tree into subfolders of itself, a case the
+service layer already handles safely); `moveOriginals_alreadyRoutedFile_isNotDeleted`
+was also tightened in `435909e` to actually assert the refusal. Pinned by
+`RoutedMoveSafetyTests.swift` and `CollisionResolverTests.swift`.
 
 **Root cause.** `Utilities/Transfers/RoutedTransferService.swift:170-186` (phase 6)
 iterates `plan.photos` and `removeItem`s every source file and its `.xmp` without
@@ -181,6 +204,19 @@ affected (it gates on `!isSameLocation` and uses atomic `moveItem`).
 ---
 
 ## Finding 4 (High): sidecar read/write follows symlinks, leaking arbitrary user files into the scanned folder
+
+**Status (2026-09-20):** Fixed on branch `wip/security-fixes`, commits
+`4ce3de2` and `1de46d4` (`requireRegularSidecar` lstat guard applied to every
+sidecar read/write path, `looksLikeXMP` check before echoing content back).
+A remaining gap — `writeSidecar`/`clear` still overwriting or deleting a
+regular non-XMP `.xmp` instead of refusing, and `updateSidecarRatingPick`
+duplicating `mergeAttributes` without declaring its namespaces — was closed
+in `435909e`; that fix exposed a latent, non-deterministic namespace-
+declaration collision in `mergeAttributes` itself (`xmlns:xmp` is a literal
+substring of `xmlns:xmpDM`), fixed separately in `15995c8`. Pinned by
+`SidecarWriteTests.swift`, `SidecarFailureTests.swift`,
+`FileTransferSidecarTests.swift`, `RoutedSidecarTests.swift`, and
+`FileScannerTests.swift`.
 
 **Root cause.** Sidecar URLs are pure string derivations from media filenames
 (`XMPTaggingService.xmpSidecarURLs` 111-131, `exportSidecarURL` 305-307). `.xmp` is
@@ -282,3 +318,27 @@ and confirm output is clean. Do not weaken or delete existing tests.
   captions, keywords, contact fields or vCard names.
 - Non-routed `FileTransferService` move path guards same-location and uses atomic
   `moveItem` with no separate delete pass.
+
+## Residual risks
+
+- **TOCTOU between the lstat guard and the open.** `requireRegularSidecar`
+  (Finding 4) checks `attributesOfItem` (lstat, doesn't follow links) and then
+  a later, separate call opens the path for read or write. An attacker who
+  can race the filesystem on the user's own machine — swap a regular file for
+  a symlink between the check and the open — can still redirect that open.
+  Closing this needs `open(2)` with `O_NOFOLLOW` (or `NSFileHandle` built from
+  such a descriptor) so the same syscall that opens the file also refuses to
+  follow a link, instead of a separate stat beforehand. Not fixed on this
+  branch: it requires an attacker already racing a process on the victim's
+  machine, a much narrower threat than the drive-by folder/zip scenarios the
+  other findings cover.
+- **Containment checks resolve symlinks only after directory creation.** The
+  Finding 1 fix (commit `435909e`) re-checks routed folders with
+  `resolvingSymlinksInPath()` after `createDirectory` runs, because a
+  pre-creation lexical check cannot see a symlink that doesn't yet resolve to
+  anything walkable. An attacker who can already write inside the chosen
+  destination can still cause an empty directory to be created at the
+  symlink's target before the resolved check throws and aborts the
+  operation — nothing is copied, moved, or overwritten there, but the empty
+  directory itself is a side effect the pre-creation check alone can't
+  prevent.
