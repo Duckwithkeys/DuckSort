@@ -82,6 +82,12 @@ struct XMPTaggingService: Sendable {
             // Don't silently unlink a planted symlink either; surface it so
             // the user notices the folder isn't what it looks like.
             try Self.requireRegularSidecar(url)
+            let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            guard Self.looksLikeXMP(content) else {
+                // A regular file that doesn't look like XMP is never
+                // deleted, even when the user is clearing tags.
+                throw SidecarError.notXMP(url)
+            }
             try fm.removeItem(at: url)
         }
     }
@@ -151,13 +157,20 @@ struct XMPTaggingService: Sendable {
         // A symlinked .xmp would have its target's bytes read below and then
         // either merged back into a rename-over write or unlinked outright;
         // refuse before touching it at all.
+        var existingContent: String?
         if fm.fileExists(atPath: url.path) {
             try Self.requireRegularSidecar(url)
+            existingContent = try? String(contentsOf: url, encoding: .utf8)
+            if let existingContent, !Self.looksLikeXMP(existingContent) {
+                // Align with the rating/caption paths: a regular file that
+                // doesn't look like XMP is never overwritten with a fresh
+                // packet or removed outright, even when clearing tags.
+                throw SidecarError.notXMP(url)
+            }
         }
 
         if sortedNames.isEmpty {
-            if let content = try? String(contentsOf: url, encoding: .utf8),
-               let updated = Self.tryRemoveSubject(from: content) {
+            if let existingContent, let updated = Self.tryRemoveSubject(from: existingContent) {
                 try updated.write(to: url, atomically: true, encoding: .utf8)
             } else if fm.fileExists(atPath: url.path) {
                 try fm.removeItem(at: url)
@@ -177,8 +190,7 @@ struct XMPTaggingService: Sendable {
               </dc:subject>
         """
 
-        if let content = try? String(contentsOf: url, encoding: .utf8),
-           let mergedXMP = Self.tryMergeSubject(subjectBlock, into: content) {
+        if let existingContent, let mergedXMP = Self.tryMergeSubject(subjectBlock, into: existingContent) {
             try mergedXMP.write(to: url, atomically: true, encoding: .utf8)
             return
         }
@@ -245,25 +257,23 @@ struct XMPTaggingService: Sendable {
             // back out under a fresh rating/pick attribute.
             throw SidecarError.notXMP(url)
         }
-        // upsertAttribute's no-match fallback replaces every ">" in the
-        // string it's given (fine for the single opening tag mergeAttributes
-        // passes it, corrupting for a whole multi-tag document, which would
-        // mangle every other tag including </dc:subject> and silently drop
-        // tags on the next read). Scope it to just the <rdf:Description>
-        // opening tag, the same substring mergeAttributes already uses.
-        var updated = content
-        let range = NSRange(updated.startIndex..., in: updated)
-        if let match = Regex.descriptionTag.firstMatch(in: updated, options: [], range: range),
-           let tagRange = Range(match.range(at: 1), in: updated) {
-            var tagContent = String(updated[tagRange])
-            if let rating {
-                tagContent = Self.upsertAttribute(name: "xmp:Rating", value: String(rating), in: tagContent)
-            }
-            if let pick {
-                tagContent = Self.upsertAttribute(name: "xmpDM:pick", value: String(pick), in: tagContent)
-            }
-            updated.replaceSubrange(tagRange, with: tagContent)
+        let range = NSRange(content.startIndex..., in: content)
+        guard Regex.descriptionTag.firstMatch(in: content, options: [], range: range) != nil else {
+            // looksLikeXMP passes on a lone <x:xmpmeta> marker with no
+            // <rdf:Description> tag to attach an attribute to.
+            // mergeAttributes below would silently hand the content back
+            // unchanged in that case, which must not look like a
+            // successful write.
+            throw SidecarError.notXMP(url)
         }
+
+        var attrs: [String: String] = [:]
+        if let rating { attrs["xmp:Rating"] = String(rating) }
+        if let pick { attrs["xmpDM:pick"] = String(pick) }
+        // mergeAttributes is the single point that declares xmp:/xmpDM:
+        // namespaces before writing their attributes; this used to
+        // hand-roll the same upsert without declaring them.
+        let updated = Self.mergeAttributes(attrs, into: content)
         try updated.write(to: url, atomically: true, encoding: .utf8)
     }
 

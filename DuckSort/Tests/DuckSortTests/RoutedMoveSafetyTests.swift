@@ -152,6 +152,7 @@ struct RoutedMoveSafetyTests {
 
         do {
             _ = try await RoutedTransferService().execute(plan, categoryNameProvider: { _ in nil })
+            Issue.record("Expected TransferError.sameSourceAndDestination to be thrown")
         } catch TransferError.sameSourceAndDestination {
             // Expected
         } catch {

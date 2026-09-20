@@ -85,7 +85,8 @@ actor RoutedTransferService {
         // regardless of what produced the folder. `executeJob` re-checks the
         // sidecar folder separately, since it's derived from CollisionResolver's
         // resolved `dest`, not directly from one of these folders.
-        try Self.verifyContained(routingResults.flatMap(\.folders), under: plan.baseDestination)
+        let allRoutedFolders = routingResults.flatMap(\.folders)
+        try Self.verifyContained(allRoutedFolders, under: plan.baseDestination)
 
         // 1. Pre-walk & compute multipliers
         var walkItems: [FileWalkItem] = []
@@ -154,6 +155,16 @@ actor RoutedTransferService {
                 if !existed { foldersCreated += 1 }
             }
         }
+
+        // 5b. `verifyContained` above is lexical and cannot see a symlink,
+        // because `resolvingSymlinksInPath()` only resolves path segments
+        // that already exist — a pre-creation check can't catch a folder
+        // name (attacker-controlled, e.g. via camera model) that matches a
+        // symlink planted inside the destination ahead of time. Re-check
+        // with symlinks resolved now that directory creation has walked
+        // through any such link, and before any job below copies, moves,
+        // or writes a byte.
+        try Self.verifyResolvedContainment(allRoutedFolders, under: plan.baseDestination)
 
         // 6. Execute jobs in bounded concurrent task group
         let limit = min(8, ProcessInfo.processInfo.activeProcessorCount)
@@ -327,6 +338,7 @@ actor RoutedTransferService {
             // writing the sidecar.
             let sidecarFolder = XMPTaggingService.exportSidecarURL(for: dest).deletingLastPathComponent()
             try Self.verifyContained([sidecarFolder], under: baseDestination)
+            try Self.verifyResolvedContainment([sidecarFolder], under: baseDestination)
             do {
                 try sidecarService.writeExportSidecar(
                     payload,
@@ -345,18 +357,51 @@ actor RoutedTransferService {
 
     // MARK: - Containment guard
 
+    /// True when `path` is `basePath` itself or a descendant of it.
+    /// Shared by `verifyContained`, `verifyResolvedContainment`, and
+    /// `PreFlightVisualizerView`'s dry-run containment check so the two
+    /// call sites can't drift. `basePath == "/"` needs special-casing:
+    /// `"/" + "/"` is `"//"`, which no real path starts with, so a bare
+    /// `hasPrefix(basePath + "/")` would reject every folder when the
+    /// chosen destination is the filesystem root.
+    static func isContained(_ path: String, under basePath: String) -> Bool {
+        if path == basePath { return true }
+        let prefix = basePath == "/" ? "/" : basePath + "/"
+        return path.hasPrefix(prefix)
+    }
+
     /// Every routed folder must be `base` itself or a descendant of it.
     /// Throws `TransferError.destinationEscapesBase` for the first folder
     /// that isn't, before `execute` creates any directory or touches any
-    /// file. Compares standardized paths with a trailing-slash prefix check
-    /// (not a bare `hasPrefix`) so a sibling directory whose name merely
-    /// shares `base`'s prefix — e.g. `base` = `/x/dest`, folder = `/x/dest2`
-    /// — is correctly rejected rather than treated as contained.
+    /// file. Purely lexical (`standardizedFileURL` does not resolve
+    /// symlinks), so it catches `..`-style escapes before anything exists
+    /// on disk, but cannot see a symlink planted inside the destination —
+    /// see `verifyResolvedContainment` for that.
     static func verifyContained(_ folders: [URL], under base: URL) throws {
         let basePath = base.standardizedFileURL.path
         for folder in folders {
             let folderPath = folder.standardizedFileURL.path
-            guard folderPath == basePath || folderPath.hasPrefix(basePath + "/") else {
+            guard Self.isContained(folderPath, under: basePath) else {
+                throw TransferError.destinationEscapesBase(folder)
+            }
+        }
+    }
+
+    /// Same check as `verifyContained`, but with symlinks resolved on both
+    /// sides. `resolvingSymlinksInPath()` only resolves path segments that
+    /// already exist, so this can only run after the directories in
+    /// question have been created — a symlink named to match a routed
+    /// folder (e.g. an attacker's camera model) is otherwise invisible to a
+    /// pre-creation lexical check, and `createDirectory`/`copyItem` would
+    /// walk straight through it. Both `base` and `folder` are resolved the
+    /// same way because macOS `/tmp` and `/var` are themselves symlinks —
+    /// resolving only one side would reject every real destination under
+    /// them.
+    static func verifyResolvedContainment(_ folders: [URL], under base: URL) throws {
+        let basePath = base.resolvingSymlinksInPath().path
+        for folder in folders {
+            let real = folder.resolvingSymlinksInPath().path
+            guard Self.isContained(real, under: basePath) else {
                 throw TransferError.destinationEscapesBase(folder)
             }
         }

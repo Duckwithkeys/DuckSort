@@ -255,6 +255,99 @@ struct SidecarWriteTests {
         let sidecar = dir.appendingPathComponent("IMG.xmp")
         let type = try FileManager.default.attributesOfItem(atPath: sidecar.path)[.type] as? FileAttributeType
         #expect(type == .typeRegular)
+
+        // updatePermanentTags used to hand-roll the xmp:Rating / xmpDM:pick
+        // attribute upsert without declaring their namespaces, unlike every
+        // other attribute writer which goes through mergeAttributes. Both
+        // namespaces must be present for a reader that cares about them.
+        let xml = try String(contentsOf: sidecar, encoding: .utf8)
+        #expect(xml.contains("xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\""))
+        #expect(xml.contains("xmlns:xmpDM=\"http://ns.adobe.com/xmp/1.0/DynamicMedia/\""))
+    }
+
+    // Review item 4: `looksLikeXMP` passes on a lone `<x:xmpmeta` marker
+    // even with no `<rdf:Description>` tag to attach an attribute to.
+    // `mergeAttributes` silently hands such content back unchanged in that
+    // case; `updateSidecarRatingPick` must throw instead of pretending the
+    // write happened.
+    @Test
+    func updatePermanentTags_looksLikeXMPButNoDescriptionTag_throwsNotXMPAndLeavesBytesUnchanged() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let media = dir.appendingPathComponent("IMG.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        let sidecar = dir.appendingPathComponent("IMG.xmp")
+        let content = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">not really XMP, no Description tag</x:xmpmeta>"
+        try content.write(to: sidecar, atomically: true, encoding: .utf8)
+
+        let set = PhotoSet(baseName: "IMG", mediaFiles: [media], editPath: nil)
+        let service = XMPTaggingService()
+
+        do {
+            try service.updatePermanentTags(rating: 5, pick: nil, for: set)
+            Issue.record("Expected SidecarError.notXMP to be thrown")
+        } catch SidecarError.notXMP {
+            // expected
+        } catch {
+            Issue.record("Expected SidecarError.notXMP, got \(error)")
+        }
+
+        #expect(try String(contentsOf: sidecar, encoding: .utf8) == content)
+    }
+
+    // Review item 6: `writeSidecar` (backing `applyTagNames` and `clear`)
+    // used to overwrite a regular non-XMP `.xmp` with a fresh packet, or
+    // delete it outright when clearing tags. Align with the rating/caption
+    // paths: refuse instead of touching content that doesn't look like XMP.
+    @Test
+    func regularNonXMPSidecar_applyTagNames_throwsNotXMPAndLeavesBytesUnchanged() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let media = dir.appendingPathComponent("IMG.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        let sidecar = dir.appendingPathComponent("IMG.xmp")
+        let plainText = "just some notes, not XMP at all"
+        try plainText.write(to: sidecar, atomically: true, encoding: .utf8)
+
+        let set = PhotoSet(baseName: "IMG", mediaFiles: [media], editPath: nil)
+        let service = XMPTaggingService()
+
+        do {
+            try service.applyTagNames(["Family"], to: set)
+            Issue.record("Expected SidecarError.notXMP to be thrown")
+        } catch SidecarError.notXMP {
+            // expected
+        } catch {
+            Issue.record("Expected SidecarError.notXMP, got \(error)")
+        }
+
+        #expect(try String(contentsOf: sidecar, encoding: .utf8) == plainText)
+    }
+
+    @Test
+    func regularNonXMPSidecar_clear_throwsNotXMPAndLeavesBytesUnchanged() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let media = dir.appendingPathComponent("IMG.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        let sidecar = dir.appendingPathComponent("IMG.xmp")
+        let plainText = "just some notes, not XMP at all"
+        try plainText.write(to: sidecar, atomically: true, encoding: .utf8)
+
+        let set = PhotoSet(baseName: "IMG", mediaFiles: [media], editPath: nil)
+        let service = XMPTaggingService()
+
+        do {
+            try service.clear(for: set)
+            Issue.record("Expected SidecarError.notXMP to be thrown")
+        } catch SidecarError.notXMP {
+            // expected
+        } catch {
+            Issue.record("Expected SidecarError.notXMP, got \(error)")
+        }
+
+        #expect(FileManager.default.fileExists(atPath: sidecar.path))
+        #expect(try String(contentsOf: sidecar, encoding: .utf8) == plainText)
     }
 
     @Test

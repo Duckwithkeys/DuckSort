@@ -423,7 +423,7 @@ class SimulatedFolderTree {
         // all, but this dry-run preview ran before that guard and must not
         // fold an escaped path into the root as if it belonged there — doing
         // so hid the escape from the user instead of warning them.
-        guard destPath == basePath || destPath.hasPrefix(basePath + "/") else {
+        guard RoutedTransferService.isContained(destPath, under: basePath) else {
             var escaped = file
             escaped.isOutsideDestination = true
             root.files.append(escaped)

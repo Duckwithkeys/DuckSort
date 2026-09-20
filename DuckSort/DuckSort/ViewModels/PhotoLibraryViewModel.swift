@@ -2000,16 +2000,6 @@ final class PhotoLibraryViewModel: ObservableObject {
             errorMessage = "Choose a destination folder first."
             return
         }
-        // Move Originals deletes every source file the routed transfer
-        // actually copies. If the destination is a source directory itself
-        // (or lives inside one), a rule that routes some photos back onto
-        // their own folder would delete files that were never copied
-        // elsewhere — refuse up front rather than relying on the transfer
-        // service to catch it per-file (Finding 3).
-        if operation == .moveOriginals, isPath(destinationDirectory, containedInAnyOf: sourceDirectories) {
-            errorMessage = TransferError.sameSourceAndDestination.localizedDescription
-            return
-        }
         let selected = selectedPhotoSets
         guard !selected.isEmpty else {
             errorMessage = TransferError.noSelection.localizedDescription
@@ -2581,21 +2571,6 @@ final class PhotoLibraryViewModel: ObservableObject {
             return rel
         }
         return subfolderURL.lastPathComponent
-    }
-
-    /// True if `url` is exactly one of `directories`, or nested inside one.
-    /// Compares standardized paths with a trailing `/` on the container so
-    /// a sibling with a shared prefix (`/Pictures2` vs. `/Pictures`) is
-    /// never treated as contained.
-    private func isPath(_ url: URL, containedInAnyOf directories: [URL]) -> Bool {
-        let candidate = url.standardizedFileURL.path
-        for directory in directories {
-            let root = directory.standardizedFileURL.path
-            if candidate == root { return true }
-            let rootWithSlash = root.hasSuffix("/") ? root : root + "/"
-            if candidate.hasPrefix(rootWithSlash) { return true }
-        }
-        return false
     }
 
     // MARK: - Recursive folder tree (O(1) lookups against the index)
