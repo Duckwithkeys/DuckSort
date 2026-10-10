@@ -1,100 +1,106 @@
-# 🦆 DuckSort
+# DuckSort
 
-A native macOS application designed to automate the workflow of scanning, organizing, tagging, and routing photo sets. It groups RAW files, JPEGs, HEIFs, and sidecar files (such as Photomator edits) into unified sets, allowing you to manage and export them efficiently using customizable routing rules.
+A macOS app for fast photo culling, tagging, and bulk file routing — built entirely in Swift with zero third-party dependencies.
 
-DuckSort matches the flat, dark professional aesthetic of modern photo editors like **Photomator**, adapting natively to macOS system-wide Light and Dark mode preferences.
-
----
-
-## ✨ Features (v1.0.0)
-
-- **🛡️ Core Health & Resilient UI**:
-  - **Two-Tier Disk Caching**: Stores decoded thumbnails as JPEGs inside a persistent `DiskThumbnailCache` (`~/Library/Caches/com.ducksort/thumbnails/`), enforcing a strict 500 MB limit to prevent RAM bloat.
-  - **Structured Subsystem Logging**: Scoped loggers (`AppLogger.thumbnails`, `.metadata`, `.transfer`, `.ui`) built on Apple's unified `os.Logger` framework with `OSSignposter` intervals for profiling.
-  - **Resilient UI Error Boundaries**: Gracefully catches child task failures and renders interactive retry banners via `ErrorBoundaryView` and `GridErrorBannerView` rather than crashing the interface.
-  - **Memory & Scroll Tuning**: Monitors OS memory pressure warning levels to auto-evict caches, and skips neighbor preloading during active scroll states to eliminate rendering hitching.
-- **🧠 On-Device AI Neural Engine (ANE) Auto-Tagging**:
-  - **Persistent Request Warmups**: Reuses `VNClassifyImageRequest` and `VNDetectHumanBodyPoseRequest` in `VisionEngineActor` to eliminate graph compile overhead and keep model weights warm in VRAM.
-  - **Direct ANE Execution**: Enforces background execution priorities (`preferBackgroundProcessing = true`) to dispatch Vision inference directly to Neural Engine cores.
-  - **Optimized Face Clustering**: Throttles clustering queues with an `AsyncSemaphore(limit: 8)` and processes downsampled 1024px face crops instead of full 80MP RAW files, saving over 140MB RAM per image and boosting throughput by 5x.
-- **⚡ Metal GPU Graphics & Photo Rendering**:
-  - **Persistent Metal Cache**: Initializes `CVMetalTextureCache` once at startup in `IOSurfaceMetalRenderer`, eliminating allocations during frame updates.
-  - **High-DPI Retina Scaling**: Computes thumbnail sizes based on screen scale (`maxPixels = size * scale`) to yield sharp 1200px thumbnails on 2x/3x Retina displays.
-  - **Adaptive RAM Cache**: Adjusts high-resolution canvas memory budgets dynamically based on physical system RAM (up to 600MB on 32GB+ configurations).
-- **📊 Camera & Lens Insights (EXIF Analytics)**: Canvas-based fluidly animated charts depicting Focal Length, Aperture, ISO, and Shutter Speed distributions, plus "Top Gear" lens pairing efficiency metrics.
-- **🎨 Photomator Integration**: Instantly launch Photomator (`com.pixelmatorteam.pixelmator.touch.x.photo`) and load the active RAW/image directly via global hotkey `E` or the viewer's glassmorphic edit button.
-- **🎛️ Speed Culling & Strong Haptics**: Auto-advance culling speed preferences, custom global hotkeys, and triple-pulse trackpad haptic triggers (`.levelChange` + two `.alignment` pulses).
-- **🧭 Unified Toolbar Navigation & Edge-to-Edge Grid**: Toolbar-integrated routing rules, destinations, and selections with green status checkmarks. Complete removal of bottom footer spacing to yield an edge-to-edge layout.
-- **🛠️ Native Xcode Tooling**: Standalone `DuckSort.xcodeproj` Xcode project (generated via XcodeGen) alongside `Info.plist` bundle manifests for direct native debugging, testing, and profiling.
-- **Smart Photo Grouping**: Automatically pairs RAW files with their JPEG/HEIF derivatives and sidecar files (e.g., `.photo-edit`) into unified photo sets.
-- **Vast RAW & Image Format Support**: All major raw formats (Fuji `.raf`, Sony `.arw`, Canon `.cr2`/`.cr3`, Nikon `.nef`, Adobe `.dng`, etc.) and standard HEIF/HEIC/JPEG files.
-- **HEIF Preview Decoding**: Falls back to native codecs when `CGImageSourceCreateThumbnailAtIndex` fails (bursts/orientations), ensuring HEIF files render correctly on the first attempt.
-- **Large Viewer "Files in Set" Inspector**: Detailed sidebar listing of RAW, JPEG, HEIF, and edit sidecars with color-coded role chips, Reveal in Finder, and Copy Filename actions.
-- **XMP Tag Inspector Overlay (`⌘⇧X`)**: Floating overlay window that detects undocumented XMP subject keywords in sidecars and imports them directly into active packs with one click.
-- **Tag Packs Overhaul**: Resizable single-column settings layout with custom color pickers and a catalog of 50+ SF Symbols for tag logos.
-- **Pre-Read Metadata Flow**: EXIF metadata read once at scan time flows through to the transfer pipeline via `TransferPlan.metadata` — no redundant per-transfer `CGImageSource` reads.
-- **Robust Metadata Preservation**: Writes an `.xmp` sidecar beside copied/moved files recording custom tags, rating, flag status, capture metadata (camera, lens, ISO, shutter, aperture), and IPTC creator/copyright/contact info when enabled.
-- **High-Resolution Viewer & Inspector**:
-  - Press `Space`, `Return`, or `I` to open images on a full-canvas pane.
-  - Slide-out metadata inspector displaying camera parameters, aperture, shutter speed, and lens details.
-- **Clean Application Lifecycle**: Automatically terminates the background process when the last window is closed, freeing system memory.
+Drag a folder of photos onto DuckSort, review them at full resolution, tag or rate what you keep, and export with one click using configurable routing rules that organize everything into folders by camera model, lens, date, tag category, EXIF data, or custom text.
 
 ---
 
-## 🛠 Requirements
+## Quick Start
 
-- **Operating System**: macOS 14.0 (Sonoma) or newer.
-- **Developer Tools**: Xcode 16+ / Swift 6 (Swift Package Manager).
-
----
-
-## 📂 Project Structure
-
-- `Package.swift` — Swift Package Manager configuration file.
-- `DuckSort/` — Main source code directory containing:
-  - `Models/` — Data models for `PhotoSet`, `Tags`, `Routing Rules`, and `UserPreferences`.
-  - `ViewModels/` — View-models implementing business logic and UI state caching.
-  - `Views/` — SwiftUI components, sidebar view, photo grid, and metadata inspector.
-  - `Utilities/` — Helper extensions, theme structures, window managers, and shortcut handlers.
-  - `Resources/` — Bundle assets including the custom duck logo and app icons.
-- `package_app.sh` — Bash script to compile the application in release mode and package it into `DuckSort.app`.
-- `create_dmg.sh` — Bash script to package the compiled app bundle into a user-friendly installer disk image (`DuckSort.dmg`).
+1. **Open** DuckSort from your Applications folder.
+2. **Add a source folder** — use the toolbar "Add Source" button (`⇧⌘O`), or drag-and-drop a folder of photos directly onto the grid.
+3. **Review & cull** — scan through your photos in the thumbnail grid, zoom into full resolution with `Space` / `Return`, and flag the ones you want to keep.
+4. **Organize** — apply tag packs (think "Wedding", "Portraits", "Cars") using keyboard shortcuts or the tag manager, rate photos, and set pick/reject status.
+5. **Choose a destination** — click "Destination…" in the toolbar and pick where your organized files should go.
+6. **Export** — select "Copy" or "Move" to apply your routing rule and transfer all selected photo sets to the destination folder.
 
 ---
 
-## 🚀 Getting Started
+## Core Features
 
-### Open and Run in Xcode
+### Fast, Native UI
+- Edge-to-edge grid with smooth scrolling and haptic feedback (trackpad)
+- Dark / Light mode that follows your macOS system preference
+- Full-screen image viewer with zoom and pan support, filmstrip navigation, and metadata inspector (`I`)
+- Drag-and-drop source folders directly onto the grid
 
-- Double-click **`DuckSort.xcodeproj`** to open the project directly in Xcode.
-- Alternatively, open Xcode and select the root folder or `Package.swift`.
-- Click **Run** or press `Cmd + R` to build and launch the application.
+### Smart Photo Grouping
+Automatically groups RAW + HEIF + JPEG variants and sidecar files (`.photo-edit`, XMP) into unified sets so you're always reviewing a complete family — not individual files.
 
-### Command Line / Swift Package Manager
+### Tag Packs & Routing Rules
+- **Tag Packs**: Pre-built category/tag presets (Wedding, Portraits, Cars, Apparel, etc.) plus full support for custom packs with colored chips, icons, and per-tag keyboard shortcuts. Switch packs on the fly with a global hotkey.
+- **Routing Rules**: Build export rules that route photos into nested folder hierarchies based on camera model, lens, date, tag category, EXIF data (ISO, aperture, shutter speed), star rating, pick status, or custom text. Apply "Copy" or "Move" to bulk-organize hundreds of files at once.
 
-You can also run or build the project directly from the terminal:
+### AI Auto-Tagging
+On-device image classification and face detection run directly on the Apple Neural Engine — no network calls, no API keys. Clustering suggestions appear inline for one-click import into your active tag pack.
 
+### Insights Dashboard
+Camera & lens pairing stats, focal-length / aperture / ISO distributions, and shutter-speed histograms — all drawn with SwiftUI Canvas (no Charts framework). See which gear combinations produce the most picks.
+
+### Photomator Integration
+Open the active photo directly into Photomator from the viewer with `E` or a click — seamless handoff for fine editing.
+
+---
+
+## Keyboard Shortcuts
+
+| Action | Shortcut |
+|---|---|
+| Add source folder | `⇧⌘O` |
+| Choose destination | `⇧⌘D` |
+| Open viewer (grid) | `Space`, `Return` |
+| Zoom in / out | Click zoom buttons in toolbar |
+| Toggle sidebar | `⌥⌘S` |
+| Select all visible | `⌘A` |
+| Rate a photo (0–5) | Keys `1`–`5` |
+| Flag pick | `Z` |
+| Reject | `X` |
+| Clear pick/rating | `U` |
+| Close viewer / Escape | `Esc` |
+
+*Tag pack and tag-specific shortcuts are configurable per-pack in the settings.*
+
+---
+
+## Build & Development
+
+**Requirements**: macOS 14.0+ (Sonoma), Xcode 16+, Swift 6
+
+### Using Xcode
+Open `DuckSort.xcodeproj` and press Cmd+R.
+
+### Using the command line
 ```bash
-# Run the application
-swift run
+cd DuckSort
+swift build    # Build the package
+swift run      # Run the app
+swift test     # Run the test suite
+```
 
-# Build the project
-swift build
+### Packaging for distribution
+```bash
+./package_app.sh        # Builds a DuckSort.app bundle
+./create_dmg.sh         # Packages it into DuckSort.dmg
 ```
 
 ---
 
-## 📦 Packaging & Distribution
+## Architecture at a Glance
 
-This repository includes helper scripts to compile and package the app for distribution:
+| Layer | What it does |
+|---|---|
+| **Models** | `PhotoSet`, `TagPack`, `ExportPathRule`, `UserPreferences` — core data types |
+| **ViewModels** | `PhotoLibraryViewModel` — the app's central state hub (source dirs, tags, routing) |
+| **Views** | SwiftUI: grid, sidebar, viewer, insights, export rule editor, tag manager, settings panes |
+| **Utilities / AI** | Vision-based auto-tagging, face clustering, Neural Engine optimization |
+| **Utilities / Cache** | Two-tier thumbnail cache (memory LRU + disk JPEG, 500 MB budget) |
+| **Utilities / Transfers** | Routed copy/move with EXIF-aware path templating and sidecar writing |
+| **Utilities / Metadata** | EXIF reading, XMP sidecar import/export, VCard IPTC profiles |
+| **Tests** | Unit tests for file scanning, caching, routing, tag packs, and transfer logic |
 
-1. **Build the Standalone App Bundle**:
-   Compile in release configuration and generate a standalone `.app` bundle:
-   ```bash
-   ./package_app.sh
-   ```
-2. **Create the DMG Installer Disk Image**:
-   After creating the `.app` bundle, package it into a compressed `.dmg` file:
-   ```bash
-   ./create_dmg.sh
-   ```
+---
+
+## License
+
+Private project. All rights reserved.
