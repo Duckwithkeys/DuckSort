@@ -115,6 +115,30 @@ Full-system stability, privacy, and performance release — fixing critical cras
 
 ---
 
+## [v1.3.1] — 2026-11-20
+
+Major performance, responsiveness, and UI polish release built for 5,000+ photo libraries — eliminating Xcode hang risks, saturating all CPU cores for thumbnail decoding, making the large viewer open instantaneously, and moving the thumbnail size slider into the top glass toolbar.
+
+### ⚡ Massive Speed & Responsiveness Gains
+
+- **Full-Core LIFO Thumbnail Engine:** Raised `ThumbnailService` decode concurrency to `max(8, activeProcessorCount * 2)`, switched `AsyncSemaphore` from FIFO to LIFO so visible cells always jump ahead of off-screen tasks, made `DiskThumbnailCache.image(for:size:)` `nonisolated` (lock-free multi-core reads with zero actor contention), right-sized Retina cache buckets (`220 / 320 / 440 pt`), and enabled single-pass hardware JPEG/HEIF decoding with two-stage embedded previews for RAWs.
+- **Instant Large Image Viewer:** Replaced the thousands-of-pages `LazyHStack` in `LargeImageViewer` with direct active-photo rendering, added `ThumbnailCache.global.anyCachedImage(for:)` for frame-0 thumbnail promotion, used fast full-size embedded RAW previews (`≥1600 px`), removed array copies in `FilmstripView`, and deferred neighbor preloading by 150 ms so the focused photo gets 100% of disk/CPU bandwidth first.
+- **Two-Pass Metadata Loading:** Pass 1 reads lightweight `.xmp` sidecars in parallel (32 workers) so flags, star ratings, tags, and captions appear immediately; Pass 2 quietly trickles full ImageIO EXIF (4 workers) with live progress in the bottom-right pill without re-sorting or cancelling visible thumbnails mid-load.
+- **Zero-`GeometryReader` Grid Scrolling:** Removed per-cell `GeometryReader`s and `CellFramePreferenceKey` in `PhotoGridView` (using pure-math marquee hit-testing + non-`@State` scroll offset tracking), pre-cached dynamic `NSColor`s in `Theme.Color`, and skipped redundant `FolderTreeIndex` rebuilds on rating/pick edits.
+
+### 🧭 Toolbar & Grid UI
+
+- **Top Glass Toolbar Slider:** Moved the thumbnail size slider (`120...360` + small/large photo buttons) from the bottom footer bar into the top macOS glass toolbar.
+- **Edge-to-Edge Grid + Floating Glass Pill:** Replaced the full-width bottom footer bar with a compact floating `.ultraThinMaterial` status pill in the bottom-right corner showing status messages and live background EXIF progress.
+
+### 🐛 Fixes
+
+- **Fuji `.HIF` / HEIF Rotation:** Excluded `.hif`/`.heic`/`.heif` from the RAW-only embedded preview fast path and added `ensureOrientedIfNeeded` in both `LargeImagePane` and `ThumbnailView` so vertically shot `.HIF` photos always display upright.
+- **Xcode Hang Risks & Warnings:** Eliminated `.userInitiated` → `.default` QoS priority inversions in `LargeImagePane` and `ThumbnailView` using dedicated `.default`-QoS decode queues; fixed the SwiftUI `"Publishing changes from within view updates"` warning in `ExportRuleStore` / `SettingsRulesPaneView`.
+- **GitHub Actions CI:** Added `working-directory: DuckSort` to `.github/workflows/swift.yml` so `swift build` and `swift test` run cleanly in CI.
+
+---
+
 ### How to Upgrade
 
 1. Open DuckSort → Preferences → check for updates (or download from GitHub Releases).
