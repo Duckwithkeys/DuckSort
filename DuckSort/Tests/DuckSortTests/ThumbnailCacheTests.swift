@@ -104,12 +104,12 @@ struct ThumbnailCacheTests {
         await cache.remove(for: tmpURL, size: size)
 
         // Miss before insertion
-        let miss = await cache.image(for: tmpURL, size: size)
+        let miss = cache.image(for: tmpURL, size: size)
         #expect(miss == nil)
 
         // Insert then retrieve
         await cache.insert(image, for: tmpURL, size: size)
-        let hit = await cache.image(for: tmpURL, size: size)
+        let hit = cache.image(for: tmpURL, size: size)
         try #require(hit != nil)
 
         // Cleanup
@@ -130,7 +130,7 @@ struct ThumbnailCacheTests {
         await cache.insert(image, for: tmpURL, size: size)
         await cache.evictAll()
 
-        let hit = await cache.image(for: tmpURL, size: size)
+        let hit = cache.image(for: tmpURL, size: size)
         #expect(hit == nil)
     }
 
@@ -157,8 +157,8 @@ struct ThumbnailCacheTests {
         // Remove only A
         await cache.remove(for: urlA, size: size)
 
-        let hitA = await cache.image(for: urlA, size: size)
-        let hitB = await cache.image(for: urlB, size: size)
+        let hitA = cache.image(for: urlA, size: size)
+        let hitB = cache.image(for: urlB, size: size)
         #expect(hitA == nil)
         try #require(hitB != nil)
 

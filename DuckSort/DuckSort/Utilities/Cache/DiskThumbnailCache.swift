@@ -56,17 +56,13 @@ actor DiskThumbnailCache {
 
     // MARK: - Public API
 
-    /// Reads a cached thumbnail from disk. Returns `nil` on miss or decode failure.
-    func image(for url: URL, size: CGSize) -> NSImage? {
-        scanDiskIfNeeded()
+    /// Reads a cached thumbnail directly from disk without blocking on the actor
+    /// or writing LRU mtime attributes on every hit, so all CPU cores can serve
+    /// disk-cached thumbnails in parallel.
+    nonisolated func image(for url: URL, size: CGSize) -> NSImage? {
         let fileURL = cacheFileURL(for: url, size: size)
         guard FileManager.default.fileExists(atPath: fileURL.path),
               let image = NSImage(contentsOf: fileURL) else { return nil }
-        // Touch modification time to update LRU recency.
-        try? FileManager.default.setAttributes(
-            [.modificationDate: Date()], ofItemAtPath: fileURL.path
-        )
-        AppLogger.thumbnails.trace("Disk cache hit: \(fileURL.lastPathComponent)")
         return image
     }
 

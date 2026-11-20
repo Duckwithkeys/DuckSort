@@ -866,12 +866,16 @@ final class PhotoLibraryViewModel: ObservableObject {
                     self.exifLoadProgress = nil
                     return
                 }
-                self.applyMetadataAndTagResults(results, nameToID: nameToID)
+                self.applyMetadataAndTagResults(results, nameToID: nameToID, refreshDerived: false)
                 offset = upper
                 self.exifLoadProgress = (completed: offset, total: sets.count)
                 AppLogger.metadata.debug("Applied EXIF batch: \(offset)/\(sets.count) sets")
             }
             self.exifLoadProgress = nil
+            // Run a single derived refresh (re-sort/re-filter) once all EXIF is loaded
+            // so visible thumbnails aren't cancelled & restarted 30+ times mid-load.
+            self.updateGlobalCounts()
+            self.updateDerivedState()
             AppLogger.metadata.info("Two-pass metadata load complete: \(sets.count) sets processed")
         }
     }
@@ -990,7 +994,9 @@ final class PhotoLibraryViewModel: ObservableObject {
         metadataReader: MetadataReader,
         xmpTagging: XMPTaggingService
     ) async -> [LoadedPhotoInfo] {
-        let maxConcurrency = 16
+        // Keep background EXIF trickle to 4 concurrent workers so visible
+        // thumbnail decodes always get full CPU + disk bandwidth priority.
+        let maxConcurrency = 4
         AppLogger.metadata.debug("Loading metadata batch: \(batch.count) sets, concurrency cap: \(maxConcurrency)")
         return await withTaskGroup(of: LoadedPhotoInfo.self) { group in
             var inFlight = 0
@@ -1048,7 +1054,8 @@ final class PhotoLibraryViewModel: ObservableObject {
 
     private func applyMetadataAndTagResults(
         _ results: [LoadedPhotoInfo],
-        nameToID: [String: UUID]
+        nameToID: [String: UUID],
+        refreshDerived: Bool = true
     ) {
         guard !results.isEmpty else { return }
         
@@ -1071,6 +1078,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         var batchCaptions: [UUID: String] = [:]
 
         var updatedSets = self.photoSets
+        var setsChanged = false
 
         for info in results {
             metadataCache[info.id] = info.metadata
@@ -1092,9 +1100,11 @@ final class PhotoLibraryViewModel: ObservableObject {
                 let pick = info.sidecarPick ?? info.metadata.pick
                 if updatedSets[idx].rating == nil, let rating {
                     updatedSets[idx].rating = rating
+                    setsChanged = true
                 }
                 if updatedSets[idx].pick == nil, let pick {
                     updatedSets[idx].pick = pick
+                    setsChanged = true
                 }
             }
         }
@@ -1110,10 +1120,14 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
             self.photoCaptions = mergedCaptions
         }
-        self.photoSets = updatedSets
+        if setsChanged {
+            self.photoSets = updatedSets
+        }
         suppressDerivedUpdates = false
-        updateGlobalCounts()
-        updateDerivedState()
+        if refreshDerived {
+            updateGlobalCounts()
+            updateDerivedState()
+        }
     }
 
     /// Compact value type used by `loadMetadataAndTags` to ferry per-photo

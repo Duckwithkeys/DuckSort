@@ -154,11 +154,9 @@ struct PhotoGridView: View {
                         let focusedID = (viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < sets.count)
                             ? sets[viewModel.focusedPhotoIndex].id
                             : nil
-                        let cols = Self.columnCount(forWidth: gridContainerWidth, itemWidth: CGFloat(itemWidth))
-
                         LazyVGrid(columns: columns, spacing: Self.gridSpacing) {
                             ForEach(sets) { photoSet in
-                                cell(for: photoSet, isFocused: photoSet.id == focusedID, cols: cols)
+                                cell(for: photoSet, isFocused: photoSet.id == focusedID)
                                     .id(photoSet.id)
                             }
                         }
@@ -264,7 +262,7 @@ struct PhotoGridView: View {
     }
 
     @ViewBuilder
-    private func cell(for photoSet: PhotoSet, isFocused: Bool, cols: Int) -> some View {
+    private func cell(for photoSet: PhotoSet, isFocused: Bool) -> some View {
         EquatableView(content: PhotoSetCell(
             photoSet: photoSet,
             tags: viewModel.assignedTags(for: photoSet),
@@ -290,19 +288,5 @@ struct PhotoGridView: View {
                 viewModel.openLargeImageViewer()
             }
         ))
-        .onAppear {
-            // Prefetch thumbnails ~2 rows ahead so fast scrolling feels instant.
-            let sets = viewModel.filteredPhotoSets
-            guard let idx = sets.firstIndex(where: { $0.id == photoSet.id }) else { return }
-            let prefetchStart = idx + cols
-            let prefetchEnd = min(sets.count, idx + cols * 2)
-            guard prefetchStart < prefetchEnd else { return }
-            let urls = sets[prefetchStart..<prefetchEnd].compactMap(\.preferredPreviewURL)
-            if !urls.isEmpty {
-                let targetSize = CGSize(width: itemWidth, height: itemWidth)
-                let scale = NSScreen.main?.backingScaleFactor ?? 2
-                ThumbnailService.prefetch(urls: urls, size: targetSize, scale: scale)
-            }
-        }
     }
 }

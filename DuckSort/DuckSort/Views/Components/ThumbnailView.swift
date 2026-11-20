@@ -83,18 +83,21 @@ struct ThumbnailView: View {
 
             isLoading = true
             let scale = NSScreen.main?.backingScaleFactor ?? 2
+            let ext = url.pathExtension.lowercased()
+            let isRaw = FileExtension.rawLikeExtensions.contains(ext) && !FileExtension.heifLikeExtensions.contains(ext)
 
-            // Stage 1 (Instant): embedded EXIF/JPEG preview (<2 ms even for 50 MB RAWs)
-            // so thousands of photos pop in immediately while scrolling or loading.
-            if loader.image == nil,
+            // Stage 1 (Instant): for heavy RAW files only, grab the embedded EXIF preview
+            // first (<2 ms) so RAW grids pop in immediately. JPEGs/HEIFs go straight to
+            // hardware-accelerated single-pass decode to avoid opening the file twice.
+            if isRaw, loader.image == nil,
                let preview = await ThumbnailService.shared.embeddedPreview(for: url, maxPixels: 320) {
                 guard !Task.isCancelled else { return }
                 loader.image = preview
             }
 
             // While actively scrolling, hold off on full Retina upgrades until scroll settles
-            // so fast-scrolling through thousands of photos stays 120 fps.
-            if ScrollStateObserver.shared.isScrolling {
+            // if we already have a preview on screen.
+            if loader.image != nil && ScrollStateObserver.shared.isScrolling {
                 for await isScrolling in ScrollStateObserver.shared.$isScrolling.values {
                     if !isScrolling { break }
                 }
@@ -102,7 +105,7 @@ struct ThumbnailView: View {
 
             guard !Task.isCancelled else { return }
 
-            // Stage 2 (Crisp Retina Upgrade): decode full bucketed resolution and cache to disk.
+            // Stage 2 (Crisp Retina Decode): decode full bucketed resolution and cache to disk.
             if let result = await ThumbnailService.shared.thumbnail(for: url, size: bucketed, scale: scale) {
                 guard !Task.isCancelled else { return }
                 loader.image = result
@@ -173,23 +176,24 @@ final class ThumbnailService {
         attributes: .concurrent
     )
 
-    /// Quantize thumbnail decode dimensions into 3 crisp Retina tiers so dragging
-    /// the thumbnail size slider scales GPU textures smoothly at 120 fps without
-    /// invalidating caches on every pixel.
+    /// Quantize thumbnail decode dimensions into 3 crisp Retina tiers (points)
+    /// so thumbnails stay razor sharp (440 / 640 / 880 px at 2x) without wasting
+    /// CPU decoding 1600 px textures for 180 pt grid tiles.
     nonisolated static func bucketSize(for size: CGSize) -> CGSize {
         let maxDim = max(size.width, size.height)
         if maxDim <= 180 {
+            return CGSize(width: 220, height: 220)
+        } else if maxDim <= 320 {
             return CGSize(width: 320, height: 320)
-        } else if maxDim <= 300 {
-            return CGSize(width: 560, height: 560)
         } else {
-            return CGSize(width: 800, height: 800)
+            return CGSize(width: 440, height: 440)
         }
     }
 
-    // Semaphore limit: core-count, bounded to 4–8 to avoid thrashing.
+    // Use all available CPU cores (2x core count so I/O + hardware JPEG/HEIF
+    // decoders stay saturated without stalling on disk reads).
     private let semaphore = AsyncSemaphore(
-        limit: ProcessInfo.processInfo.activeProcessorCount.clamped(to: 4...8)
+        limit: max(8, ProcessInfo.processInfo.activeProcessorCount * 2)
     )
     private var inFlightTasks: [String: Task<NSImage?, Never>] = [:]
 
@@ -233,8 +237,8 @@ final class ThumbnailService {
 
         let bucketSize = diskCacheSize(for: size)
 
-        // 2. Disk cache (avoid decode if we already have JPEG on disk)
-        if let diskHit = await DiskThumbnailCache.shared.image(for: url, size: bucketSize) {
+        // 2. Disk cache (nonisolated fast path — zero actor serialization)
+        if let diskHit = DiskThumbnailCache.shared.image(for: url, size: bucketSize) {
             ThumbnailCache.global.insert(diskHit, for: url, size: size)
             return diskHit
         }
@@ -421,10 +425,31 @@ final class ThumbnailService {
                     // Instant path: only return embedded EXIF/JPEG preview if present.
                     decodeOptions[kCGImageSourceCreateThumbnailFromImageIfAbsent] = false
                 }
-                let result = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
-                continuation.resume(returning: result)
+                guard let result = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let oriented = Self.ensureOrientedIfNeeded(from: source, thumbnail: result)
+                continuation.resume(returning: oriented)
             }
         }
+    }
+
+    nonisolated private static func ensureOrientedIfNeeded(from source: CGImageSource, thumbnail: CGImage) -> CGImage {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let rawOrientation = properties[kCGImagePropertyOrientation] as? UInt32,
+              let orientation = CGImagePropertyOrientation(rawValue: rawOrientation),
+              orientation != .up,
+              let rawW = properties[kCGImagePropertyPixelWidth] as? Int,
+              let rawH = properties[kCGImagePropertyPixelHeight] as? Int,
+              rawW != rawH else {
+            return thumbnail
+        }
+        let isTransposed = (orientation == .left || orientation == .right || orientation == .leftMirrored || orientation == .rightMirrored)
+        if isTransposed && (rawW > rawH) == (thumbnail.width > thumbnail.height) {
+            return Self.applyOrientation(from: source, to: thumbnail)
+        }
+        return thumbnail
     }
 
     nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
@@ -521,10 +546,12 @@ final class ThumbnailCache {
     /// all bucket tiers so LargeImagePane can render instantaneously on frame 0.
     func anyCachedImage(for url: URL) -> NSImage? {
         let sizes = [
+            CGSize(width: 440, height: 440),
+            CGSize(width: 320, height: 320),
+            CGSize(width: 220, height: 220),
             CGSize(width: 800, height: 800),
             CGSize(width: 560, height: 560),
             CGSize(width: 600, height: 600),
-            CGSize(width: 320, height: 320),
             CGSize(width: 160, height: 160),
             CGSize(width: 128, height: 128)
         ]
@@ -585,7 +612,9 @@ actor AsyncSemaphore {
         if waiters.isEmpty {
             current -= 1
         } else {
-            let next = waiters.removeFirst()
+            // LIFO: wake the most recently queued (currently visible) cell first
+            // so scrolling to a new area never waits behind stale off-screen tasks.
+            let next = waiters.removeLast()
             next.continuation.resume()
         }
     }

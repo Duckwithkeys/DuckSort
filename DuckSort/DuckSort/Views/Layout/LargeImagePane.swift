@@ -228,12 +228,12 @@ final class LargeImageLoader: ObservableObject {
                 }
 
                 let ext = url.pathExtension.lowercased()
-                let isRawLike = FileExtension.rawLikeExtensions.contains(ext)
+                let isRaw = FileExtension.rawLikeExtensions.contains(ext) && !FileExtension.heifLikeExtensions.contains(ext)
 
-                // 1. Fast path for RAW: try full-size embedded JPEG preview first (~15 ms).
+                // 1. Fast path for RAW only (not HEIF/HIF): try full-size embedded JPEG preview (~15 ms).
                 // Most cameras embed a 2000–4000 px preview inside RAW files; if it is
-                // already high resolution (>= 1600 px on the long edge), use it directly!
-                if isRawLike,
+                // already high resolution (>= 1600 px on the long edge), use it directly.
+                if isRaw,
                    let embedded = await decodeThumbnailWithImageIO(url: url, maxPixels: 3072, alwaysCreate: false),
                    max(embedded.width, embedded.height) >= 1600 {
                     let preview = NSImage(cgImage: embedded, size: NSSize(width: embedded.width, height: embedded.height))
@@ -387,10 +387,33 @@ final class LargeImageLoader: ObservableObject {
                 } else {
                     options[kCGImageSourceCreateThumbnailFromImageIfAbsent] = false
                 }
-                let result = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary)
-                continuation.resume(returning: result)
+                guard let result = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                // Guard against ImageIO ignoring kCGImageSourceCreateThumbnailWithTransform
+                // on certain Fuji .HIF / HEIF files or embedded RAW previews.
+                let oriented = Self.ensureOrientedIfNeeded(from: imageSource, thumbnail: result)
+                continuation.resume(returning: oriented)
             }
         }
+    }
+
+    nonisolated private static func ensureOrientedIfNeeded(from source: CGImageSource, thumbnail: CGImage) -> CGImage {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let rawOrientation = properties[kCGImagePropertyOrientation] as? UInt32,
+              let orientation = CGImagePropertyOrientation(rawValue: rawOrientation),
+              orientation != .up,
+              let rawW = properties[kCGImagePropertyPixelWidth] as? Int,
+              let rawH = properties[kCGImagePropertyPixelHeight] as? Int,
+              rawW != rawH else {
+            return thumbnail
+        }
+        let isTransposed = (orientation == .left || orientation == .right || orientation == .leftMirrored || orientation == .rightMirrored)
+        if isTransposed && (rawW > rawH) == (thumbnail.width > thumbnail.height) {
+            return Self.applyOrientation(from: source, to: thumbnail)
+        }
+        return thumbnail
     }
 
     nonisolated private static func decodeHEIFFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
