@@ -6,8 +6,8 @@
     <string>en</string>
     <key>CFBundleExecutable</key>
     <string>DuckSort</string>
-    <key>CFBundleIconFile</key>
-    <string>AppIcon.icns</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.oliver.DuckSort</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -17,9 +17,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.3.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>3</string>
     <key>LSMinimumSystemVersion</key>
     <string>27.0</string>
     <key>NSHighResolutionCapable</key>

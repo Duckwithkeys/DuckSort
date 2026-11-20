@@ -282,8 +282,6 @@ final class ThumbnailService {
         }
     }
 
-    nonisolated private static let decodeQueue = DispatchQueue(label: "com.ducksort.imageio.decode", qos: .utility, attributes: .concurrent)
-
     /// Applies EXIF orientation to a CGImage when decoded via CGImageSourceCreateImageAtIndex.
     nonisolated static func applyOrientation(from source: CGImageSource, to cgImage: CGImage) -> CGImage {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -345,100 +343,84 @@ final class ThumbnailService {
     }
 
     nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
-        await withCheckedContinuation { continuation in
-            Self.decodeQueue.async {
-                let ext = url.pathExtension.lowercased()
-                var sourceOptions: [CFString: Any] = [
-                    kCGImageSourceShouldCache: true
-                ]
-                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
-                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
-                }
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                guard !Task.isCancelled else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                let decodeOptions: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceShouldAllowFloat: true
-                ]
-                let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
-                continuation.resume(returning: thumb)
-            }
+        let ext = url.pathExtension.lowercased()
+        var sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: true
+        ]
+        if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+            sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
         }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+            return nil
+        }
+        guard !Task.isCancelled else {
+            return nil
+        }
+
+        let decodeOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldAllowFloat: true
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
     }
 
     nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
-        await withCheckedContinuation { continuation in
-            Self.decodeQueue.async {
-                let ext = url.pathExtension.lowercased()
-                var sourceOptions: [CFString: Any] = [
-                    kCGImageSourceShouldCache: true
-                ]
-                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
-                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
-                }
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
-                let decodeOptions: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true
-                ]
-                if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) {
-                    continuation.resume(returning: thumb)
-                    return
-                }
-
-                guard let rawCGImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                
-                let orientedImage = Self.applyOrientation(from: source, to: rawCGImage)
-                
-                let width = CGFloat(orientedImage.width)
-                let height = CGFloat(orientedImage.height)
-                let scale = min(maxPixels / max(width, height), 1.0)
-                guard scale < 1.0 else {
-                    continuation.resume(returning: orientedImage)
-                    return
-                }
-                
-                let targetW = Int(width * scale)
-                let targetH = Int(height * scale)
-                
-                guard let colorSpace = orientedImage.colorSpace,
-                      let context = CGContext(
-                          data: nil,
-                          width: targetW,
-                          height: targetH,
-                          bitsPerComponent: orientedImage.bitsPerComponent,
-                          bytesPerRow: 0,
-                          space: colorSpace,
-                          bitmapInfo: orientedImage.bitmapInfo.rawValue
-                      ) else {
-                    continuation.resume(returning: orientedImage)
-                    return
-                }
-                      
-                context.interpolationQuality = .high
-                context.draw(orientedImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
-                continuation.resume(returning: context.makeImage() ?? orientedImage)
-            }
+        let ext = url.pathExtension.lowercased()
+        var sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: true
+        ]
+        if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+            sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
         }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+            return nil
+        }
+        
+        let decodeOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) {
+            return thumb
+        }
+
+        guard let rawCGImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+            return nil
+        }
+        
+        let orientedImage = Self.applyOrientation(from: source, to: rawCGImage)
+        
+        let width = CGFloat(orientedImage.width)
+        let height = CGFloat(orientedImage.height)
+        let scale = min(maxPixels / max(width, height), 1.0)
+        guard scale < 1.0 else {
+            return orientedImage
+        }
+        
+        let targetW = Int(width * scale)
+        let targetH = Int(height * scale)
+        
+        guard let colorSpace = orientedImage.colorSpace,
+              let context = CGContext(
+                  data: nil,
+                  width: targetW,
+                  height: targetH,
+                  bitsPerComponent: orientedImage.bitsPerComponent,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: orientedImage.bitmapInfo.rawValue
+              ) else {
+            return orientedImage
+        }
+              
+        context.interpolationQuality = .high
+        context.draw(orientedImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
+        return context.makeImage() ?? orientedImage
     }
 }
 

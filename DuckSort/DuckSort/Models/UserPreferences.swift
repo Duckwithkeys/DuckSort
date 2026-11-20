@@ -133,12 +133,6 @@ final class UserPreferences: ObservableObject {
         didSet { save() }
     }
 
-    /// Configurable rules for auto-tagging. Defaults to the shipped
-    /// default rules.
-    @Published var autoTaggingRules: [AutoTagRule] = AutoTagRule.defaultRules {
-        didSet { save() }
-    }
-
     /// ID of the tag pack the user has most recently activated. Empty when
     /// the user has never picked a pack or has cleared all tags manually.
     @Published var activeTagPackID: String = TagPack.defaultPackID
@@ -230,8 +224,10 @@ final class UserPreferences: ObservableObject {
     /// `didSet` in quick succession; without debouncing, every property
     /// change would trigger a full UserDefaults flush.
     private var saveTask: Task<Void, Never>?
+    private var isSuppressingSave = false
 
     func save() {
+        guard !isSuppressingSave else { return }
         saveTask?.cancel()
         saveTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 150_000_000) // 150ms debounce
@@ -271,9 +267,6 @@ final class UserPreferences: ObservableObject {
 
         // Auto tagging
         UserDefaults.standard.set(autoTaggingEnabled, forKey: Keys.autoTaggingEnabled)
-        if let encoded = try? JSONEncoder().encode(autoTaggingRules) {
-            UserDefaults.standard.set(encoded, forKey: Keys.autoTaggingRules)
-        }
         UserDefaults.standard.set(hasCompletedOnboarding, forKey: Keys.hasCompletedOnboarding)
         UserDefaults.standard.set(tagManagerHotkey, forKey: Keys.tagManagerHotkey)
         UserDefaults.standard.set(ruleEditorHotkey, forKey: Keys.ruleEditorHotkey)
@@ -335,17 +328,17 @@ final class UserPreferences: ObservableObject {
         }
 
         // Auto tagging
-        autoTaggingEnabled = UserDefaults.standard.bool(forKey: Keys.autoTaggingEnabled)
-        if let data = UserDefaults.standard.data(forKey: Keys.autoTaggingRules) {
-            autoTaggingRules = (try? JSONDecoder().decode([AutoTagRule].self, from: data))
-                ?? AutoTagRule.defaultRules
+        if UserDefaults.standard.object(forKey: Keys.autoTaggingEnabled) != nil {
+            autoTaggingEnabled = UserDefaults.standard.bool(forKey: Keys.autoTaggingEnabled)
         }
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding)
 
         tagManagerHotkey = UserDefaults.standard.string(forKey: Keys.tagManagerHotkey) ?? "cmd+t"
         ruleEditorHotkey = UserDefaults.standard.string(forKey: Keys.ruleEditorHotkey) ?? "cmd+r"
         openSourceHotkey = UserDefaults.standard.string(forKey: Keys.openSourceHotkey) ?? "cmd+o"
-        aiVisionHotkey = UserDefaults.standard.string(forKey: Keys.aiVisionHotkey)
+        if UserDefaults.standard.object(forKey: Keys.aiVisionHotkey) != nil {
+            aiVisionHotkey = UserDefaults.standard.string(forKey: Keys.aiVisionHotkey)
+        }
         photomatorHotkey = UserDefaults.standard.string(forKey: Keys.photomatorHotkey) ?? "e"
 
         embedIPTCInExports = UserDefaults.standard.bool(forKey: Keys.embedIPTCInExports)
@@ -373,7 +366,6 @@ final class UserPreferences: ObservableObject {
 
         // Auto tagging
         UserDefaults.standard.removeObject(forKey: Keys.autoTaggingEnabled)
-        UserDefaults.standard.removeObject(forKey: Keys.autoTaggingRules)
         UserDefaults.standard.removeObject(forKey: Keys.hasCompletedOnboarding)
         UserDefaults.standard.removeObject(forKey: Keys.tagManagerHotkey)
         UserDefaults.standard.removeObject(forKey: Keys.ruleEditorHotkey)
@@ -389,6 +381,16 @@ final class UserPreferences: ObservableObject {
         UserDefaults.standard.removeObject(forKey: Keys.iptcContactWebsite)
         UserDefaults.standard.removeObject(forKey: Keys.iptcRightsUsageTerms)
         UserDefaults.standard.removeObject(forKey: Keys.appIconStyle)
+        UserDefaults.standard.removeObject(forKey: Keys.customAccent)
+        UserDefaults.standard.removeObject(forKey: Keys.glassTranslucency)
+        UserDefaults.standard.removeObject(forKey: Keys.highContrastEnabled)
+        UserDefaults.standard.removeObject(forKey: Keys.hapticProfileFlag)
+        UserDefaults.standard.removeObject(forKey: Keys.hapticProfileReject)
+        UserDefaults.standard.removeObject(forKey: Keys.hapticProfileRating)
+
+        saveTask?.cancel()
+        isSuppressingSave = true
+        defer { isSuppressingSave = false }
 
         lastSourceDirectoryIDs = []
         lastLooseFilePaths = []
@@ -399,13 +401,18 @@ final class UserPreferences: ObservableObject {
         speedCullingEnabled = false
         autoAdvanceHapticEnabled = false
         autoAdvanceSoundEnabled = false
-        autoAdvanceToggleHotkey = ""
+        autoAdvanceToggleHotkey = nil
         activeTagPackID = TagPack.defaultPackID
         appIconStyle = .system
+        customAccent = .system
+        glassTranslucency = .standard
+        highContrastEnabled = false
+        hapticProfileFlag = .heavyPulse
+        hapticProfileReject = .doubleClick
+        hapticProfileRating = .lightTick
 
         // Auto tagging
         autoTaggingEnabled = true
-        autoTaggingRules = AutoTagRule.defaultRules
         hasCompletedOnboarding = false
         tagManagerHotkey = "cmd+t"
         ruleEditorHotkey = "cmd+r"

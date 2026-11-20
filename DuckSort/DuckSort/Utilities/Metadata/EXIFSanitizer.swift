@@ -24,20 +24,23 @@ struct EXIFSanitizer: Sendable {
         
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else {
             CGImageDestinationAddImageFromSource(destination, source, 0, nil)
-            CGImageDestinationFinalize(destination)
+            if !CGImageDestinationFinalize(destination) {
+                throw NSError(domain: "EXIFSanitizer", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to finalize sanitized image write"])
+            }
             return
         }
         
         var mutableProperties = properties
         
         if stripLocation {
-            mutableProperties.removeValue(forKey: kCGImagePropertyGPSDictionary as String)
+            // ImageIO merges dictionaries over source metadata; kCFNull explicitly deletes the key.
+            mutableProperties[kCGImagePropertyGPSDictionary as String] = kCFNull
         }
         
         if stripCameraInfo, var exif = mutableProperties[kCGImagePropertyExifDictionary as String] as? [String: Any] {
-            exif.removeValue(forKey: kCGImagePropertyExifBodySerialNumber as String)
-            exif.removeValue(forKey: kCGImagePropertyExifLensSerialNumber as String)
-            exif.removeValue(forKey: kCGImagePropertyExifCameraOwnerName as String)
+            exif[kCGImagePropertyExifBodySerialNumber as String] = kCFNull
+            exif[kCGImagePropertyExifLensSerialNumber as String] = kCFNull
+            exif[kCGImagePropertyExifCameraOwnerName as String] = kCFNull
             mutableProperties[kCGImagePropertyExifDictionary as String] = exif
         }
         

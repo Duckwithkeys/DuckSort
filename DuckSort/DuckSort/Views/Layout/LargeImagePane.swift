@@ -174,7 +174,6 @@ final class LargeImageLoader: ObservableObject {
     @Published var loadError: String? = nil
 
     private static let cacheWrapper = LargeImageCacheWrapper()
-    private static let decodeQueue = DispatchQueue(label: "com.ducksort.largeimage.decode", qos: .utility, attributes: .concurrent)
     private static var inFlightTasks: [String: Task<NSImage?, Never>] = [:]
     private static let inFlightLock = NSLock()
 
@@ -342,54 +341,43 @@ final class LargeImageLoader: ObservableObject {
         return context.makeImage() ?? cgImage
     }
 
-    private static func decodeThumbnailWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
-        await withCheckedContinuation { continuation in
-            Self.decodeQueue.async {
-                let ext = url.pathExtension.lowercased()
-                var sourceOptions: [CFString: Any] = [
-                    kCGImageSourceShouldCache: true
-                ]
-                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
-                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
-                }
-                guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                let options: [CFString: Any] = [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceShouldAllowFloat: true
-                ]
-                let thumbnailCG = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary)
-                continuation.resume(returning: thumbnailCG)
-            }
+    nonisolated private static func decodeThumbnailWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
+        let ext = url.pathExtension.lowercased()
+        var sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: true
+        ]
+        if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+            sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
         }
+        guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldAllowFloat: true
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary)
     }
 
-    private static func decodeHEIFFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
-        await withCheckedContinuation { continuation in
-            Self.decodeQueue.async {
-                let ext = url.pathExtension.lowercased()
-                var sourceOptions: [CFString: Any] = [
-                    kCGImageSourceShouldCache: true
-                ]
-                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
-                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
-                }
-                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary),
-                      let rawCG = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                let orientedCG = Self.applyOrientation(from: source, to: rawCG)
-                let scaled = Self.downsample(cgImage: orientedCG, maxPixels: maxPixels)
-                continuation.resume(returning: scaled ?? orientedCG)
-            }
+    nonisolated private static func decodeHEIFFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
+        let ext = url.pathExtension.lowercased()
+        var sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: true
+        ]
+        if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+            sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
         }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary),
+              let rawCG = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+            return nil
+        }
+        let orientedCG = Self.applyOrientation(from: source, to: rawCG)
+        let scaled = Self.downsample(cgImage: orientedCG, maxPixels: maxPixels)
+        return scaled ?? orientedCG
     }
 
     func load(url: URL?) async {

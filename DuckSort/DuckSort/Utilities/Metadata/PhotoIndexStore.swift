@@ -26,6 +26,16 @@ final class PhotoIndexStore: @unchecked Sendable {
         defer { lock.unlock() }
         
         for photo in photoSets {
+            // Remove stale rating/pick index entries if this photo was previously indexed.
+            if let existing = byID[photo.id] {
+                if let oldRating = existing.rating, oldRating != photo.rating {
+                    byRating[oldRating]?.remove(photo.id)
+                }
+                if let oldPick = existing.pick, oldPick != photo.pick {
+                    byPick[oldPick]?.remove(photo.id)
+                }
+            }
+
             byID[photo.id] = photo
             
             if let rating = photo.rating {
@@ -46,25 +56,26 @@ final class PhotoIndexStore: @unchecked Sendable {
 
     func indexFeaturePrint(id: UUID, vector: [Float]) {
         guard !vector.isEmpty else { return }
+        // Pre-normalize to unit length so similarity queries are a single vDSP_dotpr.
+        var sumSq: Float = 0.0
+        vDSP_svesq(vector, 1, &sumSq, vDSP_Length(vector.count))
+        let norm = sqrt(sumSq)
+        guard norm > 0 else { return }
+        var normalized = [Float](repeating: 0, count: vector.count)
+        var divisor = norm
+        vDSP_vsdiv(vector, 1, &divisor, &normalized, 1, vDSP_Length(vector.count))
+
         lock.lock()
         defer { lock.unlock() }
-        featurePrints[id] = vector
+        featurePrints[id] = normalized
     }
 
-    /// Computes cosine similarity between two float vectors using Accelerate vDSP.
+    /// Computes cosine similarity between two pre-normalized unit vectors using Accelerate vDSP.
     private func cosineSimilarity(_ v1: [Float], _ v2: [Float]) -> Float {
         guard v1.count == v2.count, !v1.isEmpty else { return 0.0 }
         var dot: Float = 0.0
-        var norm1: Float = 0.0
-        var norm2: Float = 0.0
-
         vDSP_dotpr(v1, 1, v2, 1, &dot, vDSP_Length(v1.count))
-        vDSP_svesq(v1, 1, &norm1, vDSP_Length(v1.count))
-        vDSP_svesq(v2, 1, &norm2, vDSP_Length(v2.count))
-
-        let denom = sqrt(norm1) * sqrt(norm2)
-        guard denom > 0 else { return 0.0 }
-        return dot / denom
+        return dot
     }
 
     /// Finds indexed photos matching or exceeding a visual similarity threshold.

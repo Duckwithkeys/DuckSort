@@ -48,18 +48,26 @@ Open the active photo directly into Photomator from the viewer with `E` or a cli
 | Action | Shortcut |
 |---|---|
 | Add source folder | `⇧⌘O` |
+| Import files | `⇧⌘I` |
 | Choose destination | `⇧⌘D` |
 | Open viewer (grid) | `Space`, `Return` |
 | Zoom in / out | Click zoom buttons in toolbar |
 | Toggle sidebar | `⌥⌘S` |
 | Select all visible | `⌘A` |
-| Rate a photo (0–5) | Keys `1`–`5` |
+| Undo / Redo culling | `⌘Z` / `⇧⌘Z` |
+| Rate a photo (1–5) | Keys `1`–`5` |
+| Clear rating, pick, & tags | `0` |
 | Flag pick | `Z` |
-| Reject | `X` |
-| Clear pick/rating | `U` |
+| Reject & advance | `X` |
+| Clear pick flag | `U` |
+| Cycle tag category (viewer) | `[` / `]` |
+| Edit in Photomator (viewer) | `E` |
+| Toggle Advanced EXIF | `⇧⌘E` |
+| Activity Console | `⇧⌘C` |
+| Settings | `⌘,` |
 | Close viewer / Escape | `Esc` |
 
-*Tag pack and tag-specific shortcuts are configurable per-pack in the settings.*
+*Tag pack and tag-specific shortcuts are configurable per-pack in Settings → Tags.*
 
 ---
 
@@ -91,13 +99,15 @@ swift test     # Run the test suite
 | Layer | What it does |
 |---|---|
 | **Models** | `PhotoSet`, `TagPack`, `ExportPathRule`, `UserPreferences` — core data types |
-| **ViewModels** | `PhotoLibraryViewModel` — the app's central state hub (source dirs, tags, routing) |
-| **Views** | SwiftUI: grid, sidebar, viewer, insights, export rule editor, tag manager, settings panes |
+| **ViewModels** | `PhotoLibraryViewModel`, `CullingUndoManager`, `FolderTreeIndex`, `InsightsCalculator` — central state, undo/redo, O(1) folder indexing, and EXIF analytics |
+| **Views** | SwiftUI: grid, sidebar, viewer, insights, pre-flight visualizer, and Settings panes |
 | **Utilities / AI** | Vision-based auto-tagging, face clustering, Neural Engine optimization |
-| **Utilities / Cache** | Two-tier thumbnail cache (memory LRU + disk JPEG, 500 MB budget) |
-| **Utilities / Transfers** | Routed copy/move with EXIF-aware path templating and sidecar writing |
-| **Utilities / Metadata** | EXIF reading, XMP sidecar import/export, VCard IPTC profiles |
-| **Tests** | Unit tests for file scanning, caching, routing, tag packs, and transfer logic |
+| **Utilities / Cache** | Two-tier thumbnail cache (memory LRU + direct ImageIO disk JPEG, 500 MB budget) |
+| **Utilities / Transfers** | Routed copy/move with EXIF-aware path templating, symlink containment, and sidecar writing |
+| **Utilities / Metadata** | EXIF reading, XMP sidecar import/export, EXIF privacy sanitization, VCard IPTC profiles |
+| **Tests** | 110 unit tests across 21 suites covering scanning, caching, routing, security containment, XMP sidecars, and regressions |
+
+See [CHANGELOG.md](CHANGELOG.md) for full release history, or download the latest build from [GitHub Releases](https://github.com/Duckwithkeys/DuckSort/releases).
 
 ---
 

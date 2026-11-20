@@ -639,11 +639,15 @@ struct LargeImageViewerSidebar: View {
         }
     }
 
-    private func formatDate(_ date: Date) -> String {
+    private static let captureDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func formatDate(_ date: Date) -> String {
+        Self.captureDateFormatter.string(from: date)
     }
 
     private func formatAperture(_ value: Double?) -> String {

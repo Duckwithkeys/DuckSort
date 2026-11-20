@@ -58,54 +58,69 @@ final class FloatingWindowManager: ObservableObject {
     @Published private(set) var isReady = false
 
     private var settingsController: NSWindowController?
+    private var settingsNavigationModel: SettingsNavigationModel?
+    private var settingsToolbarDelegate: SettingsToolbarDelegate?
     private var logConsoleController: NSWindowController?
 
     private init() {}
 
     func showSettings(viewModel: PhotoLibraryViewModel, initialTab: SettingsTab = .rules) {
-        if let controller = settingsController {
-            if let win = controller.window,
-               let hosting = win.contentView as? NSHostingView<AnyView> {
-                hosting.rootView = AnyView(
-                    SettingsPaneView(
-                        viewModel: viewModel,
-                        initialTab: initialTab,
-                        onClose: { [weak controller] in controller?.close() }
-                    )
-                )
-            }
+        if let controller = settingsController, let win = controller.window {
+            settingsNavigationModel?.selectedTab = initialTab
+            win.toolbar?.selectedItemIdentifier = initialTab.toolbarIdentifier
+            win.title = initialTab.rawValue
             controller.showWindow(nil)
-            NSApp.activate(ignoringOtherApps: true)
+            NSApp.activate()
             return
         }
+
+        let navModel = SettingsNavigationModel(selectedTab: initialTab)
+        self.settingsNavigationModel = navModel
 
         let view = SettingsPaneView(
             viewModel: viewModel,
             initialTab: initialTab,
+            navigationModel: navModel,
             onClose: { [weak self] in self?.settingsController?.close() }
         )
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 960, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = ""
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
-        window.minSize = NSSize(width: 820, height: 560)
-        window.backgroundColor = NSColor(red: 0x1E/255, green: 0x1E/255, blue: 0x1E/255, alpha: 1)
-        window.center()
+        window.title = initialTab.rawValue
+        window.titlebarAppearsTransparent = false
+        window.titleVisibility = .visible
+        window.toolbarStyle = .preference
+        window.isMovableByWindowBackground = false
+        window.minSize = NSSize(width: 760, height: 520)
+        window.backgroundColor = .windowBackgroundColor
+
+        let toolbarDelegate = SettingsToolbarDelegate { [weak window, weak navModel] tab in
+            navModel?.selectedTab = tab
+            window?.title = tab.rawValue
+        }
+        self.settingsToolbarDelegate = toolbarDelegate
+
+        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("DuckSortSettingsToolbar"))
+        toolbar.delegate = toolbarDelegate
+        toolbar.allowsUserCustomization = false
+        toolbar.displayMode = .iconAndLabel
+        toolbar.selectedItemIdentifier = initialTab.toolbarIdentifier
+        window.toolbar = toolbar
 
         let hosting = NSHostingView(rootView: AnyView(view))
-        hosting.frame = NSRect(x: 0, y: 0, width: 960, height: 720 + 28)
+        hosting.frame = NSRect(x: 0, y: 0, width: 860, height: 620)
         hosting.autoresizingMask = [.width, .height]
         window.contentView = hosting
+        window.center()
 
         let delegate = PanelDelegate { [weak self] in
             self?.settingsController = nil
+            self?.settingsNavigationModel = nil
+            self?.settingsToolbarDelegate = nil
         }
         window.delegate = delegate
         window.setAssociatedDelegate(delegate)
@@ -113,7 +128,7 @@ final class FloatingWindowManager: ObservableObject {
         let controller = NSWindowController(window: window)
         self.settingsController = controller
         controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 
     func showLogConsole() {
@@ -149,15 +164,59 @@ final class FloatingWindowManager: ObservableObject {
         let controller = NSWindowController(window: window)
         self.logConsoleController = controller
         controller.showWindow(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 
     func closeAll() {
         settingsController?.close()
         logConsoleController?.close()
     }
+}
 
+@MainActor
+private final class SettingsToolbarDelegate: NSObject, NSToolbarDelegate {
+    private let onSelectTab: (SettingsTab) -> Void
 
+    init(onSelectTab: @escaping (SettingsTab) -> Void) {
+        self.onSelectTab = onSelectTab
+    }
+
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        SettingsTab.allCases.map(\.toolbarIdentifier)
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        SettingsTab.allCases.map(\.toolbarIdentifier)
+    }
+
+    func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        SettingsTab.allCases.map(\.toolbarIdentifier)
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard let tab = SettingsTab.allCases.first(where: { $0.toolbarIdentifier == itemIdentifier }) else {
+            return nil
+        }
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        item.label = tab.rawValue
+        item.paletteLabel = tab.rawValue
+        item.toolTip = tab.rawValue
+        item.image = NSImage(systemSymbolName: tab.systemImage, accessibilityDescription: tab.rawValue)
+        item.target = self
+        item.action = #selector(handleToolbarItemSelected(_:))
+        return item
+    }
+
+    @objc private func handleToolbarItemSelected(_ sender: NSToolbarItem) {
+        guard let tab = SettingsTab.allCases.first(where: { $0.toolbarIdentifier == sender.itemIdentifier }) else {
+            return
+        }
+        onSelectTab(tab)
+    }
 }
 
 // MARK: - Delegate to retain delegate instance

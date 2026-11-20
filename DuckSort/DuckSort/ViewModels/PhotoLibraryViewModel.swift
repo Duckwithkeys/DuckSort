@@ -32,9 +32,11 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published private(set) var looseFiles: [URL] = []
     @Published private(set) var failedSources: Set<URL> = []
     @Published private(set) var destinationDirectory: URL?
+    private var isMutatingSelectionOnly = false
+
     @Published var photoSets: [PhotoSet] = [] {
         didSet {
-            photoFileSizeCache.removeAll(keepingCapacity: true)
+            guard !isMutatingSelectionOnly else { return }
             rebuildPhotoSetIndex()
             updateGlobalCounts()
             setNeedsDerivedUpdate()
@@ -82,16 +84,6 @@ final class PhotoLibraryViewModel: ObservableObject {
         setNeedsDerivedUpdate()
     }
     @Published private(set) var photoCaptions: [UUID: String] = [:]
-    /// XMP tag names read from on-disk sidecars that have no matching tag
-    /// in the currently active pack. Populated during metadata loading so
-    /// the Settings → XMP Tags pane can offer to import them.
-    @Published private(set) var orphanedXmpTagNames: Set<String> = []
-
-    /// Called by the Settings XMP Tags pane after the user imports a batch
-    /// of orphaned names into the active pack, so they disappear from the list.
-    func removeOrphanedXmpTagNames(_ names: Set<String>) {
-        orphanedXmpTagNames.subtract(names)
-    }
     @Published private(set) var visionSuggestionsCache: [UUID: [AutoTagSuggestion]] = [:]
     @Published var filterRule: PhotoFilterRule = .allPhotos {
         didSet {
@@ -183,8 +175,13 @@ final class PhotoLibraryViewModel: ObservableObject {
         case endsWith = "Ends with"
     }
 
+    private var isSyncingSort = false
+
     @Published var sortOption: SortOption = .dateDescending {
         didSet {
+            guard !isSyncingSort else { return }
+            isSyncingSort = true
+            defer { isSyncingSort = false }
             switch sortOption {
             case .dateDescending:
                 sortOrder = .date
@@ -211,12 +208,18 @@ final class PhotoLibraryViewModel: ObservableObject {
 
     @Published var sortOrder: SortOrder = .date {
         didSet {
+            guard !isSyncingSort else { return }
+            isSyncingSort = true
+            defer { isSyncingSort = false }
             syncSortOption()
             setNeedsDerivedUpdate()
         }
     }
     @Published var sortDirection: SortDirection = .descending {
         didSet {
+            guard !isSyncingSort else { return }
+            isSyncingSort = true
+            defer { isSyncingSort = false }
             syncSortOption()
             setNeedsDerivedUpdate()
         }
@@ -294,7 +297,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     
     /// Dismissed auto-tag suggestions: (photoSetID, tagName) pairs.
     /// Ephemeral — cleared when the photo changes.
-    private var dismissedSuggestions: Set<DismissedSuggestionKey> = []
+    @Published private var dismissedSuggestions: Set<DismissedSuggestionKey> = []
     
     /// Large image viewer state
     @Published var focusedPhotoIndex: Int = 0 {
@@ -323,14 +326,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     @Published var pendingRoutedPlan: RoutedPlan? = nil
 
     // MARK: - Culling Undo/Redo State
-    struct CullingState: Sendable {
-        let photoSetID: UUID
-        let rating: Int?
-        let pick: Int?
-        let tagIDs: Set<UUID>
-    }
-    private var undoStack: [[CullingState]] = []
-    private var redoStack: [[CullingState]] = []
+    @Published private var undoManager = CullingUndoManager()
+    private var pendingTagStoreRefresh = false
 
     @Published var cachedSubfolders: [URL: [URL]] = [:]
     @Published var cachedSubfolderCounts: [URL: Int] = [:]
@@ -426,13 +423,12 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.tagStore.objectWillChange
             // Coalesce multiple `objectWillChange` fires from a batch tag
             // operation into a single MainActor pass per runloop cycle.
-            // Previously a batch setTagsBatch could trigger 4 separate
-            // updateGlobalCounts + updateDerivedState cycles; dispatching
-            // through Task hops onto MainActor asynchronously and folds
-            // multiple notifications queued in the same runloop cycle.
             .sink { [weak self] _ in
+                guard let self, !self.pendingTagStoreRefresh else { return }
+                self.pendingTagStoreRefresh = true
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    self.pendingTagStoreRefresh = false
                     self.updateGlobalCounts()
                     self.updateDerivedState()
                     self.objectWillChange.send()
@@ -467,18 +463,21 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
             .store(in: &cancellables)
         
-        self.filterRule = UserPreferences.shared.lastFilterRule
+        let isRunningTests = NSClassFromString("XCTestCase") != nil
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
 
+        if !isRunningTests {
+            self.filterRule = UserPreferences.shared.lastFilterRule
+            self.isInspectorOpen = UserPreferences.shared.isInspectorOpen
+            self.speedCullingEnabled = UserPreferences.shared.speedCullingEnabled
 
-        self.isInspectorOpen = UserPreferences.shared.isInspectorOpen
-        self.speedCullingEnabled = UserPreferences.shared.speedCullingEnabled
-        
-        let urls = UserPreferences.shared.lastSourceDirectoryIDs.map { URL(fileURLWithPath: $0) }
-        self.sourceDirectories = urls
-        self.looseFiles = UserPreferences.shared.lastLooseFilePaths.map { URL(fileURLWithPath: $0) }
+            let urls = UserPreferences.shared.lastSourceDirectoryIDs.map { URL(fileURLWithPath: $0) }
+            self.sourceDirectories = urls
+            self.looseFiles = UserPreferences.shared.lastLooseFilePaths.map { URL(fileURLWithPath: $0) }
 
-        if let destID = UserPreferences.shared.lastDestinationDirectoryID {
-            self.destinationDirectory = URL(fileURLWithPath: destID)
+            if let destID = UserPreferences.shared.lastDestinationDirectoryID {
+                self.destinationDirectory = URL(fileURLWithPath: destID)
+            }
         }
 
         self.tagManagerHotkey = UserPreferences.shared.tagManagerHotkey
@@ -486,13 +485,13 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.openSourceHotkey = UserPreferences.shared.openSourceHotkey
         self.photomatorHotkey = UserPreferences.shared.photomatorHotkey
 
-        
         self.isInitializing = false
 
         updateGlobalCounts()
         updateDerivedState()
 
-        if !sourceDirectories.isEmpty || !looseFiles.isEmpty {
+        if !isRunningTests && (!sourceDirectories.isEmpty || !looseFiles.isEmpty) {
+            let urls = self.sourceDirectories
             Task { [weak self] in
                 self?.scanSourceDirectories(urls)
             }
@@ -522,6 +521,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         transferTask?.cancel()
         tagTask?.cancel()
         metadataTask?.cancel()
+        memoryPressureSource?.cancel()
         
         // Clean up keyboard monitor if registered
         if let keyboardMonitor = keyboardMonitor {
@@ -553,11 +553,11 @@ final class PhotoLibraryViewModel: ObservableObject {
     private var cachedSelectedCount: Int = 0
     private var cachedSelectedFileCount: Int = 0
 
-    var editedCount: Int { photoSets.filter(\.hasEdit).count }
-    var uneditedCount: Int { photoSets.count - editedCount }
+    var editedCount: Int { cachedEditedCount }
+    var uneditedCount: Int { cachedUneditedCount }
     
     var canTransfer: Bool {
-        destinationDirectory != nil && !selectedPhotoSets.isEmpty && !isTransferring
+        destinationDirectory != nil && cachedSelectedCount > 0 && !isTransferring
     }
     
     var currentFocusedPhotoSet: PhotoSet? {
@@ -595,11 +595,18 @@ final class PhotoLibraryViewModel: ObservableObject {
             photoCaptions[photoSetID] = normalized
         }
 
-        tagTask = Task { @MainActor [xmpTagging] in
-            do {
-                try xmpTagging.updateCaption(normalized, for: photo)
-            } catch {
-                self.errorMessage = error.localizedDescription
+        let tagNames = Set(tagStore.assignedTags(for: photo.id).map(\.name))
+        let existingSnapshot = photoMetadata[photo.id]
+        let reader = metadataReader
+        let previousTask = tagTask
+        tagTask = Task { @MainActor [weak self, xmpTagging] in
+            _ = await previousTask?.result
+            let result: Result<Void, Error> = await Task.detached(priority: .utility) {
+                let snapshot = existingSnapshot ?? (photo.preferredPreviewURL.map { reader.metadata(for: $0) } ?? MetadataSnapshot())
+                return Result { try xmpTagging.updateCaption(normalized, for: photo, tagNames: tagNames, metadata: snapshot) }
+            }.value
+            if case .failure(let error) = result {
+                self?.errorMessage = error.localizedDescription
             }
         }
 
@@ -699,10 +706,20 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     func clearSourceDirectories() {
+        scanTask?.cancel()
+        metadataTask?.cancel()
+        tagTask?.cancel()
         sourceDirectories = []
         looseFiles = []
         photoSets = []
         photoMetadata = [:]
+        photoCaptions = [:]
+        visionSuggestionsCache = [:]
+        photoDateCache = [:]
+        photoFileSizeCache = [:]
+        selectedSubfolderFilter = nil
+        undoManager.clear()
+        isScanning = false
         persistSources()
         statusMessage = "Choose a photoshoot folder to begin."
     }
@@ -720,9 +737,11 @@ final class PhotoLibraryViewModel: ObservableObject {
     func scanSourceDirectories(_ urls: [URL]) {
         scanTask?.cancel()
         metadataTask?.cancel()
+        undoManager.clear()
         sourceDirectories = urls
         photoSets = []
         photoMetadata = [:]
+        photoCaptions = [:]
         failedSources = []
         errorMessage = nil
         isScanning = true
@@ -740,13 +759,14 @@ final class PhotoLibraryViewModel: ObservableObject {
             ? "Scanning \(looseFiles.count) imported files..."
             : "Scanning \(foldersText) and subfolders..."
 
-        scanTask = Task { @MainActor [scanner] in
+        scanTask = Task { @MainActor [weak self, scanner] in
             var photoSets: [PhotoSet] = []
             var scannedFileCount = 0
             var failed: Set<URL> = []
 
             if !urls.isEmpty {
                 let dirResult = await scanner.scanDirectories(urls)
+                guard !Task.isCancelled else { return }
                 photoSets.append(contentsOf: dirResult.photoSets)
                 scannedFileCount += dirResult.scannedFileCount
                 failed.formUnion(dirResult.failedDirectories)
@@ -754,10 +774,13 @@ final class PhotoLibraryViewModel: ObservableObject {
 
             if !looseFiles.isEmpty {
                 let fileResult = await scanner.scanFiles(looseFiles)
+                guard !Task.isCancelled else { return }
                 photoSets.append(contentsOf: fileResult.photoSets)
                 scannedFileCount += fileResult.scannedFileCount
                 failed.formUnion(fileResult.failedDirectories)
             }
+
+            guard !Task.isCancelled, let self else { return }
 
             photoSets.sort {
                 $0.baseName.localizedStandardCompare($1.baseName) == .orderedAscending
@@ -901,6 +924,18 @@ final class PhotoLibraryViewModel: ObservableObject {
     ) {
         guard !results.isEmpty else { return }
         
+        // Ensure all discovered tag names from metadata and sidecars are registered in TagStore
+        var allDiscoveredNames = Set<String>()
+        for info in results {
+            allDiscoveredNames.formUnion(info.sidecarTags)
+        }
+        
+        tagStore.ensureTags(named: allDiscoveredNames)
+        let activeNameToID = Dictionary(
+            tagStore.tags.map { ($0.name.lowercased(), $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         suppressDerivedUpdates = true
         var metadataCache = self.photoMetadata
         metadataCache.reserveCapacity(metadataCache.count + results.count)
@@ -913,14 +948,9 @@ final class PhotoLibraryViewModel: ObservableObject {
             metadataCache[info.id] = info.metadata
 
             if !info.sidecarTags.isEmpty {
-                let tagIDs = Set(info.sidecarTags.compactMap { nameToID[$0.lowercased()] })
+                let tagIDs = Set(info.sidecarTags.compactMap { activeNameToID[$0.lowercased()] })
                 if !tagIDs.isEmpty {
                     batchTags[info.id] = tagIDs
-                }
-                // Collect any names that don't map to an active-pack tag
-                let unmatched = info.sidecarTags.filter { nameToID[$0.lowercased()] == nil }
-                if !unmatched.isEmpty {
-                    self.orphanedXmpTagNames.formUnion(unmatched)
                 }
             }
 
@@ -929,10 +959,6 @@ final class PhotoLibraryViewModel: ObservableObject {
             }
 
             if let idx = photoSetIndex[info.id] {
-                // Prefer sidecar rating/pick over EXIF — the sidecar is what
-                // the user's editor wrote last, EXIF is whatever the camera
-                // baked in. Only fill in when the photo set doesn't already
-                // have a value (preserves any in-memory user state).
                 let rating = info.sidecarRating ?? info.metadata.rating
                 let pick = info.sidecarPick ?? info.metadata.pick
                 if updatedSets[idx].rating == nil, let rating {
@@ -994,9 +1020,61 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// "active focus" highlight ring distinct from the broader selection.
     @Published var selectionAnchorID: PhotoSet.ID? = nil
 
+    private func fileCount(for photoSet: PhotoSet) -> Int {
+        photoSet.mediaFiles.count + (photoSet.editPath != nil ? 1 : 0)
+    }
+
+    private func setSingleSelectionState(_ newValue: Bool, at index: Int, id: PhotoSet.ID) {
+        let oldValue = photoSets[index].isSelected
+        guard oldValue != newValue else { return }
+        isMutatingSelectionOnly = true
+        photoSets[index].isSelected = newValue
+        isMutatingSelectionOnly = false
+
+        let deltaFiles = fileCount(for: photoSets[index])
+        if newValue {
+            cachedSelectedCount += 1
+            cachedSelectedFileCount += deltaFiles
+        } else {
+            cachedSelectedCount = max(0, cachedSelectedCount - 1)
+            cachedSelectedFileCount = max(0, cachedSelectedFileCount - deltaFiles)
+        }
+
+        if let filteredIndex = filteredPhotoSets.firstIndex(where: { $0.id == id }) {
+            filteredPhotoSets[filteredIndex].isSelected = newValue
+        }
+    }
+
+    private func applyBatchSelection(_ shouldSelect: (PhotoSet) -> Bool) {
+        var updated = photoSets
+        var selectedCount = 0
+        var selectedFiles = 0
+        var selectedIDs = Set<UUID>()
+        for i in updated.indices {
+            let sel = shouldSelect(updated[i])
+            updated[i].isSelected = sel
+            if sel {
+                selectedCount += 1
+                selectedFiles += fileCount(for: updated[i])
+                selectedIDs.insert(updated[i].id)
+            }
+        }
+        isMutatingSelectionOnly = true
+        photoSets = updated
+        isMutatingSelectionOnly = false
+        cachedSelectedCount = selectedCount
+        cachedSelectedFileCount = selectedFiles
+
+        var updatedFiltered = filteredPhotoSets
+        for i in updatedFiltered.indices {
+            updatedFiltered[i].isSelected = selectedIDs.contains(updatedFiltered[i].id)
+        }
+        filteredPhotoSets = updatedFiltered
+    }
+
     func toggleSelection(for id: PhotoSet.ID) {
         guard let index = photoSetIndex[id] else { return }
-        photoSets[index].isSelected.toggle()
+        setSingleSelectionState(!photoSets[index].isSelected, at: index, id: id)
         // Every toggle updates the anchor to this cell so a subsequent
         // shift-click extends from it.
         selectionAnchorID = id
@@ -1004,7 +1082,7 @@ final class PhotoLibraryViewModel: ObservableObject {
 
     func setSelection(_ isSelected: Bool, for id: PhotoSet.ID) {
         guard let index = photoSetIndex[id] else { return }
-        photoSets[index].isSelected = isSelected
+        setSingleSelectionState(isSelected, at: index, id: id)
     }
 
     /// Select every visible photo set between the anchor (or ``id`` if no
@@ -1032,23 +1110,13 @@ final class PhotoLibraryViewModel: ObservableObject {
         let rangeIDs = Set(visibleIDs[lower...upper])
 
         if additive {
-            // Build a new array with the range merged into the existing
-            // selection in one assignment so the `photoSets` didSet fires
-            // exactly once. Per-subscript mutation would call
-            // updateDerivedState() once per photo — that's what produced
-            // the beach-ball spinner on large libraries.
-            var updated = photoSets
-            for index in updated.indices where rangeIDs.contains(updated[index].id) {
-                updated[index].isSelected = true
+            applyBatchSelection { photoSet in
+                photoSet.isSelected || rangeIDs.contains(photoSet.id)
             }
-            photoSets = updated
         } else {
-            let replaced = photoSets.map { photoSet -> PhotoSet in
-                var copy = photoSet
-                copy.isSelected = rangeIDs.contains(photoSet.id)
-                return copy
+            applyBatchSelection { photoSet in
+                rangeIDs.contains(photoSet.id)
             }
-            photoSets = replaced
         }
 
         let direction = startIndex < endIndex ? "forward" : "backward"
@@ -1058,10 +1126,8 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// Replace the entire selection with the given IDs in one batch update.
     func replaceSelection(with ids: [PhotoSet.ID]) {
         let idSet = Set(ids)
-        photoSets = photoSets.map { photoSet in
-            var copy = photoSet
-            copy.isSelected = idSet.contains(photoSet.id)
-            return copy
+        applyBatchSelection { photoSet in
+            idSet.contains(photoSet.id)
         }
     }
 
@@ -1085,11 +1151,13 @@ final class PhotoLibraryViewModel: ObservableObject {
         guard !ids.isEmpty else { return }
         let before = captureState(for: ids)
         var updated = photoSets
-        var targets: [PhotoSet] = []
+        var targetItems: [(photo: PhotoSet, tags: Set<String>, metadata: MetadataSnapshot?)] = []
         for id in ids {
             if let index = photoSetIndex[id] {
                 updated[index].rating = rating
-                targets.append(updated[index])
+                let photo = updated[index]
+                let tags = Set(tagStore.assignedTags(for: id).map(\.name))
+                targetItems.append((photo, tags, photoMetadata[id]))
             }
         }
         photoSets = updated
@@ -1102,14 +1170,30 @@ final class PhotoLibraryViewModel: ObservableObject {
 
         registerUndo(beforeStates: before, actionName: "Rating")
 
-        Task { [xmpTagging] in
-            for photo in targets {
-                do {
-                    try xmpTagging.updatePermanentTags(rating: rating, pick: photo.pick, for: photo)
-                } catch {
-                    await MainActor.run { self.errorMessage = "Failed to write rating: \(error.localizedDescription)" }
-                    return
+        let itemsToWrite = targetItems
+        let reader = metadataReader
+        let previousTask = tagTask
+        tagTask = Task { @MainActor [weak self, xmpTagging] in
+            _ = await previousTask?.result
+            let errorText: String? = await Task.detached(priority: .utility) {
+                for item in itemsToWrite {
+                    let snapshot = item.metadata ?? (item.photo.preferredPreviewURL.map { reader.metadata(for: $0) } ?? MetadataSnapshot())
+                    do {
+                        try xmpTagging.updatePermanentTags(
+                            rating: rating,
+                            pick: item.photo.pick,
+                            for: item.photo,
+                            tagNames: item.tags,
+                            metadata: snapshot
+                        )
+                    } catch {
+                        return "Failed to write rating: \(error.localizedDescription)"
+                    }
                 }
+                return nil
+            }.value
+            if let errorText {
+                self?.errorMessage = errorText
             }
         }
     }
@@ -1123,11 +1207,13 @@ final class PhotoLibraryViewModel: ObservableObject {
         guard !ids.isEmpty else { return }
         let before = captureState(for: ids)
         var updated = photoSets
-        var targets: [PhotoSet] = []
+        var targetItems: [(photo: PhotoSet, tags: Set<String>, metadata: MetadataSnapshot?)] = []
         for id in ids {
             if let index = photoSetIndex[id] {
                 updated[index].pick = pick
-                targets.append(updated[index])
+                let photo = updated[index]
+                let tags = Set(tagStore.assignedTags(for: id).map(\.name))
+                targetItems.append((photo, tags, photoMetadata[id]))
             }
         }
         photoSets = updated
@@ -1140,14 +1226,30 @@ final class PhotoLibraryViewModel: ObservableObject {
 
         registerUndo(beforeStates: before, actionName: "Pick Flag")
 
-        Task { [xmpTagging] in
-            for photo in targets {
-                do {
-                    try xmpTagging.updatePermanentTags(rating: photo.rating, pick: pick, for: photo)
-                } catch {
-                    await MainActor.run { self.errorMessage = "Failed to write pick flag: \(error.localizedDescription)" }
-                    return
+        let itemsToWrite = targetItems
+        let reader = metadataReader
+        let previousTask = tagTask
+        tagTask = Task { @MainActor [weak self, xmpTagging] in
+            _ = await previousTask?.result
+            let errorText: String? = await Task.detached(priority: .utility) {
+                for item in itemsToWrite {
+                    let snapshot = item.metadata ?? (item.photo.preferredPreviewURL.map { reader.metadata(for: $0) } ?? MetadataSnapshot())
+                    do {
+                        try xmpTagging.updatePermanentTags(
+                            rating: item.photo.rating,
+                            pick: pick,
+                            for: item.photo,
+                            tagNames: item.tags,
+                            metadata: snapshot
+                        )
+                    } catch {
+                        return "Failed to write pick flag: \(error.localizedDescription)"
+                    }
                 }
+                return nil
+            }.value
+            if let errorText {
+                self?.errorMessage = errorText
             }
         }
     }
@@ -1164,11 +1266,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     private func registerUndo(beforeStates: [CullingState], actionName: String) {
-        undoStack.append(beforeStates)
-        redoStack.removeAll()
-        if undoStack.count > 150 {
-            undoStack.removeFirst()
-        }
+        undoManager.registerUndo(beforeStates: beforeStates)
     }
 
     private func restoreState(_ states: [CullingState]) {
@@ -1182,9 +1280,11 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
         photoSets = updated
 
-        let targets = states.compactMap { state -> (photo: PhotoSet, tagIDs: Set<UUID>)? in
+        let targets = states.compactMap { state -> (photo: PhotoSet, tagIDs: Set<UUID>, metadata: MetadataSnapshot)? in
             guard let index = photoSetIndex[state.photoSetID] else { return nil }
-            return (photoSets[index], state.tagIDs)
+            let photo = photoSets[index]
+            let snapshot = photoMetadata[photo.id] ?? (photo.preferredPreviewURL != nil ? metadataReader.metadata(for: photo.preferredPreviewURL!) : MetadataSnapshot())
+            return (photo, state.tagIDs, snapshot)
         }
 
         let previousTask = tagTask
@@ -1192,12 +1292,18 @@ final class PhotoLibraryViewModel: ObservableObject {
             _ = await previousTask?.result
             for target in targets {
                 do {
-                    try xmpTagging.updatePermanentTags(rating: target.photo.rating, pick: target.photo.pick, for: target.photo)
+                    let names = Set(target.tagIDs.compactMap { tagStore.tag(id: $0)?.name })
+                    try xmpTagging.updatePermanentTags(
+                        rating: target.photo.rating,
+                        pick: target.photo.pick,
+                        for: target.photo,
+                        tagNames: names,
+                        metadata: target.metadata
+                    )
                     if target.tagIDs.isEmpty {
                         try xmpTagging.clear(for: target.photo)
                     } else {
-                        let names = target.tagIDs.compactMap { tagStore.tag(id: $0)?.name }
-                        try xmpTagging.applyTagNames(Set(names), to: target.photo)
+                        try xmpTagging.applyTagNames(names, to: target.photo, metadata: target.metadata)
                     }
                 } catch {
                     self.errorMessage = "Failed to sync XMP on undo/redo: \(error.localizedDescription)"
@@ -1206,30 +1312,24 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
     }
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
+    var canUndo: Bool { undoManager.canUndo }
+    var canRedo: Bool { undoManager.canRedo }
 
     func undo() {
-        guard let before = undoStack.popLast() else {
+        guard let before = undoManager.popUndo(pushingRedo: { ids in captureState(for: ids) }) else {
             statusMessage = "Nothing to undo."
             return
         }
-        let ids = before.map(\.photoSetID)
-        let current = captureState(for: ids)
-        redoStack.append(current)
         restoreState(before)
         statusMessage = "Undid last culling change."
         triggerHapticFeedback(for: .flag)
     }
 
     func redo() {
-        guard let after = redoStack.popLast() else {
+        guard let after = undoManager.popRedo(pushingUndo: { ids in captureState(for: ids) }) else {
             statusMessage = "Nothing to redo."
             return
         }
-        let ids = after.map(\.photoSetID)
-        let current = captureState(for: ids)
-        undoStack.append(current)
         restoreState(after)
         statusMessage = "Redid last culling change."
         triggerHapticFeedback(for: .flag)
@@ -1285,6 +1385,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         let priorIndex = filteredPhotoSets.firstIndex(where: { $0.id == id })
  
         setPick(-1, for: id)
+        // Synchronously refresh filteredPhotoSets so the rejected photo is removed
+        // immediately before advancing focusedPhotoIndex (instead of waiting for
+        // the async coalesced derived update).
+        updateDerivedState()
         triggerHapticFeedback()
 
         guard speedCullingEnabled else { return }
@@ -1302,19 +1406,13 @@ final class PhotoLibraryViewModel: ObservableObject {
     
     func selectVisiblePhotoSets() {
         let visibleIDs = Set(filteredPhotoSets.map(\.id))
-        var updated = photoSets
-        for index in updated.indices where visibleIDs.contains(updated[index].id) {
-            updated[index].isSelected = true
+        applyBatchSelection { photoSet in
+            photoSet.isSelected || visibleIDs.contains(photoSet.id)
         }
-        self.photoSets = updated
     }
     
     func clearSelection() {
-        var updated = photoSets
-        for index in updated.indices {
-            updated[index].isSelected = false
-        }
-        self.photoSets = updated
+        applyBatchSelection { _ in false }
         self.selectionAnchorID = nil
     }
 
@@ -1414,65 +1512,6 @@ final class PhotoLibraryViewModel: ObservableObject {
 
     func restylePack(id: String, systemImage: String, accentColor: String) {
         packLibrary.restylePack(id: id, systemImage: systemImage, accentColor: accentColor)
-    }
-
-    // MARK: - XMP vs active pack diff
-
-    /// Snapshot of tags that live in XMP sidecars but aren't defined in the
-    /// currently active pack. Used by the View menu overlay so the user can
-    /// see which keywords are being silently ignored.
-    struct XMPTagDiff: Equatable {
-        var activePackName: String
-        /// Tags present in at least one XMP sidecar but absent from the active pack.
-        var orphanTags: [String]
-        /// `photoSetID → tag names` for each orphan tag (so the overlay can
-        /// show which photos are affected).
-        var orphanUsage: [UUID: [String]]
-        var totalPhotosScanned: Int
-    }
-
-    /// Scan every loaded photo set's XMP sidecars and produce a diff against
-    /// the active pack's known tag names. Returns an empty diff if there is
-    /// no active pack, or if no XMP sidecars exist.
-    func computeXMPTagDiff() async -> XMPTagDiff {
-        let activePack = packLibrary.activePack
-        let activePackName = activePack.name
-        let knownNames = Set(tagStore.tags.map { $0.name.lowercased() })
-
-        let sets = self.photoSets
-        let total = sets.count
-
-        return await Task(priority: .userInitiated) { () -> XMPTagDiff in
-            let service = XMPTaggingService()
-            var usage: [String: [UUID]] = [:]
-            var seenInXMP: Set<String> = []
-            for set in sets {
-                let (xmpTags, _, _, _) = service.readSidecarData(from: set)
-                for raw in xmpTags {
-                    let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !key.isEmpty else { continue }
-                    seenInXMP.insert(key)
-                    if !knownNames.contains(key.lowercased()) {
-                        usage[key, default: []].append(set.id)
-                    }
-                }
-            }
-            let orphans = seenInXMP
-                .filter { !knownNames.contains($0.lowercased()) }
-                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-            var bySet: [UUID: [String]] = [:]
-            for (name, ids) in usage {
-                for id in ids {
-                    bySet[id, default: []].append(name)
-                }
-            }
-            return XMPTagDiff(
-                activePackName: activePackName,
-                orphanTags: orphans,
-                orphanUsage: bySet,
-                totalPhotosScanned: total
-            )
-        }.value
     }
 
     func resetPack(id: String) {
@@ -1881,7 +1920,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     func clearTags(forIDs ids: [PhotoSet.ID]) {
         guard !ids.isEmpty else { return }
         let before = captureState(for: ids)
-        let targets: [PhotoSet] = photoSets.filter { ids.contains($0.id) }
+        let targets: [PhotoSet] = ids.compactMap { photoSetIndex[$0].map { photoSets[$0] } }
         for photo in targets {
             commitTagChange([], for: photo, remove: true)
         }
@@ -1894,17 +1933,21 @@ final class PhotoLibraryViewModel: ObservableObject {
         
         let names = tagIDs.compactMap { tagStore.tag(id: $0)?.name }
         let nameSet = Set(names)
+        let existingSnapshot = photoMetadata[photo.id]
+        let reader = metadataReader
         let previousTask = tagTask
-        tagTask = Task { @MainActor [xmpTagging] in
+        tagTask = Task { @MainActor [weak self, xmpTagging] in
             _ = await previousTask?.result
-            do {
+            let result: Result<Void, Error> = await Task.detached(priority: .utility) {
                 if remove {
-                    try xmpTagging.clear(for: photo)
+                    return Result { try xmpTagging.clear(for: photo) }
                 } else {
-                    try xmpTagging.applyTagNames(nameSet, to: photo)
+                    let snapshot = existingSnapshot ?? (photo.preferredPreviewURL.map { reader.metadata(for: $0) } ?? MetadataSnapshot())
+                    return Result { try xmpTagging.applyTagNames(nameSet, to: photo, metadata: snapshot) }
                 }
-            } catch {
-                self.errorMessage = error.localizedDescription
+            }.value
+            if case .failure(let error) = result {
+                self?.errorMessage = error.localizedDescription
             }
         }
     }
@@ -1917,22 +1960,28 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
         let ids = selected.map(\.id)
         let before = captureState(for: ids)
-        tagTask?.cancel()
+        let previousTask = tagTask
+        // Update in-memory tagStore + undo immediately so rapid edits remain ordered.
+        for photo in selected {
+            tagStore.clearTags(for: photo.id)
+        }
+        registerUndo(beforeStates: before, actionName: "Clear Tags")
         statusMessage = "Clearing tags for \(selected.count) selected photo sets..."
-        tagTask = Task { @MainActor [xmpTagging] in
-            do {
+        tagTask = Task { @MainActor [weak self, xmpTagging] in
+            _ = await previousTask?.result
+            let result: Result<Void, Error> = await Task.detached(priority: .utility) {
                 for photo in selected {
                     try Task.checkCancellation()
                     try xmpTagging.clear(for: photo)
                 }
-                for photo in selected {
-                    self.tagStore.clearTags(for: photo.id)
-                }
+            }.result
+            guard let self else { return }
+            switch result {
+            case .success:
                 self.statusMessage = "Cleared tags for \(selected.count) photo sets."
-                self.registerUndo(beforeStates: before, actionName: "Clear Tags")
-            } catch is CancellationError {
+            case .failure(is CancellationError):
                 self.statusMessage = "Tag clearing cancelled."
-            } catch {
+            case .failure(let error):
                 self.errorMessage = error.localizedDescription
                 self.statusMessage = "Could not clear tags."
             }
@@ -2175,6 +2224,10 @@ final class PhotoLibraryViewModel: ObservableObject {
             photoDateCache[photoSet.id] = captureDate
             return captureDate
         }
+        if let modDate = photoSet.modificationDate {
+            photoDateCache[photoSet.id] = modDate
+            return modDate
+        }
         if let fileURL = photoSet.mediaFiles.first,
            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]),
            let modDate = values.contentModificationDate {
@@ -2187,6 +2240,9 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
     func photoFileSize(for photoSet: PhotoSet) -> Int64 {
+        if let precomputed = photoSet.totalFileSize {
+            return precomputed
+        }
         if let cached = photoFileSizeCache[photoSet.id] {
             return cached
         }
@@ -2241,13 +2297,11 @@ final class PhotoLibraryViewModel: ObservableObject {
 
             // 1. Sidebar subfolder filter (if selected)
             if let subfolderPath {
+                let subfolderPrefix = subfolderPath.hasSuffix("/") ? subfolderPath : subfolderPath + "/"
                 var matches = false
                 for fileURL in photoSet.mediaFiles {
                     let filePath = fileURL.standardizedFileURL.path
-                    if filePath == subfolderPath
-                        || (filePath.count > subfolderPath.count
-                            && filePath.hasPrefix(subfolderPath)
-                            && filePath[subfolderPath.endIndex] == "/") {
+                    if filePath == subfolderPath || filePath.hasPrefix(subfolderPrefix) {
                         matches = true
                         break
                     }
@@ -2399,7 +2453,9 @@ final class PhotoLibraryViewModel: ObservableObject {
                 newSet.insert(list[i].id)
             }
         }
-        self.nearFocusedIds = newSet
+        if newSet != self.nearFocusedIds {
+            self.nearFocusedIds = newSet
+        }
     }
 
     func updateGlobalCounts() {
@@ -2465,112 +2521,20 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.cachedTagCounts = tagHistogram
         self.cachedFlagCounts = [1: pick1Count, -1: pickMinus1Count, 0: pick0Count]
         self.cachedRatingCounts = ratingCounts
-        
-        var subfoldersMap: [URL: [URL]] = [:]
-        var subfolderPhotoCounts: [URL: Int] = [:]
 
-        let allSubfolders = Array(photoSetsBySubfolder.keys)
-
-        for sourceURL in sourceDirectories {
-            let standardizedSource = sourceURL.standardizedFileURL.path
-            var subfoldersSet = Set<URL>()
-
-            for parentDir in allSubfolders {
-                let parentPath = parentDir.path
-                if parentPath.hasPrefix(standardizedSource) && parentPath != standardizedSource {
-                    subfoldersSet.insert(parentDir)
-                }
-            }
-
-            let sorted = subfoldersSet.sorted { $0.path < $1.path }
-            subfoldersMap[sourceURL] = sorted
-        }
-        self.cachedSubfolders = subfoldersMap
-
-        for subfolders in subfoldersMap.values {
-            for subfolder in subfolders {
-                subfolderPhotoCounts[subfolder] = photoSetsBySubfolder[subfolder]?.count ?? 0
-            }
-        }
-        self.cachedSubfolderCounts = subfolderPhotoCounts
-
-        // Build the recursive folder tree index in the same pass. The
-        // sidebar reads this on every render, so keeping it as a
-        // pre-computed dictionary turns an O(n × m) per-render scan
-        // into an O(1) lookup.
-        rebuildFolderIndex(from: photoSetsBySubfolder)
+        let folderIndex = FolderTreeIndex.build(
+            from: photoSetsBySubfolder,
+            sourceDirectories: sourceDirectories
+        )
+        self.cachedSubfolders = folderIndex.cachedSubfolders
+        self.cachedSubfolderCounts = folderIndex.cachedSubfolderCounts
+        self.childSubfoldersIndex = folderIndex.childSubfoldersIndex
+        self.recursivePhotoCountIndex = folderIndex.recursivePhotoCountIndex
+        self.childFolderURLs = folderIndex.childFolderURLs
     }
 
-    /// Builds the full folder tree index for the recursive sidebar in a
-    /// single O(n × m) pass over `photoSetsBySubfolder`. After this runs,
-    /// every `childSubfolders(of:)` / `recursivePhotoCount(in:)` query is
-    /// O(1). Keyed by `URL.standardizedFileURL.path` so lookups don't
-    /// have to reconstruct URL objects every time the sidebar re-renders.
-    private func rebuildFolderIndex(from photoSetsBySubfolder: [URL: Set<UUID>]) {
-        // Map: parent path -> set of child folder paths observed via
-        // `photoSets`.
-        var childAccum: [String: Set<String>] = [:]
-        var photoCountByPath: [String: Int] = [:]
-        childAccum.reserveCapacity(photoSetsBySubfolder.count * 2)
-        photoCountByPath.reserveCapacity(photoSetsBySubfolder.count)
-
-        for (folder, sets) in photoSetsBySubfolder {
-            let folderPath = folder.path
-            photoCountByPath[folderPath, default: 0] += sets.count
-
-            // Walk up ancestors to build recursive counts and parent-child relations
-            var current = folder
-            let rootURL = URL(fileURLWithPath: "/")
-            while current.path != "/" && current.path != rootURL.path {
-                let parent = current.deletingLastPathComponent()
-                let parentPath = parent.path
-                
-                // Only register child under its immediate parent
-                if parentPath != "/" && parentPath != rootURL.path {
-                    var bucket = childAccum[parentPath, default: Set()]
-                    bucket.insert(current.path)
-                    childAccum[parentPath] = bucket
-                }
-                
-                // Accumulate counts for all ancestors
-                if current != folder {
-                    photoCountByPath[current.path, default: 0] += sets.count
-                }
-                
-                current = parent
-            }
-        }
-
-        // Materialise the sorted child paths and the URL array. Sorting
-        // upfront means the sidebar never re-sorts on render.
-        var childPaths: [String: [String]] = [:]
-        var childURLs: [String: [URL]] = [:]
-        childPaths.reserveCapacity(childAccum.count)
-        childURLs.reserveCapacity(childAccum.count)
-        for (parentPath, kids) in childAccum {
-            let sortedPaths = kids.sorted()
-            childPaths[parentPath] = sortedPaths
-            childURLs[parentPath] = sortedPaths.map { URL(fileURLWithPath: $0) }
-        }
-
-        self.childSubfoldersIndex = childPaths
-        self.recursivePhotoCountIndex = photoCountByPath
-        self.childFolderURLs = childURLs
-    }
-
-    
     func relativePath(of subfolderURL: URL, relativeTo sourceURL: URL) -> String {
-        let sourcePath = sourceURL.standardizedFileURL.path
-        let subfolderPath = subfolderURL.standardizedFileURL.path
-        if subfolderPath.hasPrefix(sourcePath) {
-            let startIdx = subfolderPath.index(subfolderPath.startIndex, offsetBy: sourcePath.count)
-            var rel = String(subfolderPath[startIdx...])
-            if rel.hasPrefix("/") {
-                rel.removeFirst()
-            }
-            return rel
-        }
-        return subfolderURL.lastPathComponent
+        FolderTreeIndex.relativePath(of: subfolderURL, relativeTo: sourceURL)
     }
 
     // MARK: - Recursive folder tree (O(1) lookups against the index)
@@ -2579,7 +2543,7 @@ final class PhotoLibraryViewModel: ObservableObject {
     /// at least one photo set in the loaded library. Returns `[]` for
     /// folders with no photo-bearing children or for the library root.
     ///
-    /// Backed by `childFolderURLs`, populated inside `rebuildFolderIndex`
+    /// Backed by `childFolderURLs`, populated inside `updateGlobalCounts`
     /// every time `photoSets` changes. O(1) per call.
     func childSubfolders(of folder: URL) -> [URL] {
         let path = folder.standardizedFileURL.path
@@ -2639,131 +2603,10 @@ final class PhotoLibraryViewModel: ObservableObject {
     // MARK: - Insights
 
     func computeInsights() -> InsightReport {
-        let metadata = Array(photoMetadata.values)
-        let total = metadata.count
-
-        // Unique cameras and lenses
-        let cameras = Set(metadata.compactMap { $0.cameraModel }).count
-        let lenses = Set(metadata.compactMap { $0.lensModel }).count
-
-        // Date range
-        let dates = metadata.compactMap { $0.captureDate }
-        let earliest = dates.min()
-        let latest = dates.max()
-
-        // Focal length buckets: ≤24, 25–35, 36–50, 51–85, 86–135, 135+
-        let focalBucketLabels = ["≤24mm", "25–35mm", "36–50mm", "51–85mm", "86–135mm", "135mm+"]
-        var focalCounts = [0, 0, 0, 0, 0, 0]
-        for m in metadata {
-            guard let fl = m.focalLength else { continue }
-            switch fl {
-            case ...24:        focalCounts[0] += 1
-            case 25...35:      focalCounts[1] += 1
-            case 36...50:      focalCounts[2] += 1
-            case 51...85:      focalCounts[3] += 1
-            case 86...135:     focalCounts[4] += 1
-            default:           focalCounts[5] += 1
-            }
-        }
-        let focalTotal = focalCounts.reduce(0, +)
-        let focalBuckets = zip(focalBucketLabels, focalCounts).map { label, count in
-            InsightBucket(label: label, count: count, percentage: focalTotal > 0 ? Double(count) / Double(focalTotal) : 0)
-        }
-
-        // Aperture buckets
-        let apertureBucketLabels = ["f/1.4", "f/1.8–f/2", "f/2.8", "f/4", "f/5.6–f/8", "f/11+"]
-        var apertureCounts = [0, 0, 0, 0, 0, 0]
-        for m in metadata {
-            guard let ap = m.aperture else { continue }
-            switch ap {
-            case ..<1.5:       apertureCounts[0] += 1
-            case 1.5..<3.0:   apertureCounts[1] += 1
-            case 3.0..<3.5:   apertureCounts[2] += 1
-            case 3.5..<4.5:   apertureCounts[3] += 1
-            case 4.5..<9:     apertureCounts[4] += 1
-            default:           apertureCounts[5] += 1
-            }
-        }
-        let apTotal = apertureCounts.reduce(0, +)
-        let apertureBuckets = zip(apertureBucketLabels, apertureCounts).map { label, count in
-            InsightBucket(label: label, count: count, percentage: apTotal > 0 ? Double(count) / Double(apTotal) : 0)
-        }
-
-        // ISO buckets
-        let isoBucketLabels = ["ISO 100–400", "ISO 400–800", "ISO 800–1600", "ISO 1600–3200", "ISO 3200+"]
-        var isoCounts = [0, 0, 0, 0, 0]
-        for m in metadata {
-            guard let iso = m.iso else { continue }
-            switch iso {
-            case ...399:       isoCounts[0] += 1
-            case 400...799:    isoCounts[1] += 1
-            case 800...1599:   isoCounts[2] += 1
-            case 1600...3199:  isoCounts[3] += 1
-            default:           isoCounts[4] += 1
-            }
-        }
-        let isoTotal = isoCounts.reduce(0, +)
-        let isoBuckets = zip(isoBucketLabels, isoCounts).map { label, count in
-            InsightBucket(label: label, count: count, percentage: isoTotal > 0 ? Double(count) / Double(isoTotal) : 0)
-        }
-
-        // Shutter speed buckets
-        let shutterBucketLabels = ["1/4000+", "1/1000–1/4000", "1/250–1/1000", "1/60–1/250", "<1/60"]
-        var shutterCounts = [0, 0, 0, 0, 0]
-        for m in metadata {
-            guard let ss = m.shutterSpeed, ss > 0 else { continue }
-            switch ss {
-            case ..<(1.0 / 4000):              shutterCounts[0] += 1
-            case (1.0 / 4000)..<(1.0 / 1000): shutterCounts[1] += 1
-            case (1.0 / 1000)..<(1.0 / 250):  shutterCounts[2] += 1
-            case (1.0 / 250)..<(1.0 / 60):    shutterCounts[3] += 1
-            default:                           shutterCounts[4] += 1
-            }
-        }
-        let shutterTotal = shutterCounts.reduce(0, +)
-        let shutterBuckets = zip(shutterBucketLabels, shutterCounts).map { label, count in
-            InsightBucket(label: label, count: count, percentage: shutterTotal > 0 ? Double(count) / Double(shutterTotal) : 0)
-        }
-
-        // Top gear combos: group by (camera, lens) pair
-        struct ComboKey: Hashable { let camera: String; let lens: String }
-        struct ComboData { var count: Int; var picks: Int; var apertures: [Double] }
-        var comboMap: [ComboKey: ComboData] = [:]
-
-        for (id, meta) in photoMetadata {
-            guard let cam = meta.cameraModel, let lens = meta.lensModel else { continue }
-            let key = ComboKey(camera: cam, lens: lens)
-            let isPick = photoSetIndex[id].map { photoSets[$0].pick == 1 } ?? false
-            if comboMap[key] == nil { comboMap[key] = ComboData(count: 0, picks: 0, apertures: []) }
-            comboMap[key]!.count += 1
-            if isPick { comboMap[key]!.picks += 1 }
-            if let ap = meta.aperture { comboMap[key]!.apertures.append(ap) }
-        }
-
-        let topCombos = comboMap
-            .sorted { $0.value.count > $1.value.count }
-            .prefix(8)
-            .map { (key, data) in
-                GearCombo(
-                    camera: key.camera,
-                    lens: key.lens,
-                    totalShots: data.count,
-                    pickRatio: data.count > 0 ? Double(data.picks) / Double(data.count) : 0,
-                    avgAperture: data.apertures.isEmpty ? nil : data.apertures.reduce(0, +) / Double(data.apertures.count)
-                )
-            }
-
-        return InsightReport(
-            totalPhotos: total,
-            uniqueCameras: cameras,
-            uniqueLenses: lenses,
-            earliestDate: earliest,
-            latestDate: latest,
-            focalLengthBuckets: focalBuckets,
-            apertureBuckets: apertureBuckets,
-            isoBuckets: isoBuckets,
-            shutterBuckets: shutterBuckets,
-            topGearCombos: topCombos
+        InsightsCalculator.compute(
+            photoMetadata: photoMetadata,
+            photoSets: photoSets,
+            photoSetIndex: photoSetIndex
         )
     }
 

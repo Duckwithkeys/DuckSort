@@ -2,8 +2,7 @@
 //  SettingsPaneWindow.swift
 //  DuckSort
 //
-//  Unified Safari-style preferences window. Hosts Rules, Tags, and Shortcuts
-//  panes behind a segmented top toolbar. Resizable.
+//  Unified macOS Settings window hosted with a native NSToolbar (.preference style).
 //
 
 import SwiftUI
@@ -11,25 +10,38 @@ import AppKit
 
 // MARK: - Tab Enum
 
-enum SettingsTab: String, CaseIterable {
-    case rules      = "Rules"
-    case tags       = "Tags"
-    case xmpTags    = "XMP Tags"
-    case copyright  = "Copyright"
-    case shortcuts  = "Shortcuts"
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case rules       = "Rules"
+    case tags        = "Tags"
+    case copyright   = "Copyright"
+    case shortcuts   = "Shortcuts"
     case autoTagging = "Mode Switching"
-    case appearance = "Appearance"
+    case appearance  = "Appearance"
+
+    var id: String { rawValue }
 
     var systemImage: String {
         switch self {
-        case .rules:      return "folder.badge.gearshape"
-        case .tags:       return "tag"
-        case .xmpTags:    return "doc.badge.plus"
-        case .copyright:  return "c.circle"
-        case .shortcuts:  return "keyboard.badge.ellipsis"
+        case .rules:       return "folder.badge.gearshape"
+        case .tags:        return "tag"
+        case .copyright:   return "c.circle"
+        case .shortcuts:   return "keyboard"
         case .autoTagging: return "slider.horizontal.3"
-        case .appearance: return "paintpalette.fill"
+        case .appearance:  return "paintpalette"
         }
+    }
+
+    var toolbarIdentifier: NSToolbarItem.Identifier {
+        NSToolbarItem.Identifier(rawValue)
+    }
+}
+
+@MainActor
+final class SettingsNavigationModel: ObservableObject {
+    @Published var selectedTab: SettingsTab
+
+    init(selectedTab: SettingsTab = .rules) {
+        self.selectedTab = selectedTab
     }
 }
 
@@ -37,113 +49,51 @@ enum SettingsTab: String, CaseIterable {
 
 struct SettingsPaneView: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
-    var initialTab: SettingsTab = .rules
+    @ObservedObject var navigationModel: SettingsNavigationModel
     var onClose: () -> Void = {}
 
-    @State private var selectedTab: SettingsTab = .rules
+    init(
+        viewModel: PhotoLibraryViewModel,
+        initialTab: SettingsTab = .rules,
+        navigationModel: SettingsNavigationModel? = nil,
+        onClose: @escaping () -> Void = {}
+    ) {
+        self.viewModel = viewModel
+        self.navigationModel = navigationModel ?? SettingsNavigationModel(selectedTab: initialTab)
+        self.onClose = onClose
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            SettingsToolbar(selectedTab: $selectedTab)
-
-            Rectangle()
-                .fill(Theme.Color.surfaceDivider)
-                .frame(height: Theme.Stroke.hairline)
-
-            Group {
-                switch selectedTab {
-                case .rules:
-                    SettingsRulesPaneView(
-                        ruleStore: viewModel.ruleStore,
-                        tagStore: viewModel.tagStore
-                    )
-                case .tags:
-                    SettingsTagsPaneView(
-                        viewModel: viewModel,
-                        tagStore: viewModel.tagStore
-                    )
-                case .xmpTags:
-                    SettingsXMPTagsPane(
-                        viewModel: viewModel,
-                        tagStore: viewModel.tagStore
-                    )
-                case .copyright:
-                    SettingsIPTCPaneView(preferences: UserPreferences.shared)
-                case .shortcuts:
-                    SettingsShortcutsPaneView(viewModel: viewModel)
-                case .autoTagging:
-                    SettingsAutoTaggingPaneView(
-                        preferences: UserPreferences.shared,
-                        tagStore: viewModel.tagStore
-                    )
-                case .appearance:
-                    SettingsAppearancePaneView(preferences: UserPreferences.shared)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(minWidth: 820, idealWidth: 960, minHeight: 560, idealHeight: 720)
-        .background(Theme.Color.surfaceBase)
-        .onAppear { selectedTab = initialTab }
-    }
-}
-
-// MARK: - Toolbar
-
-private struct SettingsToolbar: View {
-    @Binding var selectedTab: SettingsTab
-
-    var body: some View {
-        GlassEffectContainer(spacing: Theme.Space.s8) {
-            HStack(spacing: Theme.Space.s8) {
-                Spacer()
-                ForEach(SettingsTab.allCases, id: \.self) { tab in
-                    SettingsTabButton(tab: tab, isSelected: selectedTab == tab) {
-                        selectedTab = tab
-                    }
-                }
-                Spacer()
+        Group {
+            switch navigationModel.selectedTab {
+            case .rules:
+                SettingsRulesPaneView(
+                    ruleStore: viewModel.ruleStore,
+                    tagStore: viewModel.tagStore
+                )
+            case .tags:
+                SettingsTagsPaneView(
+                    viewModel: viewModel,
+                    tagStore: viewModel.tagStore
+                )
+            case .copyright:
+                SettingsIPTCPaneView(preferences: UserPreferences.shared)
+            case .shortcuts:
+                SettingsShortcutsPaneView(viewModel: viewModel)
+            case .autoTagging:
+                SettingsAutoTaggingPaneView(
+                    preferences: UserPreferences.shared,
+                    tagStore: viewModel.tagStore
+                )
+            case .appearance:
+                SettingsAppearancePaneView(preferences: UserPreferences.shared)
             }
         }
-        .padding(.top, Theme.Space.s6)
-        .padding(.bottom, Theme.Space.s10)
-        .frame(maxWidth: .infinity)
-        .background(Theme.Color.surfaceBase)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(minWidth: 760, idealWidth: 860, minHeight: 520, idealHeight: 620)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 }
-
-private struct SettingsTabButton: View {
-    let tab: SettingsTab
-    let isSelected: Bool
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: Theme.Space.s4) {
-                Image(systemName: tab.systemImage)
-                    .font(.system(size: 22, weight: .light))
-                    .frame(width: 24, height: 24)
-                Text(tab.rawValue)
-                    .font(Theme.Font.subheadline)
-            }
-            .foregroundStyle(isSelected ? Theme.Color.textInverse : Theme.Color.textTertiary)
-            .padding(.horizontal, Theme.Space.s20)
-            .padding(.vertical, Theme.Space.s4)
-            .liquidGlassTabHighlight(isSelected: isSelected, isHovered: isHovered)
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.l))
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-}
-
-// MARK: - Button Styles
-//
-// Replaced by SwiftUI's built-in `.bordered` and `.borderedProminent` styles
-// wherever the previous custom styles were used. If a one-off capsule button
-// is needed elsewhere, prefer `.buttonStyle(.borderedProminent)` and let
-// SwiftUI handle keyboard focus + accent color.
 
 // MARK: - Shared Settings Layout: Sidebar + Right Panel
 
@@ -154,29 +104,14 @@ struct SettingsSplitLayout<Sidebar: View, Detail: View>: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar()
-                .frame(width: 200)
-                .background(Theme.Color.surfaceSidebar)
+                .frame(width: 215)
+                .background(Color(nsColor: .underPageBackgroundColor))
 
-            Rectangle()
-                .fill(Theme.Color.surfaceDivider)
-                .frame(width: Theme.Stroke.hairline)
+            Divider()
 
             detail()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Theme.Color.surfaceBase)
+                .background(Color(nsColor: .windowBackgroundColor))
         }
-    }
-}
-
-fileprivate extension View {
-    func liquidGlassTabHighlight(isSelected: Bool, isHovered: Bool) -> some View {
-        self
-            .ifTrue(isSelected) { view in
-                view.glassEffect(.regular.interactive(), in: .rect(cornerRadius: Theme.Radius.l))
-            }
-            .ifTrue(!isSelected && isHovered) { view in
-                view.glassEffect(.regular, in: .rect(cornerRadius: Theme.Radius.l))
-            }
-            .padding(.vertical, 1)
     }
 }

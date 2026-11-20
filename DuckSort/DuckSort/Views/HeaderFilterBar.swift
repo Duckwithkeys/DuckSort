@@ -2,7 +2,7 @@
 //  HeaderFilterBar.swift
 //  DuckSort
 //
-//  Redesigned horizontal culling and filter menu bar above the photo library grid.
+//  Horizontal culling and filter menu bar + native Filter popover.
 //
 
 import SwiftUI
@@ -13,39 +13,30 @@ struct HeaderFilterBar: View {
     @State private var showFilterPopover = false
 
     var body: some View {
-        HStack(spacing: Theme.Space.s12) {
-            // Sort controls (Name / Date toggles) on the left
+        HStack(spacing: 12) {
             sortControls
 
             Spacer()
 
-            // Filter button that opens the popover on the right
             Button {
                 showFilterPopover.toggle()
             } label: {
-                ZStack {
-                    let hasActiveFilters = viewModel.activeFilterCount > 0 && viewModel.isFilterPopoverEnabled
-                    Circle()
-                        .fill(hasActiveFilters ? Theme.Color.accent : Color.primary.opacity(0.06))
-                        .frame(width: 28, height: 28)
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 13, weight: hasActiveFilters ? .bold : .regular))
-                        .foregroundStyle(hasActiveFilters ? Theme.Color.textInverse : Theme.Color.textSecondary)
-                }
+                let hasActiveFilters = viewModel.activeFilterCount > 0 && viewModel.isFilterPopoverEnabled
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(hasActiveFilters ? Theme.Color.accent : .secondary)
             }
-            .buttonStyle(.responsive)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
                 FilterPopoverContent(viewModel: viewModel)
             }
             .help("Filter Options")
         }
-        .padding(.horizontal, Theme.Space.s16)
-        .padding(.vertical, Theme.Space.s10)
-        .background(.regularMaterial)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
         .overlay(
-            Rectangle()
-                .frame(height: 1)
-                .foregroundColor(Theme.Color.separator), // Blends clean horizontal separator
+            Divider(),
             alignment: .bottom
         )
         .zIndex(1000)
@@ -53,54 +44,27 @@ struct HeaderFilterBar: View {
 
     // MARK: - Sort Controls
     private var sortControls: some View {
-        HStack(spacing: Theme.Space.s8) {
-            Text("Sort:")
-                .font(Theme.Font.caption)
-                .foregroundStyle(Theme.Color.textSecondary)
+        HStack(spacing: 8) {
+            Picker("Sort", selection: $viewModel.sortOrder) {
+                Text("Date").tag(PhotoLibraryViewModel.SortOrder.date)
+                Text("Name").tag(PhotoLibraryViewModel.SortOrder.name)
+                Text("Size").tag(PhotoLibraryViewModel.SortOrder.size)
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .frame(width: 180)
 
-            // Date Sort Button
-            sortButton(title: "Date", order: .date)
-
-            // Name Sort Button
-            sortButton(title: "Name", order: .name)
-
-            // File Size Sort Button
-            sortButton(title: "Size", order: .size)
-
-            // Direction Toggle Button
             Button {
                 withAnimation(Theme.Motion.snappy) {
                     viewModel.sortDirection = viewModel.sortDirection == .ascending ? .descending : .ascending
                 }
             } label: {
                 Image(systemName: viewModel.sortDirection == .ascending ? "arrow.up" : "arrow.down")
-                    .font(.system(size: 11, weight: .bold))
-                    .padding(.horizontal, Theme.Space.s8)
-                    .padding(.vertical, Theme.Space.s6)
-                    .background(Color.primary.opacity(0.04))
-                    .foregroundStyle(Theme.Color.textPrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
             }
-            .buttonStyle(.responsive)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             .help("Sort Direction: \(viewModel.sortDirection.rawValue)")
         }
-    }
-
-    private func sortButton(title: String, order: PhotoLibraryViewModel.SortOrder) -> some View {
-        Button {
-            withAnimation(Theme.Motion.snappy) {
-                viewModel.sortOrder = order
-            }
-        } label: {
-            Text(title)
-                .font(Theme.Font.bodyBold)
-                .padding(.horizontal, Theme.Space.s10)
-                .padding(.vertical, Theme.Space.s4)
-                .background(viewModel.sortOrder == order ? Theme.Color.accent : Color.primary.opacity(0.04))
-                .foregroundStyle(viewModel.sortOrder == order ? Theme.Color.textInverse : Theme.Color.textPrimary)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
-        }
-        .buttonStyle(.responsive)
     }
 }
 
@@ -110,53 +74,43 @@ struct FilterPopoverContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header: Filter title, Reset, Toggle
             HStack(spacing: 8) {
                 Text("Filter")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Theme.Color.textPrimary)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
-                // Reset button
-                Button {
+                Button("Reset") {
                     withAnimation(.smooth(duration: 0.2)) {
                         viewModel.resetFilterPopover()
                     }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Theme.Color.textSecondary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
+                .controlSize(.small)
                 .help("Reset all filters")
-                .padding(.trailing, 4)
 
-                // Master Toggle Switch
                 Toggle("", isOn: $viewModel.isFilterPopoverEnabled)
                     .toggleStyle(.switch)
                     .labelsHidden()
                     .controlSize(.small)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
 
             Divider()
-                .background(Theme.Color.separator)
 
-            // Content List of filters
             ScrollView {
-                VStack(spacing: 12) {
-                    // 0. Sort By Row inside Popover
+                VStack(spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.up.arrow.down")
                             .font(.system(size: 12))
-                            .foregroundStyle(Theme.Color.textSecondary)
+                            .foregroundStyle(.secondary)
                             .frame(width: 16)
 
                         Text("Sort By")
-                            .font(Theme.Font.body)
-                            .foregroundStyle(Theme.Color.textPrimary)
+                            .font(.body)
+                            .foregroundStyle(.primary)
 
                         Spacer()
 
@@ -176,20 +130,16 @@ struct FilterPopoverContent: View {
                             }
                         } label: {
                             Image(systemName: viewModel.sortDirection == .ascending ? "arrow.up" : "arrow.down")
-                                .font(.system(size: 11, weight: .bold))
-                                .frame(width: 22, height: 22)
-                                .background(Color.primary.opacity(0.06))
-                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
+                                .font(.system(size: 11, weight: .semibold))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
                         .help("Toggle Sort Direction (\(viewModel.sortDirection.rawValue))")
                     }
-                    .frame(height: 28)
+                    .frame(height: 26)
 
                     Divider()
-                        .background(Theme.Color.separator.opacity(0.5))
 
-                    // 1. Edited Filter Row
                     FilterRow(
                         isActive: $viewModel.filterEditedActive,
                         icon: "slider.horizontal.3",
@@ -206,9 +156,7 @@ struct FilterPopoverContent: View {
                     }
 
                     Divider()
-                        .background(Theme.Color.separator.opacity(0.5))
 
-                    // 2. RAW Filter Row
                     FilterRow(
                         isActive: $viewModel.filterRawActive,
                         icon: "r.square",
@@ -225,16 +173,13 @@ struct FilterPopoverContent: View {
                     }
 
                     Divider()
-                        .background(Theme.Color.separator.opacity(0.5))
 
-                    // 3. Rating Filter Row
                     FilterRow(
                         isActive: $viewModel.filterRatingActive,
                         icon: "star",
                         title: "Rating"
                     ) {
                         HStack(spacing: 4) {
-                            // Star Value Dropdown
                             Picker("", selection: $viewModel.filterRatingValue) {
                                 Text("Unrated").tag(0)
                                 Text("★").tag(1)
@@ -248,7 +193,6 @@ struct FilterPopoverContent: View {
                             .frame(width: 100)
                             .controlSize(.small)
 
-                            // Option button ... (Rating Condition)
                             Menu {
                                 ForEach(PhotoLibraryViewModel.RatingCondition.allCases, id: \.self) { condition in
                                     Button(condition.rawValue) {
@@ -258,7 +202,7 @@ struct FilterPopoverContent: View {
                             } label: {
                                 Image(systemName: "ellipsis.circle")
                                     .font(.system(size: 13))
-                                    .foregroundStyle(Theme.Color.accent)
+                                    .foregroundStyle(.secondary)
                             }
                             .menuStyle(.borderlessButton)
                             .menuIndicator(.hidden)
@@ -268,9 +212,7 @@ struct FilterPopoverContent: View {
                     }
 
                     Divider()
-                        .background(Theme.Color.separator.opacity(0.5))
 
-                    // 4. Flag Filter Row
                     FilterRow(
                         isActive: $viewModel.filterFlagActive,
                         icon: "flag",
@@ -289,9 +231,7 @@ struct FilterPopoverContent: View {
                     }
 
                     Divider()
-                        .background(Theme.Color.separator.opacity(0.5))
 
-                    // 5. File Name Filter Row
                     VStack(alignment: .leading, spacing: 6) {
                         FilterRow(
                             isActive: $viewModel.filterNameActive,
@@ -311,26 +251,15 @@ struct FilterPopoverContent: View {
                         }
 
                         if viewModel.filterNameActive {
-                            TextField("Text", text: $viewModel.nameFilterQuery)
-                                .textFieldStyle(.plain)
-                                .font(Theme.Font.body)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Theme.Color.cellBackground)
-                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.s))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: Theme.Radius.s)
-                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
-                                )
-                                .padding(.leading, 32)
-                                .padding(.trailing, 8)
+                            TextField("File name text", text: $viewModel.nameFilterQuery)
+                                .textFieldStyle(.roundedBorder)
+                                .controlSize(.small)
+                                .padding(.leading, 24)
                         }
                     }
 
                     Divider()
-                        .background(Theme.Color.separator.opacity(0.5))
 
-                    // 6. Date Filter Row
                     VStack(alignment: .leading, spacing: 6) {
                         FilterRow(
                             isActive: $viewModel.filterDateActive,
@@ -348,27 +277,24 @@ struct FilterPopoverContent: View {
                                     .frame(maxWidth: .infinity)
 
                                 Text("to")
-                                    .font(Theme.Font.caption)
-                                    .foregroundStyle(Theme.Color.textSecondary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
 
                                 DatePicker("", selection: $viewModel.filterEndDate, displayedComponents: .date)
                                     .labelsHidden()
                                     .controlSize(.small)
                                     .frame(maxWidth: .infinity)
                             }
-                            .padding(.leading, 32)
-                            .padding(.trailing, 8)
+                            .padding(.leading, 24)
                         }
                     }
-
-
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
         }
         .frame(width: 320)
-        .padding(.bottom, 12)
+        .padding(.bottom, 8)
     }
 }
 
@@ -381,36 +307,25 @@ struct FilterRow<Content: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            // Checkbox
-            Button {
-                withAnimation(.smooth(duration: 0.15)) {
-                    isActive.toggle()
-                }
-            } label: {
-                Image(systemName: isActive ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 14))
-                    .foregroundStyle(isActive ? Theme.Color.accent : Theme.Color.textSecondary)
-            }
-            .buttonStyle(.plain)
+            Toggle("", isOn: $isActive)
+                .toggleStyle(.checkbox)
+                .labelsHidden()
 
-            // Icon
             Image(systemName: icon)
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.Color.textSecondary)
+                .foregroundStyle(.secondary)
                 .frame(width: 16)
 
-            // Title
             Text(title)
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textPrimary)
+                .font(.body)
+                .foregroundStyle(.primary)
 
             Spacer()
 
-            // Control Content (disabled if inactive)
             content()
                 .disabled(!isActive)
                 .opacity(isActive ? 1.0 : 0.5)
         }
-        .frame(height: 28)
+        .frame(height: 26)
     }
 }

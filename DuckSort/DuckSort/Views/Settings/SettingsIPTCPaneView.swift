@@ -2,10 +2,7 @@
 //  SettingsIPTCPaneView.swift
 //  DuckSort
 //
-//  The "Copyright" tab of the unified Settings window. Lets the user enter
-//  photographer name, copyright notice, and contact info once. When the
-//  master toggle is on, these values are embedded into every XMP sidecar
-//  the export pipeline writes.
+//  Native macOS grouped Form for Photographer, Rights, and Contact IPTC metadata.
 //
 
 import SwiftUI
@@ -14,135 +11,67 @@ struct SettingsIPTCPaneView: View {
     @ObservedObject var preferences: UserPreferences
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Theme.Space.s14) {
-                masterToggle
-
-                if preferences.embedIPTCInExports {
-                    form
-                } else {
-                    emptyState
-                }
+        Form {
+            Section {
+                Toggle("Embed Copyright Metadata in Exports", isOn: $preferences.embedIPTCInExports)
+            } footer: {
+                Text("When enabled, photographer, copyright, and contact metadata are automatically written into XMP sidecar files during export.")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Theme.Space.s20)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
 
-    private var masterToggle: some View {
-        Toggle(isOn: $preferences.embedIPTCInExports) {
-            HStack(spacing: Theme.Space.s8) {
-                Image(systemName: "checkmark.seal")
-                    .foregroundStyle(preferences.embedIPTCInExports
-                                     ? Theme.Color.accent
-                                     : Theme.Color.textSecondary)
-                Text("Embed copyright in exports")
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.textInverse)
+            Section("Photographer") {
+                TextField(
+                    "Creator Name",
+                    text: $preferences.iptcCreatorName,
+                    prompt: Text("e.g. Jane Doe")
+                )
             }
-        }
-        .toggleStyle(.switch)
-        .onChange(of: preferences.embedIPTCInExports) { _, _ in
-            preferences.save()
-        }
-    }
+            .disabled(!preferences.embedIPTCInExports)
 
-    private var emptyState: some View {
-        HStack(spacing: Theme.Space.s8) {
-            Image(systemName: "info.circle")
-                .foregroundStyle(Theme.Color.textSecondary)
-            Text("Toggle on to fill in your details.")
-                .font(Theme.Font.subheadline)
-                .foregroundStyle(Theme.Color.textSecondary)
+            Section("Rights") {
+                TextField(
+                    "Copyright Notice",
+                    text: $preferences.iptcCopyrightNotice,
+                    prompt: Text("e.g. © 2026 Jane Doe. All rights reserved.")
+                )
+                TextField(
+                    "Usage Terms",
+                    text: $preferences.iptcRightsUsageTerms,
+                    prompt: Text("e.g. Licensed for editorial use only.")
+                )
+            }
+            .disabled(!preferences.embedIPTCInExports)
+
+            Section("Contact Information") {
+                TextField(
+                    "Email",
+                    text: $preferences.iptcContactEmail,
+                    prompt: Text("jane@example.com")
+                )
+                .textContentType(.emailAddress)
+
+                TextField(
+                    "Phone",
+                    text: $preferences.iptcContactPhone,
+                    prompt: Text("+1 555 123 4567")
+                )
+                .textContentType(.telephoneNumber)
+
+                TextField(
+                    "Website",
+                    text: $preferences.iptcContactWebsite,
+                    prompt: Text("https://janedoe.example")
+                )
+                .textContentType(.URL)
+            }
+            .disabled(!preferences.embedIPTCInExports)
         }
-        .padding(.vertical, Theme.Space.s12)
-        .padding(.horizontal, Theme.Space.s14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.m)
-                .fill(Theme.Color.surfaceRaised.opacity(0.6))
-        )
-    }
-
-    private var form: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s14) {
-            sectionHeader("PHOTOGRAPHER")
-            labeledField("Creator Name", text: $preferences.iptcCreatorName,
-                          placeholder: "e.g. Jane Doe",
-                          systemImage: "person.crop.square")
-
-            sectionHeader("RIGHTS")
-            labeledField("Copyright Notice", text: $preferences.iptcCopyrightNotice,
-                          placeholder: "e.g. © 2026 Jane Doe. All rights reserved.",
-                          systemImage: "c.circle")
-            labeledField("Usage Terms", text: $preferences.iptcRightsUsageTerms,
-                          placeholder: "e.g. Licensed for editorial use only.",
-                          systemImage: "doc.text")
-
-            sectionHeader("CONTACT")
-            labeledField("Email", text: $preferences.iptcContactEmail,
-                          placeholder: "jane@example.com",
-                          systemImage: "envelope",
-                          contentType: .emailAddress)
-            labeledField("Phone", text: $preferences.iptcContactPhone,
-                          placeholder: "+1 555 123 4567",
-                          systemImage: "phone",
-                          contentType: .telephoneNumber)
-            labeledField("Website", text: $preferences.iptcContactWebsite,
-                          placeholder: "https://janedoe.example",
-                          systemImage: "globe",
-                          contentType: .URL)
-        }
+        .formStyle(.grouped)
+        .onChange(of: preferences.embedIPTCInExports) { _, _ in preferences.save() }
         .onChange(of: preferences.iptcCreatorName) { _, _ in preferences.save() }
         .onChange(of: preferences.iptcCopyrightNotice) { _, _ in preferences.save() }
         .onChange(of: preferences.iptcContactEmail) { _, _ in preferences.save() }
         .onChange(of: preferences.iptcContactPhone) { _, _ in preferences.save() }
         .onChange(of: preferences.iptcContactWebsite) { _, _ in preferences.save() }
         .onChange(of: preferences.iptcRightsUsageTerms) { _, _ in preferences.save() }
-    }
-
-    private func sectionHeader(_ title: String) -> some View {
-        Text(title)
-            .font(Theme.Font.caption2)
-            .tracking(0.4)
-            .foregroundStyle(Theme.Color.textSecondary)
-            .padding(.top, Theme.Space.s6)
-    }
-
-    private func labeledField(
-        _ label: String,
-        text: Binding<String>,
-        placeholder: String,
-        systemImage: String,
-        contentType: NSTextContentType? = nil
-    ) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            Text(label)
-                .font(Theme.Font.body)
-                .foregroundStyle(Theme.Color.textInverse)
-            HStack(spacing: Theme.Space.s8) {
-                Image(systemName: systemImage)
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .frame(width: 16)
-                TextField(placeholder, text: text)
-                    .textFieldStyle(.plain)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.textPrimary)
-                    .textContentType(contentType)
-            }
-            .padding(.leading, Theme.Space.s14)
-            .padding(.trailing, Theme.Space.s10)
-            .padding(.vertical, Theme.Space.s6)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.m)
-                    .fill(Theme.Color.surfaceRaised)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.m)
-                    .stroke(Theme.Color.surfaceDivider, lineWidth: Theme.Stroke.hairline)
-            )
-        }
     }
 }

@@ -78,6 +78,9 @@ struct AppSubsystemLogger: Sendable {
     }
 
     private func logToStore(level: String, message: String) {
+        // Avoid flooding the main thread with trace/debug Task hops during high-frequency
+        // scrolling and scanning; they remain available in macOS unified logging (os.Logger).
+        guard level != "trace" && level != "debug" else { return }
         let cat = category
         Task { @MainActor in
             LogConsoleStore.shared.append(category: cat, level: level, message: message)

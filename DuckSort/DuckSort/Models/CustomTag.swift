@@ -142,6 +142,8 @@ enum TagHotkeyRules {
     static func reservedReason(for hotkey: String?) -> String? {
         guard let hotkey, !hotkey.isEmpty else { return nil }
         let info = KeyboardShortcutInfo.parse(hotkey)
+        // Only plain (unmodified) keys conflict with built-in single-key culling shortcuts.
+        guard !info.command && !info.option && !info.control && !info.shift else { return nil }
         return reservedPlainKeys[info.key.lowercased()]
     }
 }

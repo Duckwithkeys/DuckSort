@@ -123,11 +123,22 @@ final class VisionEngineActor {
             return []
         }
 
-        var vector = [Float](repeating: 0, count: observation.elementCount)
+        guard observation.elementType == .float else {
+            AppLogger.vision.warning("Unexpected VNFeaturePrintObservation elementType \(observation.elementType.rawValue) for \(url.lastPathComponent)")
+            return []
+        }
+
+        let elementCount = observation.elementCount
+        let requiredBytes = elementCount * MemoryLayout<Float>.stride
         let data = observation.data
+        guard elementCount > 0, data.count >= requiredBytes else {
+            return []
+        }
+
+        var vector = [Float](repeating: 0, count: elementCount)
         data.withUnsafeBytes { rawBuffer in
             if let floatBuffer = rawBuffer.bindMemory(to: Float.self).baseAddress {
-                for i in 0..<observation.elementCount {
+                for i in 0..<elementCount {
                     vector[i] = floatBuffer[i]
                 }
             }

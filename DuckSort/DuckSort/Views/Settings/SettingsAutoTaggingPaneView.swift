@@ -2,8 +2,7 @@
 //  SettingsAutoTaggingPaneView.swift
 //  DuckSort
 //
-//  Settings tab for configuring AI Modes: On-Device AI Vision Auto-Tagging
-//  and Perceptual Burst Deduplication & Best Shot AI, with configurable hotkeys.
+//  Native macOS grouped Form for On-Device AI Vision Auto-Tagging and Speed Culling.
 //
 
 import SwiftUI
@@ -15,62 +14,40 @@ struct SettingsAutoTaggingPaneView: View {
     var body: some View {
         Form {
             Section {
-                HStack(spacing: Theme.Space.s12) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Theme.Color.accent)
-                        .frame(width: 24)
+                Toggle("Enable AI Vision Auto-Tagging", isOn: $preferences.autoTaggingEnabled)
 
-                    Toggle("Enable AI Vision Auto-Tagging", isOn: $preferences.autoTaggingEnabled)
-                        .toggleStyle(.switch)
+                LabeledContent("Trigger Shortcut") {
+                    ShortcutRecorderView(hotkey: $preferences.aiVisionHotkey)
                 }
+                .disabled(!preferences.autoTaggingEnabled)
 
-                if preferences.autoTaggingEnabled {
-                    HStack {
-                        Text("Shortcut Hotkey")
-                        Spacer()
-                        ShortcutRecorderView(hotkey: $preferences.aiVisionHotkey)
-                    }
-
-                    HStack {
-                        Label("100% On-Device & Private", systemImage: "checkmark.shield.fill")
-                            .font(Theme.Font.caption)
-                            .foregroundStyle(Theme.Color.success)
-                    }
+                LabeledContent("Processing") {
+                    Label("On-Device Apple Vision", systemImage: "checkmark.shield.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Text("AI Vision Auto-Tagging")
             } footer: {
-                Text("Automatically analyzes and suggests scene, object, and subject tags using local Apple Vision frameworks without sending data to the cloud.")
-                    .foregroundStyle(.secondary)
+                Text("Analyzes photos locally using Apple Vision to suggest scene, object, and subject tags without sending data off your Mac.")
             }
 
             Section {
-                HStack(spacing: Theme.Space.s12) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(Theme.Color.accent)
-                        .frame(width: 24)
+                Toggle("Enable Speed Culling (Auto-Advance)", isOn: $preferences.speedCullingEnabled)
 
-                    Toggle("Enable Speed Culling", isOn: $preferences.speedCullingEnabled)
-                        .toggleStyle(.switch)
+                LabeledContent("Toggle Shortcut") {
+                    ShortcutRecorderView(hotkey: $preferences.autoAdvanceToggleHotkey)
                 }
 
-                if preferences.speedCullingEnabled {
-                    Toggle("Play short audio feedback", isOn: $preferences.autoAdvanceSoundEnabled)
-                    Toggle("Perform trackpad haptic click", isOn: $preferences.autoAdvanceHapticEnabled)
+                Toggle("Play Audio Feedback on Advance", isOn: $preferences.autoAdvanceSoundEnabled)
+                    .disabled(!preferences.speedCullingEnabled)
 
-                    HStack {
-                        Text("Toggle Hotkey")
-                        Spacer()
-                        ShortcutRecorderView(hotkey: $preferences.autoAdvanceToggleHotkey)
-                    }
-                }
+                Toggle("Trackpad Haptic Click on Advance", isOn: $preferences.autoAdvanceHapticEnabled)
+                    .disabled(!preferences.speedCullingEnabled)
             } header: {
-                Text("Speed Culling (Auto-Advance)")
+                Text("Speed Culling")
             } footer: {
-                Text("Automatically steps to the next photo immediately upon assigning a rating, flag, or tag.")
-                    .foregroundStyle(.secondary)
+                Text("Automatically steps to the next photo immediately after assigning a star rating, pick flag, or tag.")
             }
         }
         .formStyle(.grouped)

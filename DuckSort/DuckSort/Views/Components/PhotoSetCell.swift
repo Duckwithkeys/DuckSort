@@ -129,9 +129,6 @@ struct PhotoSetCell: View, Equatable {
         .animation(Theme.Motion.snappy, value: isHovered)
         .onHover { hovering in
             isHovered = hovering
-            if hovering {
-                LargeImageLoader.preload(url: photoSet.preferredPreviewURL)
-            }
         }
         .onTapGesture(count: 2) { openInViewer() }
         .contextMenu {

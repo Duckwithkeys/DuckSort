@@ -12,7 +12,7 @@ import AppKit
 struct PhotoGridView: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
 
-    private static let minItemWidth: CGFloat = 180
+    @AppStorage("gridThumbnailWidth") private var itemWidth: Double = 180
     private static let gridSpacing: CGFloat = Theme.Space.s14
     private static let horizontalPadding: CGFloat = Theme.Space.s20
 
@@ -20,16 +20,17 @@ struct PhotoGridView: View {
     @State private var gridOrigin: CGPoint = .zero
     @State private var marqueeStart: CGPoint? = nil
     @State private var marqueeCurrent: CGPoint? = nil
+    @State private var gridContainerWidth: CGFloat = 800
 
     private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: Self.minItemWidth), spacing: Self.gridSpacing)]
+        [GridItem(.adaptive(minimum: CGFloat(itemWidth)), spacing: Self.gridSpacing)]
     }
 
-    private static func columnCount(forWidth width: CGFloat) -> Int {
+    private static func columnCount(forWidth width: CGFloat, itemWidth: CGFloat) -> Int {
         guard width.isFinite else { return 1 }
         let available = width - horizontalPadding * 2
         guard available > 0 && available.isFinite else { return 1 }
-        let divisor = minItemWidth + gridSpacing
+        let divisor = itemWidth + gridSpacing
         guard divisor > 0 else { return 1 }
         let val = (available + gridSpacing) / divisor
         guard val.isFinite else { return 1 }
@@ -96,16 +97,12 @@ struct PhotoGridView: View {
                                     cell(for: index, photoSet: photoSet)
                                         .id(photoSet.id)
                                         .background(
-                                            Group {
-                                                if marqueeStart != nil {
-                                                    GeometryReader { proxy in
-                                                        Color.clear
-                                                            .preference(
-                                                                key: CellFramePreferenceKey.self,
-                                                                value: [CellFrame(id: photoSet.id, frame: proxy.frame(in: .named("PhotoGrid")))]
-                                                            )
-                                                    }
-                                                }
+                                            GeometryReader { proxy in
+                                                Color.clear
+                                                    .preference(
+                                                        key: CellFramePreferenceKey.self,
+                                                        value: [CellFrame(id: photoSet.id, frame: proxy.frame(in: .named("PhotoGrid")))]
+                                                    )
                                             }
                                         )
                                 }
@@ -129,10 +126,15 @@ struct PhotoGridView: View {
                     .coordinateSpace(name: "PhotoGrid")
                     .background(GeometryReader { geometry in
                         Color.clear.onAppear {
-                            viewModel.gridColumnCount = Self.columnCount(forWidth: geometry.size.width)
+                            gridContainerWidth = geometry.size.width
+                            viewModel.gridColumnCount = Self.columnCount(forWidth: geometry.size.width, itemWidth: CGFloat(itemWidth))
                         }
                         .onChange(of: geometry.size.width) { _, newWidth in
-                            viewModel.gridColumnCount = Self.columnCount(forWidth: newWidth)
+                            gridContainerWidth = newWidth
+                            viewModel.gridColumnCount = Self.columnCount(forWidth: newWidth, itemWidth: CGFloat(itemWidth))
+                        }
+                        .onChange(of: itemWidth) { _, newItemWidth in
+                            viewModel.gridColumnCount = Self.columnCount(forWidth: gridContainerWidth, itemWidth: CGFloat(newItemWidth))
                         }
                     })
                     .onChange(of: viewModel.focusedPhotoIndex) { _, newIndex in
@@ -159,11 +161,14 @@ struct PhotoGridView: View {
                     }
                 }
                 .onPreferenceChange(CellFramePreferenceKey.self) { values in
-                    var updated = cellFrames
+                    var updated: [PhotoSet.ID: CGRect] = [:]
+                    updated.reserveCapacity(values.count)
                     for entry in values {
                         updated[entry.id] = entry.frame
                     }
-                    cellFrames = updated
+                    if updated != cellFrames {
+                        cellFrames = updated
+                    }
                 }
             }
             .overlay(alignment: .top) {
@@ -174,6 +179,54 @@ struct PhotoGridView: View {
                         .padding(.top, Theme.Space.s12)
                 }
             }
+
+            gridFooterBar
+        }
+    }
+
+    private var gridFooterBar: some View {
+        HStack(spacing: Theme.Space.s12) {
+            Text(viewModel.statusMessage)
+                .font(Theme.Font.caption)
+                .foregroundStyle(Theme.Color.textSecondary)
+                .lineLimit(1)
+
+            Spacer()
+
+            HStack(spacing: Theme.Space.s6) {
+                Button {
+                    itemWidth = max(120, itemWidth - 20)
+                } label: {
+                    Image(systemName: "photo")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Smaller Thumbnails")
+
+                Slider(value: $itemWidth, in: 120...360)
+                    .frame(width: 110)
+                    .controlSize(.small)
+                    .help("Thumbnail Size")
+
+                Button {
+                    itemWidth = min(360, itemWidth + 20)
+                } label: {
+                    Image(systemName: "photo")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Theme.Color.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .help("Larger Thumbnails")
+            }
+        }
+        .padding(.horizontal, Theme.Space.s16)
+        .padding(.vertical, Theme.Space.s6)
+        .background(.regularMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Theme.Color.surfaceDivider)
+                .frame(height: Theme.Stroke.hairline)
         }
     }
 
@@ -193,7 +246,8 @@ struct PhotoGridView: View {
                 viewModel.focusedPhotoIndex = index
                 switch click {
                 case .plain:
-                    viewModel.toggleSelection(for: photoSet.id)
+                    viewModel.replaceSelection(with: [photoSet.id])
+                    viewModel.selectionAnchorID = photoSet.id
                 case .shiftClick:
                     viewModel.selectRange(to: photoSet.id, additive: false)
                 case .commandClick:

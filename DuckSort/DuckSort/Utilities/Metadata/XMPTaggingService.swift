@@ -25,6 +25,7 @@
 //    is collapsed into a single `try? String(contentsOf:)` call.
 //
 
+import CryptoKit
 import Foundation
 import ImageIO
 
@@ -62,55 +63,71 @@ struct XMPTaggingService: Sendable {
         }
     }
 
+    static func deterministicTagHash(_ tagNames: Set<String>) -> String {
+        let joined = tagNames.sorted().joined(separator: "\u{1F}")
+        let digest = SHA256.hash(data: Data(joined.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     /// Apply the given tag names to every XMP sidecar belonging to the photo set.
     /// Tag names are written as <dc:subject> <rdf:li> entries so apps like
     /// Photomator, Lightroom, and Bridge can read them.
-    func applyTagNames(_ tagNames: Set<String>, to photoSet: PhotoSet) throws {
+    func applyTagNames(_ tagNames: Set<String>, to photoSet: PhotoSet, metadata: MetadataSnapshot? = nil) throws {
         let urls = Self.xmpSidecarURLs(for: photoSet)
         guard !urls.isEmpty else { return }
+        let tagHash = Self.deterministicTagHash(tagNames)
         for url in urls {
-            try writeSidecar(tagNames: tagNames, to: url)
-            Self.stampExtendedAttributeHash("\(tagNames.hashValue)", to: url)
+            try writeSidecar(tagNames: tagNames, to: url, metadata: metadata)
+            Self.stampExtendedAttributeHash(tagHash, to: url)
         }
     }
 
-    /// Remove the XMP sidecar for the photo set (used when tags are cleared).
+    /// Remove tag keywords (<dc:subject>) from the XMP sidecars without unlinking sidecars containing other metadata.
     func clear(for photoSet: PhotoSet) throws {
         let urls = Self.xmpSidecarURLs(for: photoSet)
         let fm = FileManager.default
         for url in urls where fm.fileExists(atPath: url.path) {
-            // Don't silently unlink a planted symlink either; surface it so
-            // the user notices the folder isn't what it looks like.
             try Self.requireRegularSidecar(url)
             let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             guard Self.looksLikeXMP(content) else {
-                // A regular file that doesn't look like XMP is never
-                // deleted, even when the user is clearing tags.
                 throw SidecarError.notXMP(url)
             }
-            try fm.removeItem(at: url)
+            if let updated = Self.tryRemoveSubject(from: content) {
+                try updated.write(to: url, atomically: true, encoding: .utf8)
+            }
         }
     }
 
     /// Update rating + pick values on every sidecar without touching tags.
-    func updatePermanentTags(rating: Int?, pick: Int?, for photoSet: PhotoSet) throws {
+    /// If a sidecar does not exist yet and a non-nil rating or pick is set, creates a new sidecar seeded with the photo's existing metadata.
+    func updatePermanentTags(
+        rating: Int?,
+        pick: Int?,
+        for photoSet: PhotoSet,
+        tagNames: Set<String> = [],
+        metadata: MetadataSnapshot? = nil
+    ) throws {
         let urls = Self.xmpSidecarURLs(for: photoSet)
         guard !urls.isEmpty else { return }
 
-        // Mirror the same path the file scanner does so we touch every
-        // sibling that might be associated with this photo set.
         for url in urls {
-            try updateSidecarRatingPick(url: url, rating: rating, pick: pick)
+            try updateSidecarRatingPick(url: url, rating: rating, pick: pick, tagNames: tagNames, metadata: metadata)
         }
     }
 
     /// Set the caption (dc:description) on every sidecar belonging to the set.
     /// Pass nil to clear the caption from every sidecar.
-    func updateCaption(_ caption: String?, for photoSet: PhotoSet) throws {
+    /// If a sidecar does not exist yet and a non-empty caption is set, creates a new sidecar seeded with the photo's existing metadata.
+    func updateCaption(
+        _ caption: String?,
+        for photoSet: PhotoSet,
+        tagNames: Set<String> = [],
+        metadata: MetadataSnapshot? = nil
+    ) throws {
         let urls = Self.xmpSidecarURLs(for: photoSet)
         guard !urls.isEmpty else { return }
         for url in urls {
-            try updateSidecarCaption(url: url, caption: caption)
+            try updateSidecarCaption(url: url, caption: caption, tagNames: tagNames, metadata: metadata)
         }
     }
 
@@ -149,22 +166,16 @@ struct XMPTaggingService: Sendable {
 
     // MARK: - Write
 
-    private func writeSidecar(tagNames: Set<String>, to url: URL) throws {
+    private func writeSidecar(tagNames: Set<String>, to url: URL, metadata: MetadataSnapshot? = nil) throws {
         let sortedNames = tagNames.sorted()
         let fm = FileManager.default
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
 
-        // A symlinked .xmp would have its target's bytes read below and then
-        // either merged back into a rename-over write or unlinked outright;
-        // refuse before touching it at all.
         var existingContent: String?
         if fm.fileExists(atPath: url.path) {
             try Self.requireRegularSidecar(url)
             existingContent = try? String(contentsOf: url, encoding: .utf8)
             if let existingContent, !Self.looksLikeXMP(existingContent) {
-                // Align with the rating/caption paths: a regular file that
-                // doesn't look like XMP is never overwritten with a fresh
-                // packet or removed outright, even when clearing tags.
                 throw SidecarError.notXMP(url)
             }
         }
@@ -172,8 +183,6 @@ struct XMPTaggingService: Sendable {
         if sortedNames.isEmpty {
             if let existingContent, let updated = Self.tryRemoveSubject(from: existingContent) {
                 try updated.write(to: url, atomically: true, encoding: .utf8)
-            } else if fm.fileExists(atPath: url.path) {
-                try fm.removeItem(at: url)
             }
             return
         }
@@ -195,26 +204,21 @@ struct XMPTaggingService: Sendable {
             return
         }
 
-        let xmp = """
-        <?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
-        <x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="PhotomatorSort">
-          <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-            <rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/">
-              \(subjectBlock)
-            </rdf:Description>
-          </rdf:RDF>
-        </x:xmpmeta>
-        <?xpacket end="r"?>
-        """
-
+        let payload = SidecarPayload(
+            tagNames: tagNames,
+            capture: metadata ?? MetadataSnapshot(),
+            iptc: IPTCMetadata()
+        )
+        let xmp = Self.exportXMP(payload)
         try xmp.write(to: url, atomically: true, encoding: .utf8)
     }
 
     nonisolated private static func tryMergeSubject(_ subjectBlock: String, into content: String) -> String? {
         let range = NSRange(content.startIndex..., in: content)
         if Regex.subjectFull.firstMatch(in: content, options: [], range: range) != nil {
+            let escapedTemplate = NSRegularExpression.escapedTemplate(for: subjectBlock)
             return Regex.subjectFull.stringByReplacingMatches(
-                in: content, options: [], range: range, withTemplate: subjectBlock
+                in: content, options: [], range: range, withTemplate: escapedTemplate
             )
         }
 
@@ -223,12 +227,12 @@ struct XMPTaggingService: Sendable {
 
             let matchedTag = String(content[matchRange])
             if matchedTag.hasSuffix("/>") {
-                let cleanedTag = matchedTag.trimmingCharacters(in: CharacterSet(charactersIn: "/> "))
-                let replacement = "<\(cleanedTag)>\n      \(subjectBlock)\n    </rdf:Description>"
-                return content.replacingOccurrences(of: matchedTag, with: replacement)
+                let openTag = String(matchedTag.dropLast(2)).trimmingCharacters(in: .whitespaces)
+                let replacement = "\(openTag)>\n      \(subjectBlock)\n    </rdf:Description>"
+                return content.replacingCharacters(in: matchRange, with: replacement)
             } else {
                 let replacement = "\(matchedTag)\n      \(subjectBlock)"
-                return content.replacingOccurrences(of: matchedTag, with: replacement)
+                return content.replacingCharacters(in: matchRange, with: replacement)
             }
         }
 
@@ -243,10 +247,28 @@ struct XMPTaggingService: Sendable {
         return Regex.subjectRemove.stringByReplacingMatches(in: content, options: [], range: range, withTemplate: "")
     }
 
-    private func updateSidecarRatingPick(url: URL, rating: Int?, pick: Int?) throws {
+    private func updateSidecarRatingPick(
+        url: URL,
+        rating: Int?,
+        pick: Int?,
+        tagNames: Set<String>,
+        metadata: MetadataSnapshot?
+    ) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path) else {
-            // Nothing to update; sidecar doesn't exist yet.
+            guard rating != nil || pick != nil else { return }
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var capture = metadata ?? MetadataSnapshot()
+            capture.rating = rating
+            capture.pick = pick
+            let resolvedTags = tagNames.isEmpty ? capture.keywords : tagNames
+            let payload = SidecarPayload(
+                tagNames: resolvedTags,
+                capture: capture,
+                iptc: IPTCMetadata()
+            )
+            let xmp = Self.exportXMP(payload)
+            try xmp.write(to: url, atomically: true, encoding: .utf8)
             return
         }
         try Self.requireRegularSidecar(url)
@@ -277,9 +299,29 @@ struct XMPTaggingService: Sendable {
         try updated.write(to: url, atomically: true, encoding: .utf8)
     }
 
-    private func updateSidecarCaption(url: URL, caption: String?) throws {
+    private func updateSidecarCaption(
+        url: URL,
+        caption: String?,
+        tagNames: Set<String>,
+        metadata: MetadataSnapshot?
+    ) throws {
         let fm = FileManager.default
-        guard fm.fileExists(atPath: url.path) else { return }
+        guard fm.fileExists(atPath: url.path) else {
+            let trimmed = caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !trimmed.isEmpty else { return }
+            try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var capture = metadata ?? MetadataSnapshot()
+            capture.caption = trimmed
+            let resolvedTags = tagNames.isEmpty ? capture.keywords : tagNames
+            let payload = SidecarPayload(
+                tagNames: resolvedTags,
+                capture: capture,
+                iptc: IPTCMetadata()
+            )
+            let xmp = Self.exportXMP(payload)
+            try xmp.write(to: url, atomically: true, encoding: .utf8)
+            return
+        }
         try Self.requireRegularSidecar(url)
 
         let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
@@ -312,46 +354,96 @@ struct XMPTaggingService: Sendable {
         }
         guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
 
-        var names: Set<String> = []
-        let contentRange = NSRange(content.startIndex..., in: content)
-        if let subjectMatch = Regex.subjectContent.firstMatch(in: content, options: [], range: contentRange),
-           let subjectRange = Range(subjectMatch.range(at: 1), in: content) {
-
-            let subjectBlock = String(content[subjectRange])
-            let blockRange = NSRange(subjectBlock.startIndex..., in: subjectBlock)
-            Regex.liItem.enumerateMatches(in: subjectBlock, options: [], range: blockRange) { match, _, _ in
-                guard let match, let r = Range(match.range(at: 1), in: subjectBlock) else { return }
-                let raw = String(subjectBlock[r])
-                let cleaned = Self.unescape(raw)
-                if !cleaned.isEmpty { names.insert(cleaned) }
-            }
-        }
-
-        var rating: Int? = nil
-        if let match = Regex.ratingAttr.firstMatch(in: content, options: [], range: contentRange),
-           let range = Range(match.range(at: 1), in: content),
-           let val = Int(content[range]) {
-            rating = val
-        } else if let match = Regex.ratingTag.firstMatch(in: content, options: [], range: contentRange),
-                  let range = Range(match.range(at: 1), in: content),
-                  let val = Int(content[range]) {
-            rating = val
-        }
-
-        var pick: Int? = nil
-        if let match = Regex.pickAttr.firstMatch(in: content, options: [], range: contentRange),
-           let range = Range(match.range(at: 1), in: content),
-           let val = Int(content[range]) {
-            pick = val
-        } else if let match = Regex.pickTag.firstMatch(in: content, options: [], range: contentRange),
-                  let range = Range(match.range(at: 1), in: content),
-                  let val = Int(content[range]) {
-            pick = val
-        }
-
+        let names = Self.extractKeywords(from: content)
+        let rating = Self.extractRating(from: content)
+        let pick = Self.extractPick(from: content)
         let description = Self.extractDescription(from: content)
 
         return (names, rating, pick, description)
+    }
+
+    nonisolated static func extractKeywords(from content: String) -> Set<String> {
+        var keywords = Set<String>()
+        let xmlRange = NSRange(content.startIndex..., in: content)
+
+        // 1. dc:subject
+        if let subjectMatch = Regex.subjectContent.firstMatch(in: content, options: [], range: xmlRange),
+           let subjectRange = Range(subjectMatch.range(at: 1), in: content) {
+            let block = String(content[subjectRange])
+            let blockRange = NSRange(block.startIndex..., in: block)
+            var count = 0
+            Regex.liItem.enumerateMatches(in: block, options: [], range: blockRange) { match, _, _ in
+                guard let match, let r = Range(match.range(at: 1), in: block) else { return }
+                let cleaned = unescape(String(block[r]))
+                if !cleaned.isEmpty {
+                    keywords.insert(cleaned)
+                    count += 1
+                }
+            }
+            // Fallback for simple string in <dc:subject> (e.g., <dc:subject>Team, Soccer</dc:subject>)
+            if count == 0 {
+                let cleanedBlock = unescape(block.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression))
+                if !cleanedBlock.isEmpty {
+                    let parts = cleanedBlock.components(separatedBy: CharacterSet(charactersIn: ",;"))
+                    for part in parts {
+                        let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { keywords.insert(trimmed) }
+                    }
+                }
+            }
+        }
+
+        // 2. lr:hierarchicalSubject (Lightroom hierarchical tags e.g. "Places|Europe|Paris")
+        if let lrMatch = Regex.lrHierarchical.firstMatch(in: content, options: [], range: xmlRange),
+           let lrRange = Range(lrMatch.range(at: 1), in: content) {
+            let block = String(content[lrRange])
+            let blockRange = NSRange(block.startIndex..., in: block)
+            Regex.liItem.enumerateMatches(in: block, options: [], range: blockRange) { match, _, _ in
+                guard let match, let r = Range(match.range(at: 1), in: block) else { return }
+                let cleaned = unescape(String(block[r]))
+                if !cleaned.isEmpty {
+                    keywords.insert(cleaned)
+                    if let leaf = cleaned.split(separator: "|").last {
+                        let trimmedLeaf = leaf.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmedLeaf.isEmpty {
+                            keywords.insert(trimmedLeaf)
+                        }
+                    }
+                }
+            }
+        }
+
+        return keywords
+    }
+
+    nonisolated static func extractRating(from content: String) -> Int? {
+        let range = NSRange(content.startIndex..., in: content)
+        if let match = Regex.ratingAttr.firstMatch(in: content, options: [], range: range),
+           let r = Range(match.range(at: 1), in: content),
+           let val = Int(content[r]) {
+            return val
+        }
+        if let match = Regex.ratingTag.firstMatch(in: content, options: [], range: range),
+           let r = Range(match.range(at: 1), in: content),
+           let val = Int(content[r]) {
+            return val
+        }
+        return nil
+    }
+
+    nonisolated static func extractPick(from content: String) -> Int? {
+        let range = NSRange(content.startIndex..., in: content)
+        if let match = Regex.pickAttr.firstMatch(in: content, options: [], range: range),
+           let r = Range(match.range(at: 1), in: content),
+           let val = Int(content[r]) {
+            return val
+        }
+        if let match = Regex.pickTag.firstMatch(in: content, options: [], range: range),
+           let r = Range(match.range(at: 1), in: content),
+           let val = Int(content[r]) {
+            return val
+        }
+        return nil
     }
 
     nonisolated static func extractDescription(from content: String) -> String? {
@@ -362,7 +454,12 @@ struct XMPTaggingService: Sendable {
         if let match = Regex.descriptionBody.firstMatch(in: content, options: [], range: range),
            match.numberOfRanges >= 2,
            let captureRange = Range(match.range(at: 1), in: content) {
-            let raw = String(content[captureRange])
+            var raw = String(content[captureRange])
+            let rawRange = NSRange(raw.startIndex..., in: raw)
+            if let liMatch = Regex.liItem.firstMatch(in: raw, options: [], range: rawRange),
+               let liRange = Range(liMatch.range(at: 1), in: raw) {
+                raw = String(raw[liRange])
+            }
             let cleaned = unescape(raw)
             return cleaned.isEmpty ? nil : cleaned
         }
@@ -474,15 +571,16 @@ struct XMPTaggingService: Sendable {
     /// Pass nil to remove the description entirely.
     nonisolated static func mergeDescription(_ description: String?, into content: String) -> String {
         var updated = content
-        let range = NSRange(updated.startIndex..., in: updated)
-        if Regex.descriptionBody.firstMatch(in: updated, options: [], range: range) != nil {
+        let bodyRange = NSRange(updated.startIndex..., in: updated)
+        if Regex.descriptionBody.firstMatch(in: updated, options: [], range: bodyRange) != nil {
             updated = Regex.descriptionBody.stringByReplacingMatches(
-                in: updated, options: [], range: range, withTemplate: ""
+                in: updated, options: [], range: bodyRange, withTemplate: ""
             )
         }
-        if Regex.descriptionSelfClosing.firstMatch(in: updated, options: [], range: range) != nil {
+        let selfClosingRange = NSRange(updated.startIndex..., in: updated)
+        if Regex.descriptionSelfClosing.firstMatch(in: updated, options: [], range: selfClosingRange) != nil {
             updated = Regex.descriptionSelfClosing.stringByReplacingMatches(
-                in: updated, options: [], range: range, withTemplate: ""
+                in: updated, options: [], range: selfClosingRange, withTemplate: ""
             )
         }
 
@@ -494,7 +592,8 @@ struct XMPTaggingService: Sendable {
         let escaped = escape(cleaned)
         let descriptionBlock = "<dc:description>\n        \(escaped)\n      </dc:description>"
 
-        if let match = Regex.rdfDescriptionClose.firstMatch(in: updated, options: [], range: range),
+        let closeRange = NSRange(updated.startIndex..., in: updated)
+        if let match = Regex.rdfDescriptionClose.firstMatch(in: updated, options: [], range: closeRange),
            let r = Range(match.range, in: updated) {
             updated.replaceSubrange(r, with: "  \(descriptionBlock)\n    </rdf:Description>")
             return updated
@@ -532,8 +631,9 @@ struct XMPTaggingService: Sendable {
         func upsert(replacingPattern: NSRegularExpression, element: String) {
             let r = NSRange(updated.startIndex..., in: updated)
             if replacingPattern.firstMatch(in: updated, options: [], range: r) != nil {
+                let escapedTemplate = NSRegularExpression.escapedTemplate(for: element)
                 updated = replacingPattern.stringByReplacingMatches(
-                    in: updated, options: [], range: r, withTemplate: element
+                    in: updated, options: [], range: r, withTemplate: escapedTemplate
                 )
                 return
             }
@@ -665,8 +765,9 @@ struct XMPTaggingService: Sendable {
         }
         let range = NSRange(content.startIndex..., in: content)
         if attrRegex.firstMatch(in: content, options: [], range: range) != nil {
+            let escapedTemplate = NSRegularExpression.escapedTemplate(for: escaped)
             return attrRegex.stringByReplacingMatches(
-                in: content, options: [], range: range, withTemplate: escaped
+                in: content, options: [], range: range, withTemplate: escapedTemplate
             )
         }
         if content.hasSuffix("/>") {
@@ -882,6 +983,10 @@ private enum XMPSchema {
         )
         static let subjectRemove = try! NSRegularExpression(
             pattern: #"(?i)<dc:subject[^>]*>.*?</dc:subject>\n?"#,
+            options: [.dotMatchesLineSeparators]
+        )
+        static let lrHierarchical = try! NSRegularExpression(
+            pattern: #"(?i)<lr:hierarchicalSubject[^>]*>(.*?)</lr:hierarchicalSubject>"#,
             options: [.dotMatchesLineSeparators]
         )
 

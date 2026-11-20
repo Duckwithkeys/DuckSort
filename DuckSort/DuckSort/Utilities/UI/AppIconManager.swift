@@ -55,12 +55,10 @@ final class AppIconManager: ObservableObject {
         let isDark: Bool
         switch style {
         case .system:
-            if let appearance = NSApp?.effectiveAppearance {
-                isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            } else {
-                let appearanceName = UserDefaults.standard.string(forKey: "AppleInterfaceStyle")
-                isDark = (appearanceName == "Dark")
-            }
+            // Use the native bundle icon (AppIcon.icon), which macOS themes itself
+            // for Light, Dark, Tinted and Clear appearances, like any other app.
+            NSApplication.shared.applicationIconImage = nil
+            return
         case .dark:
             isDark = true
         case .light:

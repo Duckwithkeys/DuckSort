@@ -248,11 +248,13 @@ enum ExportPathRouter {
 
                 case .shutterSpeed:
                     let name: String
-                    if let value = metadata.shutterSpeed, value > 0 {
+                    if let value = metadata.shutterSpeed, value > 0, value.isFinite {
                         if value >= 1 {
                             name = String(format: "%.1fs", value)
-                        } else {
+                        } else if value >= 1e-6 {
                             name = "1-\(Int(round(1.0 / value)))s"
+                        } else {
+                            name = "Unknown Shutter Speed"
                         }
                     } else {
                         name = "Unknown Shutter Speed"

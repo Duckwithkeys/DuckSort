@@ -14,6 +14,9 @@ enum FilenameSanitizer {
         var result = ""
         result.reserveCapacity(trimmed.count)
         for scalar in trimmed.unicodeScalars {
+            if scalar.value < 0x20 || scalar.value == 0x7F {
+                continue
+            }
             result.unicodeScalars.append(illegal.contains(scalar) ? "-" : scalar)
         }
         // Collapse runs of spaces. Two passes max because each replacement

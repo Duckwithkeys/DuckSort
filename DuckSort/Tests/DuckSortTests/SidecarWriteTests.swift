@@ -392,4 +392,64 @@ struct SidecarWriteTests {
 
         #expect(try String(contentsOf: sidecar, encoding: .utf8) == plainText)
     }
+
+    @Test
+    func updatePermanentTags_createsSidecarWithExistingMetadataWhenNoneExists() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let media = dir.appendingPathComponent("IMG_UNTAGGED.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        let set = PhotoSet(baseName: "IMG_UNTAGGED", mediaFiles: [media], editPath: nil)
+        let service = XMPTaggingService()
+        let snapshot = MetadataSnapshot(
+            cameraModel: "X-T5",
+            lensModel: "XF35mm",
+            captureDate: nil,
+            aperture: 2.0,
+            shutterSpeed: 0.002,
+            iso: 400,
+            keywords: ["Team"]
+        )
+
+        try service.updatePermanentTags(rating: 5, pick: 1, for: set, tagNames: ["Team"], metadata: snapshot)
+
+        let sidecar = dir.appendingPathComponent("IMG_UNTAGGED.xmp")
+        #expect(FileManager.default.fileExists(atPath: sidecar.path))
+        let data = service.readSidecarData(from: set)
+        #expect(data.rating == 5)
+        #expect(data.pick == 1)
+        #expect(data.tags == ["Team"])
+        let xml = try String(contentsOf: sidecar, encoding: .utf8)
+        #expect(xml.contains("tiff:Model=\"X-T5\""))
+        #expect(xml.contains("exif:LensModel=\"XF35mm\""))
+    }
+
+    @Test
+    func updateCaption_createsSidecarWithExistingMetadataWhenNoneExists() async throws {
+        let dir = try TempDir.make()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let media = dir.appendingPathComponent("IMG_CAPTION.jpg")
+        try ImageFixture.writeJPEG(to: media, cameraModel: "X-T5", lensModel: "XF35mm", iso: 400)
+        let set = PhotoSet(baseName: "IMG_CAPTION", mediaFiles: [media], editPath: nil)
+        let service = XMPTaggingService()
+        let snapshot = MetadataSnapshot(
+            cameraModel: "X-T5",
+            lensModel: "XF35mm",
+            captureDate: nil,
+            aperture: 2.8,
+            shutterSpeed: 0.004,
+            iso: 400,
+            keywords: ["Team"]
+        )
+
+        try service.updateCaption("Championship celebration", for: set, tagNames: ["Team"], metadata: snapshot)
+
+        let sidecar = dir.appendingPathComponent("IMG_CAPTION.xmp")
+        #expect(FileManager.default.fileExists(atPath: sidecar.path))
+        let data = service.readSidecarData(from: set)
+        #expect(data.description == "Championship celebration")
+        #expect(data.tags == ["Team"])
+        let xml = try String(contentsOf: sidecar, encoding: .utf8)
+        #expect(xml.contains("tiff:Model=\"X-T5\""))
+    }
 }

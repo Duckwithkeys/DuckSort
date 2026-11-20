@@ -25,32 +25,34 @@ struct ShortcutRecorderView: View {
                     }
                 } label: {
                     Text(buttonLabel)
-                        .font(Theme.Font.monoBody)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(
                             isRecording
-                                ? Theme.Color.textInverse
-                                : (hotkey == nil 
-                                    ? (isBorderless ? Theme.Color.textTertiary : Theme.Color.textSecondary)
-                                    : (isBorderless ? Theme.Color.textSecondary : Theme.Color.textPrimary))
+                                ? Color.white
+                                : (hotkey == nil
+                                    ? Color.secondary
+                                    : Color.primary)
                         )
-                        .padding(.horizontal, isBorderless ? Theme.Space.s4 : Theme.Space.s8)
-                        .padding(.vertical, isBorderless ? Theme.Space.s2 : Theme.Space.s4)
-                        .frame(minWidth: isBorderless ? 0 : 70, minHeight: isBorderless ? 0 : 22)
+                        .padding(.horizontal, isBorderless ? 4 : 8)
+                        .padding(.vertical, isBorderless ? 2 : 3)
+                        .frame(minWidth: isBorderless ? 0 : 68, minHeight: isBorderless ? 0 : 22)
                         .background(
-                            isRecording 
-                                ? Theme.Color.accent 
-                                : (isBorderless ? Color.clear : Theme.Color.overlaySoft),
-                            in: RoundedRectangle(cornerRadius: Theme.Radius.m)
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(
+                                    isRecording
+                                        ? Theme.Color.accent
+                                        : (isBorderless ? Color.clear : Color(nsColor: .controlBackgroundColor))
+                                )
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: Theme.Radius.m)
-                                .stroke(
-                                    isRecording 
-                                        ? Theme.Color.accent 
-                                        : (isBorderless ? Color.clear : Theme.Color.overlaySofter),
-                                    lineWidth: isBorderless ? 0 : Theme.Stroke.hairline
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(
+                                    isRecording
+                                        ? Theme.Color.accent
+                                        : (isBorderless ? Color.clear : Color(nsColor: .separatorColor)),
+                                    lineWidth: isBorderless ? 0 : 1
                                 )
-                            )
+                        )
                 }
                 .buttonStyle(.plain)
                 .help(isRecording ? "Press any key combination to record, or Esc to cancel" : "Click to record shortcut")

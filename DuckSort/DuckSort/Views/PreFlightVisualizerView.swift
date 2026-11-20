@@ -199,63 +199,65 @@ struct PreFlightVisualizerView: View {
         let categoryNames = Dictionary(
             uniqueKeysWithValues: viewModel.tagStore.categories.map { ($0.id, $0.name) }
         )
-        let categoryNameProvider: (UUID) -> String? = { id in
-            categoryNames[id]
-        }
+        let planCopy = plan
 
-        // Run simulation directly on the Main Actor
-        let tree = SimulatedFolderTree(baseDestination: plan.baseDestination)
-        var stats = SummaryStats()
+        // Run disk stat + collision resolution off @MainActor so the UI stays responsive.
+        let results: (SimulatedFolderTree.Node, SummaryStats) = await Task.detached(priority: .userInitiated) {
+            let categoryNameProvider: (UUID) -> String? = { id in
+                categoryNames[id]
+            }
+            let tree = SimulatedFolderTree(baseDestination: planCopy.baseDestination)
+            var stats = SummaryStats()
 
-        for routed in plan.photos {
-            let folders = ExportPathRouter.destinationFolders(
-                base: plan.baseDestination,
-                rule: plan.rule,
-                metadata: routed.metadata,
-                assignedTags: routed.tags,
-                categoryNameProvider: categoryNameProvider
-            )
-            
-            for folder in folders {
-                for fileURL in routed.photoSet.allFiles {
-                    let resolution = CollisionResolver.resolve(
-                        source: fileURL,
-                        destinationDir: folder,
-                        fileManager: .default
-                    )
-                    
-                    let destURL: URL
-                    switch resolution {
-                    case .skip:
-                        destURL = folder.appendingPathComponent(fileURL.lastPathComponent)
-                        stats.skipsCount += 1
-                    case .overwrite:
-                        destURL = folder.appendingPathComponent(fileURL.lastPathComponent)
-                        stats.overwritesCount += 1
-                    case .rename(let uniqueURL):
-                        destURL = uniqueURL
-                        stats.renamesCount += 1
-                    case .normal(let destURLVal):
-                        destURL = destURLVal
-                        stats.newFilesCount += 1
+            for routed in planCopy.photos {
+                let folders = ExportPathRouter.destinationFolders(
+                    base: planCopy.baseDestination,
+                    rule: planCopy.rule,
+                    metadata: routed.metadata,
+                    assignedTags: routed.tags,
+                    categoryNameProvider: categoryNameProvider
+                )
+                
+                for folder in folders {
+                    for fileURL in routed.photoSet.allFiles {
+                        let resolution = CollisionResolver.resolve(
+                            source: fileURL,
+                            destinationDir: folder,
+                            fileManager: .default
+                        )
+                        
+                        let destURL: URL
+                        switch resolution {
+                        case .skip:
+                            destURL = folder.appendingPathComponent(fileURL.lastPathComponent)
+                            stats.skipsCount += 1
+                        case .overwrite:
+                            destURL = folder.appendingPathComponent(fileURL.lastPathComponent)
+                            stats.overwritesCount += 1
+                        case .rename(let uniqueURL):
+                            destURL = uniqueURL
+                            stats.renamesCount += 1
+                        case .normal(let destURLVal):
+                            destURL = destURLVal
+                            stats.newFilesCount += 1
+                        }
+                        
+                        stats.totalFiles += 1
+                        
+                        let file = SimulatedFile(
+                            sourceURL: fileURL,
+                            destinationURL: destURL,
+                            resolution: resolution
+                        )
+                        tree.insert(file: file, relativeTo: planCopy.baseDestination)
                     }
-                    
-                    stats.totalFiles += 1
-                    
-                    let file = SimulatedFile(
-                        sourceURL: fileURL,
-                        destinationURL: destURL,
-                        resolution: resolution
-                    )
-                    tree.insert(file: file, relativeTo: plan.baseDestination)
                 }
             }
-        }
 
-        tree.sortTree()
-        stats.foldersCreated = tree.countFolders()
-
-        let results = (tree.root, stats)
+            tree.sortTree()
+            stats.foldersCreated = tree.countFolders()
+            return (tree.root, stats)
+        }.value
 
         self.rootNode = results.0
         self.summaryStats = results.1
@@ -390,7 +392,7 @@ struct SimulatedFolderNodeView: View {
 // MARK: - Simulation Structures
 
 class SimulatedFolderTree {
-    class Node: Identifiable {
+    final class Node: Identifiable, @unchecked Sendable {
         let id = UUID()
         let name: String
         let url: URL

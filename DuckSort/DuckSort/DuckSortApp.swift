@@ -30,9 +30,8 @@ struct DuckSortApp: App {
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.activate()
         NSWindow.allowsAutomaticWindowTabbing = false
-        AppIconManager.shared.startObserving()
     }
 
     var body: some Scene {

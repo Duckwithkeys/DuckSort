@@ -2,8 +2,7 @@
 //  SettingsAppearancePaneView.swift
 //  DuckSort
 //
-//  Settings pane for Liquid Glassmorphism, Theme Customization (Custom Accent,
-//  Glass Translucency, High Contrast), and Customizable Trackpad Haptics.
+//  Native macOS System Settings–style Appearance & Haptics pane.
 //
 
 import SwiftUI
@@ -14,115 +13,138 @@ struct SettingsAppearancePaneView: View {
     var body: some View {
         Form {
             Section {
-                Picker("App Icon Mode", selection: $preferences.appIconStyle) {
-                    ForEach(AppIconStyle.allCases) { style in
-                        Text(style.rawValue).tag(style)
+                LabeledContent("App & Dock Icon") {
+                    Picker("App & Dock Icon", selection: $preferences.appIconStyle) {
+                        Text("Auto").tag(AppIconStyle.system)
+                        Text("Light").tag(AppIconStyle.light)
+                        Text("Dark").tag(AppIconStyle.dark)
                     }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 210)
                 }
-                .pickerStyle(.segmented)
-            } header: {
-                Text("App & Dock Icon")
-            } footer: {
-                Text("Automatically match macOS Light/Dark appearance or lock to a specific variant.")
-                    .foregroundStyle(.secondary)
-            }
 
-            Section {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: Theme.Space.s12) {
-                    ForEach(CustomAccentColor.allCases) { accent in
-                        Button {
-                            preferences.customAccent = accent
-                        } label: {
-                            HStack(spacing: Theme.Space.s8) {
-                                Circle()
-                                    .fill(accent.color)
-                                    .frame(width: 16, height: 16)
-                                    .overlay(
-                                        Circle()
-                                            .stroke(Color.white.opacity(0.4), lineWidth: 1)
-                                    )
-                                Text(accent.rawValue)
-                                    .font(Theme.Font.callout)
-                                    .foregroundStyle(Theme.Color.textPrimary)
+                LabeledContent("Accent Color") {
+                    HStack(spacing: 12) {
+                        Text(preferences.customAccent.rawValue)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 8) {
+                            ForEach(CustomAccentColor.allCases) { accent in
+                                AccentSwatchButton(
+                                    accent: accent,
+                                    isSelected: preferences.customAccent == accent
+                                ) {
+                                    preferences.customAccent = accent
+                                }
                             }
-                            .padding(.horizontal, Theme.Space.s12)
-                            .padding(.vertical, Theme.Space.s8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(
-                                RoundedRectangle(cornerRadius: Theme.Radius.l)
-                                    .fill(preferences.customAccent == accent ? Theme.Color.surfaceRaised : Theme.Color.overlaySoft)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: Theme.Radius.l)
-                                    .stroke(preferences.customAccent == accent ? accent.color : Theme.Color.surfaceStroke, lineWidth: preferences.customAccent == accent ? 2 : 1)
-                            )
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             } header: {
-                Text("Accent Highlight Color")
+                Text("Appearance")
+            } footer: {
+                Text("Choose how the DuckSort Dock icon adapts to macOS appearance and customize the highlight accent used across selections and badges.")
             }
 
             Section {
-                Picker("Glass Mode", selection: $preferences.glassTranslucency) {
+                Picker("Material Style", selection: $preferences.glassTranslucency) {
                     ForEach(GlassTranslucencyMode.allCases) { mode in
                         Text(mode.rawValue).tag(mode)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+
+                Toggle("Increase Contrast", isOn: $preferences.highContrastEnabled)
             } header: {
-                Text("Liquid Glass Translucency")
+                Text("Windows & Surfaces")
             } footer: {
-                Text("Adjust background blur and translucency depth across control panels and viewer overlays.")
-                    .foregroundStyle(.secondary)
+                Text("Adjust background blur and surface contrast across toolbars, sidebars, and viewer overlays.")
             }
 
             Section {
-                Toggle("High Contrast Mode", isOn: $preferences.highContrastEnabled)
-                    .toggleStyle(.switch)
+                hapticRow(
+                    title: "Flagging Pick (Keep)",
+                    selection: $preferences.hapticProfileFlag
+                )
+                hapticRow(
+                    title: "Rejecting Photo",
+                    selection: $preferences.hapticProfileReject
+                )
+                hapticRow(
+                    title: "Assigning Star Rating",
+                    selection: $preferences.hapticProfileRating
+                )
             } header: {
-                Text("Accessibility")
+                Text("Trackpad Haptics")
             } footer: {
-                Text("Boosts label contrast and outline borders for outdoor daylight culling.")
-                    .foregroundStyle(.secondary)
-            }
-
-            Section {
-                hapticRow(title: "Flagging Pick (Keep)", icon: "flag.fill", color: Theme.Color.danger, selection: $preferences.hapticProfileFlag)
-                hapticRow(title: "Rejecting Photo", icon: "flag.slash.fill", color: Theme.Color.warning, selection: $preferences.hapticProfileReject)
-                hapticRow(title: "Star Rating", icon: "star.fill", color: Theme.Color.rating, selection: $preferences.hapticProfileRating)
-            } header: {
-                Text("Trackpad Physical Haptics")
+                Text("Customize Force Touch trackpad tactile feedback when culling photos.")
             }
         }
         .formStyle(.grouped)
     }
 
-    private func hapticRow(title: String, icon: String, color: Color, selection: Binding<HapticProfile>) -> some View {
-        HStack {
-            HStack(spacing: Theme.Space.s8) {
-                Image(systemName: icon)
-                    .foregroundStyle(color)
-                    .frame(width: 20)
-                Text(title)
+    private func hapticRow(title: String, selection: Binding<HapticProfile>) -> some View {
+        LabeledContent(title) {
+            HStack(spacing: 8) {
+                Picker("", selection: selection) {
+                    ForEach(HapticProfile.allCases) { profile in
+                        Text(profile.rawValue).tag(profile)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 135)
+
+                Button("Test") {
+                    HapticFeedbackManager.shared.performHaptic(selection.wrappedValue)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
+        }
+    }
+}
 
-            Spacer()
+private struct AccentSwatchButton: View {
+    let accent: CustomAccentColor
+    let isSelected: Bool
+    let action: () -> Void
 
-            Picker("", selection: selection) {
-                ForEach(HapticProfile.allCases) { profile in
-                    Text(profile.rawValue).tag(profile)
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                if accent == .system {
+                    Circle()
+                        .fill(
+                            AngularGradient(
+                                colors: [.blue, .purple, .pink, .orange, .yellow, .green, .blue],
+                                center: .center
+                            )
+                        )
+                        .frame(width: 18, height: 18)
+                } else {
+                    Circle()
+                        .fill(accent.color)
+                        .frame(width: 18, height: 18)
+                }
+
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.18), lineWidth: 1)
+                    .frame(width: 18, height: 18)
+
+                if isSelected {
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 6, height: 6)
+                        .shadow(color: .black.opacity(0.35), radius: 1, x: 0, y: 0.5)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 130)
-
-            Button("Test") {
-                HapticFeedbackManager.shared.performHaptic(selection.wrappedValue)
-            }
-            .buttonStyle(.bordered)
+            .frame(width: 22, height: 22)
+            .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .help(accent.rawValue)
     }
 }

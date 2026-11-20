@@ -121,8 +121,11 @@ actor FileTransferService {
 
         let limit = min(8, ProcessInfo.processInfo.activeProcessorCount)
         let localSidecarService = self.sidecarService
+        let iptc = XMPTaggingService.iptcFromPreferences()
+        var movedSources: [URL] = []
+        var sidecarFailedSources = Set<URL>()
 
-        try await withThrowingTaskGroup(of: (Int64, Bool, URL).self) { group in
+        try await withThrowingTaskGroup(of: (Int64, Bool, URL, Bool).self) { group in
             var index = 0
             var runningTasks = 0
             while index < jobs.count && runningTasks < limit {
@@ -130,16 +133,20 @@ actor FileTransferService {
                 index += 1
                 runningTasks += 1
                 group.addTask {
-                    try await self.executeJob(job, plan: plan, sidecarService: localSidecarService)
+                    try await self.executeJob(job, plan: plan, iptc: iptc, sidecarService: localSidecarService)
                 }
             }
 
-            while let (fileSize, sidecarFailed, sourceURL) = try await group.next() {
+            while let (fileSize, sidecarFailed, sourceURL, didMove) = try await group.next() {
                 runningTasks -= 1
                 transferred += 1
                 completedBytes += fileSize
                 if sidecarFailed {
                     sidecarFailures += 1
+                    sidecarFailedSources.insert(sourceURL.standardizedFileURL)
+                }
+                if didMove {
+                    movedSources.append(sourceURL)
                 }
 
                 let elapsed = Date().timeIntervalSince(startTime)
@@ -158,8 +165,24 @@ actor FileTransferService {
                     index += 1
                     runningTasks += 1
                     group.addTask {
-                        try await self.executeJob(job, plan: plan, sidecarService: localSidecarService)
+                        try await self.executeJob(job, plan: plan, iptc: iptc, sidecarService: localSidecarService)
                     }
+                }
+            }
+        }
+
+        // Remove orphan source .xmp sidecars only after all jobs have finished
+        // reading them (so RAW+JPEG siblings don't race), and never if any
+        // sidecar write failed.
+        if plan.operation == .move {
+            let failedSidecarPaths = Set(sidecarFailedSources.map {
+                XMPTaggingService.exportSidecarURL(for: $0).standardizedFileURL.path
+            })
+            let fm = FileManager.default
+            for sourceURL in movedSources {
+                let orphanPath = XMPTaggingService.exportSidecarURL(for: sourceURL).standardizedFileURL.path
+                if !failedSidecarPaths.contains(orphanPath) {
+                    removeOrphanSourceSidecar(for: sourceURL, fileManager: fm)
                 }
             }
         }
@@ -175,8 +198,9 @@ actor FileTransferService {
     nonisolated private func executeJob(
         _ job: TransferJob,
         plan: TransferPlan,
+        iptc: IPTCMetadata,
         sidecarService: XMPTaggingService
-    ) async throws -> (Int64, Bool, URL) {
+    ) async throws -> (Int64, Bool, URL, Bool) {
         let fm = FileManager.default
         let destinationURL = FileNaming.uniqueDestinationURL(
             for: job.sourceURL, in: plan.destinationDirectory, fileManager: fm
@@ -197,11 +221,12 @@ actor FileTransferService {
         }
 
         var sidecarFailed = false
-        if job.mediaSet.contains(job.sourceURL.standardizedFileURL) {
+        let isMedia = job.mediaSet.contains(job.sourceURL.standardizedFileURL)
+        if isMedia {
             let payload = SidecarPayload(
                 tagNames: job.tagNames,
                 capture: job.setMetadata,
-                iptc: XMPTaggingService.iptcFromPreferences()
+                iptc: iptc
             )
             let sourceSidecarURL = XMPTaggingService.exportSidecarURL(for: job.sourceURL)
             do {
@@ -213,13 +238,10 @@ actor FileTransferService {
             } catch {
                 sidecarFailed = true
             }
-
-            if plan.operation == .move && !isSameLocation {
-                removeOrphanSourceSidecar(for: job.sourceURL, fileManager: fm)
-            }
         }
 
-        return (fileSize, sidecarFailed, job.sourceURL)
+        let didMoveMedia = plan.operation == .move && !isSameLocation && isMedia
+        return (fileSize, sidecarFailed, job.sourceURL, didMoveMedia)
     }
 
     /// On move, delete any pre-existing source `.xmp` so the moved file leaves

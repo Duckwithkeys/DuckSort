@@ -196,7 +196,7 @@ struct OnboardingFlow: View {
             HStack(spacing: Theme.Space.s12) {
                 Button {
                     viewModel.addSourceDirectory()
-                    didPickSource = true
+                    didPickSource = !viewModel.sourceDirectories.isEmpty || !viewModel.looseFiles.isEmpty
                 } label: {
                     Label("Choose Folder…", systemImage: "folder.badge.plus")
                         .frame(maxWidth: .infinity)
@@ -207,7 +207,7 @@ struct OnboardingFlow: View {
 
                 Button {
                     viewModel.importItems()
-                    didPickSource = true
+                    didPickSource = !viewModel.sourceDirectories.isEmpty || !viewModel.looseFiles.isEmpty
                 } label: {
                     Label("Import Files…", systemImage: "square.and.arrow.down")
                         .frame(maxWidth: .infinity)

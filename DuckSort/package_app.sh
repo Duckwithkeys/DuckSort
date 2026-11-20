@@ -17,9 +17,8 @@ APP_DIR="DuckSort.app"
 rm -rf "$APP_DIR"
 cp -R build/Release/DuckSort.app ./
 
-# Ensure the AppIcon.icns and dynamic variants are placed inside Resources
+# Ensure the dynamic override variants (AppIcon itself is compiled from AppIcon.icon) are placed inside Resources
 mkdir -p "$APP_DIR/Contents/Resources/AppIcons"
-cp DuckSort/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 cp DuckSort/Resources/AppIcon-Light.icns "$APP_DIR/Contents/Resources/AppIcon-Light.icns"
 cp DuckSort/Resources/AppIcon-Dark.icns "$APP_DIR/Contents/Resources/AppIcon-Dark.icns"
 cp DuckSort/Resources/AppIcons/*.png "$APP_DIR/Contents/Resources/AppIcons/"

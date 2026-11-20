@@ -87,7 +87,8 @@ final class IOSurfaceMetalRenderer: @unchecked Sendable {
         b.initialize(repeating: 0, count: 256)
         a.initialize(repeating: 0, count: 256)
 
-        var histogram: [UnsafeMutablePointer<vImagePixelCount>?] = [r, g, b, a]
+        // vImageHistogramCalculation_ARGB8888 outputs bins in [A, R, G, B] order.
+        var histogram: [UnsafeMutablePointer<vImagePixelCount>?] = [a, r, g, b]
         let error = histogram.withUnsafeMutableBufferPointer { ptr in
             vImageHistogramCalculation_ARGB8888(&srcBuffer, ptr.baseAddress!, vImage_Flags(kvImageNoFlags))
         }

@@ -7,11 +7,6 @@ import Foundation
 import ImageIO
 
 struct MetadataReader: Sendable {
-    private static let ratingAttrRegex = try! NSRegularExpression(pattern: #"\b(?:xmp:)?Rating\s*=\s*["']([0-5])["']"#, options: [])
-    private static let ratingTagRegex = try! NSRegularExpression(pattern: #"<(?:xmp:)?Rating\b[^>]*>([0-5])</(?:xmp:)?Rating>"#, options: [])
-    private static let pickAttrRegex = try! NSRegularExpression(pattern: #"\bxmpDM:pick\s*=\s*["'](-?[0-1])["']"#, options: [])
-    private static let pickTagRegex = try! NSRegularExpression(pattern: #"<xmpDM:pick\b[^>]*>(-?[0-1])</xmpDM:pick>"#, options: [])
-
     private static let keysToPrecompile = [
         "tiff:Make", "Make", "tiff:Model", "Model",
         "exifEX:LensModel", "exif:LensModel", "aux:Lens", "LensModel", "Lens",
@@ -53,23 +48,6 @@ struct MetadataReader: Sendable {
         return dict
     }()
 
-    private static let subjectRegex = try! NSRegularExpression(
-        pattern: #"(?i)<dc:subject[^>]*>(.*?)</dc:subject>"#,
-        options: [.dotMatchesLineSeparators]
-    )
-    private static let lrHierarchicalRegex = try! NSRegularExpression(
-        pattern: #"(?i)<lr:hierarchicalSubject[^>]*>(.*?)</lr:hierarchicalSubject>"#,
-        options: [.dotMatchesLineSeparators]
-    )
-    private static let liItemRegex = try! NSRegularExpression(
-        pattern: #"<rdf:li[^>]*>(.*?)</rdf:li>"#,
-        options: [.dotMatchesLineSeparators]
-    )
-    private static let descriptionRegex = try! NSRegularExpression(
-        pattern: #"(?is)<dc:description\b[^>]*>(.*?)</dc:description>"#,
-        options: []
-    )
-
     func metadata(for url: URL) -> MetadataSnapshot {
         AppLogger.metadata.debug("Reading metadata: \(url.lastPathComponent)")
 
@@ -93,15 +71,18 @@ struct MetadataReader: Sendable {
             guard let source = CGImageSourceCreateWithURL(url as CFURL, options as CFDictionary),
                   let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as NSDictionary?
             else {
-                if let data = try? Data(contentsOf: url), let xmlString = String(data: data, encoding: .utf8) {
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+                let fileSize = (attrs?[.size] as? Int64) ?? Int64.max
+                if fileSize <= 1_048_576,
+                   let data = try? Data(contentsOf: url),
+                   let xmlString = String(data: data, encoding: .utf8) {
                     AppLogger.metadata.info("Falling back to XMP text parse for \(url.lastPathComponent)")
                     return parseXMPText(xmlString)
                 }
                 // File system fallback for missing source
                 AppLogger.metadata.info("Falling back to file attributes for \(url.lastPathComponent)")
                 var snapshot = MetadataSnapshot()
-                if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-                   let fileCreationDate = attrs[.creationDate] as? Date {
+                if let fileCreationDate = attrs?[.creationDate] as? Date {
                     snapshot.captureDate = fileCreationDate
                 }
                 return snapshot
@@ -111,6 +92,7 @@ struct MetadataReader: Sendable {
             let exif = properties[kCGImagePropertyExifDictionary] as? NSDictionary
             let gps = properties[kCGImagePropertyGPSDictionary] as? NSDictionary
             let iptc = properties[kCGImagePropertyIPTCDictionary] as? NSDictionary
+            let png = properties[kCGImagePropertyPNGDictionary] as? NSDictionary
 
             let cameraModel = tiff?[kCGImagePropertyTIFFModel] as? String
             let lensModel = exif?[kCGImagePropertyExifLensModel] as? String
@@ -150,9 +132,24 @@ struct MetadataReader: Sendable {
             let colorSpaceRaw = properties[kCGImagePropertyColorModel] as? String
             let profileName = properties[kCGImagePropertyProfileName] as? String
 
-            let gpsLatitude = gps?[kCGImagePropertyGPSLatitude] as? Double
-            let gpsLongitude = gps?[kCGImagePropertyGPSLongitude] as? Double
-            let gpsAltitude = gps?[kCGImagePropertyGPSAltitude] as? Double
+            var gpsLatitude = gps?[kCGImagePropertyGPSLatitude] as? Double
+            if let lat = gpsLatitude,
+               let latRef = (gps?[kCGImagePropertyGPSLatitudeRef] as? String)?.uppercased(),
+               latRef == "S" {
+                gpsLatitude = -abs(lat)
+            }
+            var gpsLongitude = gps?[kCGImagePropertyGPSLongitude] as? Double
+            if let lon = gpsLongitude,
+               let lonRef = (gps?[kCGImagePropertyGPSLongitudeRef] as? String)?.uppercased(),
+               lonRef == "W" {
+                gpsLongitude = -abs(lon)
+            }
+            var gpsAltitude = gps?[kCGImagePropertyGPSAltitude] as? Double
+            if let alt = gpsAltitude,
+               let altRef = gps?[kCGImagePropertyGPSAltitudeRef] as? Int,
+               altRef == 1 {
+                gpsAltitude = -abs(alt)
+            }
 
             var rating: Int? = nil
             var pick: Int? = nil
@@ -182,24 +179,74 @@ struct MetadataReader: Sendable {
                     }
                 }
 
-                if let iptcCaption = iptc[kCGImagePropertyIPTCCaptionAbstract] as? String {
+                if let iptcCaption = iptc[kCGImagePropertyIPTCCaptionAbstract] as? String
+                    ?? iptc[kCGImagePropertyIPTCHeadline] as? String
+                    ?? iptc[kCGImagePropertyIPTCObjectName] as? String {
                     let trimmed = iptcCaption.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { caption = trimmed }
                 }
             }
 
-            // Always check embedded XMP for tags, ratings, and capture date
-            if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil),
-               let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
-               let xmpString = String(data: xmpData, encoding: .utf8) {
-
-                let xmpSnapshot = parseXMPText(xmpString)
-                if rating == nil { rating = xmpSnapshot.rating }
-                if pick == nil   { pick   = xmpSnapshot.pick   }
-                if captureDate == nil { captureDate = xmpSnapshot.captureDate }
-                if caption == nil { caption = xmpSnapshot.caption }
-                keywords.formUnion(xmpSnapshot.keywords)
+            if caption == nil, let tiffDesc = tiff?[kCGImagePropertyTIFFImageDescription] as? String {
+                let trimmed = tiffDesc.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { caption = trimmed }
             }
+
+            if caption == nil, let exifComment = exif?[kCGImagePropertyExifUserComment] as? String {
+                let trimmed = exifComment.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { caption = trimmed }
+            }
+
+            if let png = png {
+                if let pngDesc = png["Description"] as? String ?? png["Comment"] as? String {
+                    let trimmed = pngDesc.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if caption == nil, !trimmed.isEmpty { caption = trimmed }
+                }
+                if let pngKw = png["Keywords"] as? [String] {
+                    for kw in pngKw {
+                        let trimmed = kw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty { keywords.insert(trimmed) }
+                    }
+                }
+            }
+
+            // Always check embedded XMP for tags, ratings, and capture date
+            if let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) {
+                if let xmpData = CGImageMetadataCreateXMPData(metadata, nil) as Data?,
+                   let xmpString = String(data: xmpData, encoding: .utf8) {
+                    let xmpSnapshot = parseXMPText(xmpString)
+                    if rating == nil { rating = xmpSnapshot.rating }
+                    if pick == nil   { pick   = xmpSnapshot.pick   }
+                    if captureDate == nil { captureDate = xmpSnapshot.captureDate }
+                    if caption == nil { caption = xmpSnapshot.caption }
+                    keywords.formUnion(xmpSnapshot.keywords)
+                } else {
+                    CGImageMetadataEnumerateTagsUsingBlock(metadata, nil, nil) { path, tag in
+                        let pathStr = path as String
+                        if pathStr.contains("subject") || pathStr.contains("Keywords") || pathStr.contains("keywords") {
+                            if let val = CGImageMetadataTagCopyValue(tag) as? String {
+                                let trimmed = val.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty { keywords.insert(trimmed) }
+                            } else if let valArray = CGImageMetadataTagCopyValue(tag) as? [String] {
+                                for v in valArray {
+                                    let trimmed = v.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !trimmed.isEmpty { keywords.insert(trimmed) }
+                                }
+                            }
+                        } else if pathStr.contains("description") || pathStr.contains("Caption") {
+                            if caption == nil, let val = CGImageMetadataTagCopyValue(tag) as? String {
+                                let trimmed = val.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty { caption = trimmed }
+                            }
+                        }
+                        return true
+                    }
+                }
+            }
+
+            // Also check Finder tags and Finder keywords stored in macOS extended attributes
+            let finderTags = Self.readFinderTags(from: url)
+            keywords.formUnion(finderTags)
 
             // Final File System Fallback
             if captureDate == nil {
@@ -257,9 +304,9 @@ struct MetadataReader: Sendable {
     private static func flashModeLabel(_ raw: Int?) -> String? {
         guard let raw else { return nil }
         switch raw & 0x18 {
-        case 0x00: return "Off"
         case 0x08: return "On"
-        case 0x10: return "Auto"
+        case 0x10: return "Off"
+        case 0x18: return "Auto"
         default:   return "Unknown"
         }
     }
@@ -426,20 +473,20 @@ struct MetadataReader: Sendable {
         // 2. Lens Model
         let lensModel = extractValue(forKeys: ["exifEX:LensModel", "exif:LensModel", "aux:Lens", "LensModel", "Lens"])
 
-        // 3. Focal Length in 35mm
-        var focalLengthIn35mm: Double? = nil
-        if let flStr = extractValue(forKeys: ["exif:FocalLengthIn35mmFilm", "exifEX:FocalLengthIn35mmFilm", "FocalLengthIn35mmFilm"]) {
-            focalLengthIn35mm = Double(flStr)
-        } else if let flStr = extractValue(forKeys: ["exif:FocalLength", "FocalLength"]) {
-            if flStr.contains("/") {
-                let parts = flStr.components(separatedBy: "/")
+        // 3. Focal Length & 35mm Equivalent
+        func parseRational(_ str: String) -> Double? {
+            if str.contains("/") {
+                let parts = str.components(separatedBy: "/")
                 if parts.count == 2, let num = Double(parts[0]), let den = Double(parts[1]), den > 0 {
-                    focalLengthIn35mm = num / den
+                    return num / den
                 }
-            } else {
-                focalLengthIn35mm = Double(flStr)
+                return nil
             }
+            return Double(str)
         }
+
+        let focalLength = extractValue(forKeys: ["exif:FocalLength", "FocalLength"]).flatMap(parseRational)
+        let focalLengthIn35mm = extractValue(forKeys: ["exif:FocalLengthIn35mmFilm", "exifEX:FocalLengthIn35mmFilm", "FocalLengthIn35mmFilm"]).flatMap(parseRational)
 
         // 4. ISO
         var iso: Int? = nil
@@ -447,22 +494,18 @@ struct MetadataReader: Sendable {
             iso = Int(isoStr)
         }
 
-        // 5. Aperture
+        // 5. Aperture (prefer FNumber; convert APEX ApertureValue via 2^(Av/2))
         var aperture: Double? = nil
-        if let apStr = extractValue(forKeys: ["exif:FNumber", "exif:ApertureValue", "FNumber"]) {
-            if apStr.contains("/") {
-                let parts = apStr.components(separatedBy: "/")
-                if parts.count == 2, let num = Double(parts[0]), let den = Double(parts[1]), den > 0 {
-                    aperture = num / den
-                }
-            } else {
-                aperture = Double(apStr)
-            }
+        if let fnStr = extractValue(forKeys: ["exif:FNumber", "FNumber"]) {
+            aperture = parseRational(fnStr)
+        } else if let avStr = extractValue(forKeys: ["exif:ApertureValue"]),
+                  let av = parseRational(avStr) {
+            aperture = pow(2.0, av / 2.0)
         }
 
         // 6. Flash Fired
         var flashFired: Bool? = nil
-        if let flashStr = extractValue(forKeys: ["exif:Fired", "stEvt:action", "Fired"]) {
+        if let flashStr = extractValue(forKeys: ["exif:Fired", "Fired"]) {
             flashFired = flashStr.lowercased() == "true" || flashStr == "1"
         } else if let flashRawStr = extractValue(forKeys: ["exif:Flash", "Flash"]) {
             if let rawInt = Int(flashRawStr) {
@@ -484,31 +527,11 @@ struct MetadataReader: Sendable {
             captureDate = Self.parseExifDate(dateStr)
         }
 
-        // 9. Star Rating
-        var rating: Int? = nil
-        if let match = Self.ratingAttrRegex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
-           let range = Range(match.range(at: 1), in: xml),
-           let val = Int(xml[range]) {
-            rating = val
-        } else if let match = Self.ratingTagRegex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
-                  let range = Range(match.range(at: 1), in: xml),
-                  let val = Int(xml[range]) {
-            rating = val
-        }
+        // 9. Star Rating & Pick/Reject Flags
+        let rating = XMPTaggingService.extractRating(from: xml)
+        let pick = XMPTaggingService.extractPick(from: xml)
 
-        // 10. Pick/Reject Flags
-        var pick: Int? = nil
-        if let match = Self.pickAttrRegex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
-           let range = Range(match.range(at: 1), in: xml),
-           let val = Int(xml[range]) {
-            pick = val
-        } else if let match = Self.pickTagRegex.firstMatch(in: xml, options: [], range: NSRange(xml.startIndex..., in: xml)),
-                  let range = Range(match.range(at: 1), in: xml),
-                  let val = Int(xml[range]) {
-            pick = val
-        }
-
-        // 11. Keywords & Caption
+        // 10. Keywords & Caption
         let keywords = Self.extractKeywords(from: xml)
         let caption = Self.extractDescription(from: xml)
 
@@ -521,7 +544,7 @@ struct MetadataReader: Sendable {
             iso: iso,
             rating: rating,
             pick: pick,
-            focalLength: nil,
+            focalLength: focalLength,
             focalLengthIn35mm: focalLengthIn35mm,
             whiteBalance: nil,
             flashFired: flashFired,
@@ -543,69 +566,54 @@ struct MetadataReader: Sendable {
     }
 
     static func extractKeywords(from xml: String) -> Set<String> {
-        var keywords = Set<String>()
-        let xmlRange = NSRange(xml.startIndex..., in: xml)
+        XMPTaggingService.extractKeywords(from: xml)
+    }
 
-        // 1. dc:subject
-        if let subjectMatch = subjectRegex.firstMatch(in: xml, options: [], range: xmlRange),
-           let subjectRange = Range(subjectMatch.range(at: 1), in: xml) {
-            let block = String(xml[subjectRange])
-            let blockRange = NSRange(block.startIndex..., in: block)
-            liItemRegex.enumerateMatches(in: block, options: [], range: blockRange) { match, _, _ in
-                guard let match, let r = Range(match.range(at: 1), in: block) else { return }
-                let cleaned = unescapeXMP(String(block[r]))
-                if !cleaned.isEmpty { keywords.insert(cleaned) }
+    /// Reads macOS Finder tags and Finder keywords stored in file extended attributes (`xattr`).
+    static func readFinderTags(from url: URL) -> Set<String> {
+        var result = Set<String>()
+        let path = url.path
+        let length = getxattr(path, "com.apple.metadata:kMDItemUserTags", nil, 0, 0, 0)
+        if length > 0 {
+            var data = Data(count: length)
+            let bytesRead = data.withUnsafeMutableBytes {
+                getxattr(path, "com.apple.metadata:kMDItemUserTags", $0.baseAddress, length, 0, 0)
             }
-        }
-
-        // 2. lr:hierarchicalSubject (Lightroom hierarchical tags e.g. "Places|Europe|Paris")
-        if let lrMatch = lrHierarchicalRegex.firstMatch(in: xml, options: [], range: xmlRange),
-           let lrRange = Range(lrMatch.range(at: 1), in: xml) {
-            let block = String(xml[lrRange])
-            let blockRange = NSRange(block.startIndex..., in: block)
-            liItemRegex.enumerateMatches(in: block, options: [], range: blockRange) { match, _, _ in
-                guard let match, let r = Range(match.range(at: 1), in: block) else { return }
-                let cleaned = unescapeXMP(String(block[r]))
-                if !cleaned.isEmpty {
-                    keywords.insert(cleaned)
-                    // If hierarchical with '|', also include leaf name (e.g. "Paris")
-                    if let leaf = cleaned.split(separator: "|").last {
-                        let trimmedLeaf = leaf.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !trimmedLeaf.isEmpty {
-                            keywords.insert(trimmedLeaf)
-                        }
+            if bytesRead > 0,
+               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String] {
+                for tag in plist {
+                    let name = tag.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if !name.isEmpty {
+                        result.insert(name)
                     }
                 }
             }
         }
-
-        return keywords
+        let kwLength = getxattr(path, "com.apple.metadata:kMDItemKeywords", nil, 0, 0, 0)
+        if kwLength > 0 {
+            var data = Data(count: kwLength)
+            let bytesRead = data.withUnsafeMutableBytes {
+                getxattr(path, "com.apple.metadata:kMDItemKeywords", $0.baseAddress, kwLength, 0, 0)
+            }
+            if bytesRead > 0,
+               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String] {
+                for kw in plist {
+                    let trimmed = kw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        result.insert(trimmed)
+                    }
+                }
+            }
+        }
+        return result
     }
 
     static func extractDescription(from xml: String) -> String? {
-        let xmlRange = NSRange(xml.startIndex..., in: xml)
-        if let match = descriptionRegex.firstMatch(in: xml, options: [], range: xmlRange),
-           let range = Range(match.range(at: 1), in: xml) {
-            var raw = String(xml[range])
-            let rawRange = NSRange(raw.startIndex..., in: raw)
-            if let liMatch = liItemRegex.firstMatch(in: raw, options: [], range: rawRange),
-               let liRange = Range(liMatch.range(at: 1), in: raw) {
-                raw = String(raw[liRange])
-            }
-            let cleaned = unescapeXMP(raw)
-            return cleaned.isEmpty ? nil : cleaned
-        }
-        return nil
+        XMPTaggingService.extractDescription(from: xml)
     }
 
     static func unescapeXMP(_ value: String) -> String {
-        var s = value
-        s = s.replacingOccurrences(of: "&lt;",   with: "<")
-        s = s.replacingOccurrences(of: "&gt;",   with: ">")
-        s = s.replacingOccurrences(of: "&quot;", with: "\"")
-        s = s.replacingOccurrences(of: "&apos;", with: "'")
-        s = s.replacingOccurrences(of: "&amp;",  with: "&")
-        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+        XMPTaggingService.unescape(value)
     }
 }
 

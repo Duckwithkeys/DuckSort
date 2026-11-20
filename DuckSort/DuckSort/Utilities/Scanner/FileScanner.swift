@@ -131,6 +131,8 @@ struct FileScanner: Sendable {
 
             var mediaURLsByBaseName: [String: [URL]] = [:]
             var sidecars: [String: URL] = [:]
+            var fileSizesByGroup: [String: Int64] = [:]
+            var modDatesByGroup: [String: Date] = [:]
             var ignoredFileCount = 0
 
             while let itemURL = enumerator.nextObject() as? URL {
@@ -145,8 +147,17 @@ struct FileScanner: Sendable {
                     continue
                 }
 
+                // Read prefetched resourceValues from itemURL BEFORE standardizing
+                // (standardizing discards DirectoryEnumerator's stat cache), and catch
+                // per-file errors so one unreadable file/broken symlink doesn't abort the scan.
+                let values: URLResourceValues
+                do {
+                    values = try itemURL.resourceValues(forKeys: keys)
+                } catch {
+                    ignoredFileCount += 1
+                    continue
+                }
                 let standardizedURL = itemURL.standardizedFileURL
-                let values = try standardizedURL.resourceValues(forKeys: keys)
                 let baseName = standardizedURL.deletingPathExtension().lastPathComponent
                 let groupingKey = Self.groupingKey(for: standardizedURL)
 
@@ -154,10 +165,19 @@ struct FileScanner: Sendable {
                    values.isRegularFile == true,
                    !baseName.isEmpty {
                     mediaURLsByBaseName[groupingKey, default: []].append(standardizedURL)
+                    if let size = values.fileSize {
+                        fileSizesByGroup[groupingKey, default: 0] += Int64(size)
+                    }
+                    if let modDate = values.contentModificationDate, modDatesByGroup[groupingKey] == nil {
+                        modDatesByGroup[groupingKey] = modDate
+                    }
                 } else if extensionKind == .photoEdit,
                           (values.isRegularFile == true || values.isDirectory == true || values.isPackage == true),
                           !baseName.isEmpty {
                     sidecars[groupingKey] = standardizedURL
+                    if let size = values.fileSize {
+                        fileSizesByGroup[groupingKey, default: 0] += Int64(size)
+                    }
 
                     if values.isDirectory == true || values.isPackage == true {
                         enumerator.skipDescendants()
@@ -167,7 +187,12 @@ struct FileScanner: Sendable {
                 }
             }
 
-            let photoSets = Self.assemble(media: mediaURLsByBaseName, sidecars: sidecars)
+            let photoSets = Self.assemble(
+                media: mediaURLsByBaseName,
+                sidecars: sidecars,
+                fileSizes: fileSizesByGroup,
+                modDates: modDatesByGroup
+            )
             let total = photoSets.reduce(0) { $0 + $1.allFiles.count }
             AppLogger.scanner.info("Scan completed for \(url.lastPathComponent): found \(photoSets.count) photo sets, \(total) files. Ignored \(ignoredFileCount) items.")
 
@@ -186,10 +211,15 @@ struct FileScanner: Sendable {
     func scanFiles(_ urls: [URL]) async -> ScanResult {
         AppLogger.scanner.info("Starting scan of \(urls.count) individual files")
         return await Task(priority: .userInitiated) {
-            let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .isRegularFileKey]
+            let keys: Set<URLResourceKey> = [
+                .isDirectoryKey, .isPackageKey, .isRegularFileKey,
+                .fileSizeKey, .contentModificationDateKey
+            ]
 
             var mediaURLsByBaseName: [String: [URL]] = [:]
             var sidecars: [String: URL] = [:]
+            var fileSizesByGroup: [String: Int64] = [:]
+            var modDatesByGroup: [String: Date] = [:]
             var ignoredFileCount = 0
             var failedFiles: [URL] = []
 
@@ -212,10 +242,19 @@ struct FileScanner: Sendable {
                        values.isRegularFile == true,
                        !baseName.isEmpty {
                         mediaURLsByBaseName[groupingKey, default: []].append(standardizedURL)
+                        if let size = values.fileSize {
+                            fileSizesByGroup[groupingKey, default: 0] += Int64(size)
+                        }
+                        if let modDate = values.contentModificationDate, modDatesByGroup[groupingKey] == nil {
+                            modDatesByGroup[groupingKey] = modDate
+                        }
                     } else if extensionKind == .photoEdit,
                               (values.isRegularFile == true || values.isDirectory == true || values.isPackage == true),
                               !baseName.isEmpty {
                         sidecars[groupingKey] = standardizedURL
+                        if let size = values.fileSize {
+                            fileSizesByGroup[groupingKey, default: 0] += Int64(size)
+                        }
                     } else {
                         ignoredFileCount += 1
                     }
@@ -225,7 +264,12 @@ struct FileScanner: Sendable {
                 }
             }
 
-            let photoSets = Self.assemble(media: mediaURLsByBaseName, sidecars: sidecars)
+            let photoSets = Self.assemble(
+                media: mediaURLsByBaseName,
+                sidecars: sidecars,
+                fileSizes: fileSizesByGroup,
+                modDates: modDatesByGroup
+            )
             let total = photoSets.reduce(0) { $0 + $1.allFiles.count }
             AppLogger.scanner.info("Import scan completed: grouped \(urls.count) items into \(photoSets.count) photo sets.")
 
@@ -240,7 +284,12 @@ struct FileScanner: Sendable {
     }
 
     /// Build sorted PhotoSets by merging sidecars into matching base names.
-    private static func assemble(media: [String: [URL]], sidecars: [String: URL]) -> [PhotoSet] {
+    private static func assemble(
+        media: [String: [URL]],
+        sidecars: [String: URL],
+        fileSizes: [String: Int64] = [:],
+        modDates: [String: Date] = [:]
+    ) -> [PhotoSet] {
         var photoSets: [PhotoSet] = []
         var processed: Set<String> = []
 
@@ -249,7 +298,9 @@ struct FileScanner: Sendable {
             photoSets.append(PhotoSet(
                 baseName: displayBaseName(for: groupingKey),
                 mediaFiles: mediaURLs,
-                editPath: sidecars[groupingKey]
+                editPath: sidecars[groupingKey],
+                totalFileSize: fileSizes[groupingKey],
+                modificationDate: modDates[groupingKey]
             ))
         }
 
@@ -258,7 +309,9 @@ struct FileScanner: Sendable {
             photoSets.append(PhotoSet(
                 baseName: displayBaseName(for: groupingKey),
                 mediaFiles: [],
-                editPath: path
+                editPath: path,
+                totalFileSize: fileSizes[groupingKey],
+                modificationDate: modDates[groupingKey]
             ))
         }
 

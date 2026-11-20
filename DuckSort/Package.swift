@@ -14,6 +14,7 @@ let package = Package(
         .executableTarget(
             name: "DuckSort",
             path: "DuckSort",
+            exclude: ["Info.plist"],
             resources: [
                 .process("Resources")
             ]

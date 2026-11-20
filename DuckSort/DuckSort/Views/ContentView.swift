@@ -102,6 +102,7 @@ struct ContentView: View {
                 .help("Show or hide the sidebar")
             }
 
+            ToolbarSpacer(.flexible, placement: .primaryAction)
 
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -203,7 +204,7 @@ struct ContentView: View {
                 .help("Choose destination folder (⇧⌘D)")
             }
 
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     viewModel.performRoutedOperation(.copyOriginals)
                 } label: {
@@ -211,9 +212,6 @@ struct ContentView: View {
                 }
                 .disabled(!viewModel.canTransfer)
                 .help("Copy originals to destination using selected rule")
-            }
-
-            ToolbarItem(placement: .primaryAction) {
                 Button {
                     viewModel.performRoutedOperation(.moveOriginals)
                 } label: {
@@ -237,9 +235,6 @@ struct ContentView: View {
                 HStack(spacing: Theme.Space.s6) {
                     Image(systemName: "photo.stack")
                         .foregroundStyle(Theme.Color.textSecondary)
-                        .onTapGesture {
-                            viewModel.errorMessage = "Failed to scan folder /Volumes/Card/DCIM (error code -34)."
-                        }
 
                     let total = viewModel.filteredPhotoSets.count
                     let selected = viewModel.selectedCount
@@ -302,10 +297,16 @@ struct ContentView: View {
 
 
     private func handleGlobalKeyPress(_ event: NSEvent) -> Bool {
-        if let keyWindow = NSApp.keyWindow, keyWindow.isFloatingPanel {
+        guard let keyWindow = NSApp.keyWindow else { return false }
+        // Ignore key events when a floating panel, secondary window (Settings / Console),
+        // or modal sheet (Pre-Flight / Insights / Onboarding) is active.
+        if keyWindow.isFloatingPanel
+            || keyWindow.sheetParent != nil
+            || keyWindow.attachedSheet != nil
+            || keyWindow != NSApp.mainWindow {
             return false
         }
-        if isFirstResponderTextField(in: NSApp.keyWindow) {
+        if isFirstResponderTextField(in: keyWindow) {
             return false
         }
 
@@ -400,7 +401,7 @@ struct ContentView: View {
             return true
 
         case 33, 30: // [ / ]
-            let direction = event.keyCode == 33 ? 1 : -1
+            let direction = event.keyCode == 33 ? -1 : 1
             viewModel.cycleCurrentCategory(direction: direction)
             return true
 
@@ -427,7 +428,7 @@ struct ContentView: View {
             return true
         }
 
-        if let rating = Int(String(char)), (0...5).contains(rating) {
+        if isPlainKey, let rating = Int(String(char)), (0...5).contains(rating) {
             let ids = viewModel.batchTargetPhotoSets.map(\.id)
             if !ids.isEmpty {
                 if rating == 0 {
@@ -445,30 +446,32 @@ struct ContentView: View {
             return true
         }
 
-        switch char.lowercased() {
-        case "z":
-            // Pick-flag is a culling workflow; stays single-photo.
-            if let photo = viewModel.currentFocusedPhotoSet {
-                viewModel.setPick(1, for: photo.id)
-                if viewModel.speedCullingEnabled {
+        if isPlainKey {
+            switch char.lowercased() {
+            case "z":
+                // Pick-flag is a culling workflow; stays single-photo.
+                if let photo = viewModel.currentFocusedPhotoSet {
+                    viewModel.setPick(1, for: photo.id)
+                    if viewModel.speedCullingEnabled {
+                        viewModel.triggerHapticFeedback()
+                        viewModel.advanceToNext()
+                    }
+                }
+                return true
+            case "x":
+                if let photo = viewModel.currentFocusedPhotoSet { viewModel.rejectAndAdvance(for: photo.id) }
+                return true
+            case "u":
+                let hasTargets = !viewModel.batchTargetPhotoSets.isEmpty
+                viewModel.clearPickFlagOnSelection()
+                if hasTargets && viewModel.speedCullingEnabled {
                     viewModel.triggerHapticFeedback()
                     viewModel.advanceToNext()
                 }
+                return true
+            default:
+                break
             }
-            return true
-        case "x":
-            if let photo = viewModel.currentFocusedPhotoSet { viewModel.rejectAndAdvance(for: photo.id) }
-            return true
-        case "u":
-            let hasTargets = !viewModel.batchTargetPhotoSets.isEmpty
-            viewModel.clearPickFlagOnSelection()
-            if hasTargets && viewModel.speedCullingEnabled {
-                viewModel.triggerHapticFeedback()
-                viewModel.advanceToNext()
-            }
-            return true
-        default:
-            break
         }
 
         for tag in viewModel.tagStore.tags {
@@ -551,7 +554,7 @@ struct ContentView: View {
             return true
         }
 
-        if let rating = Int(String(char)), (0...5).contains(rating) {
+        if isPlainKey, let rating = Int(String(char)), (0...5).contains(rating) {
             let targets = viewModel.batchTargetPhotoSets
             guard !targets.isEmpty else { return true }
             let ids = targets.map(\.id)
@@ -565,25 +568,27 @@ struct ContentView: View {
             return true
         }
 
-        switch char.lowercased() {
-        case "z":
-            // Pick-flag is culling workflow: always on focused photo only,
-            // even if a multi-selection exists. Rejecting N photos at once
-            // would surprise users mid-cull.
-            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
-                viewModel.setPick(1, for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
+        if isPlainKey {
+            switch char.lowercased() {
+            case "z":
+                // Pick-flag is culling workflow: always on focused photo only,
+                // even if a multi-selection exists. Rejecting N photos at once
+                // would surprise users mid-cull.
+                if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
+                    viewModel.setPick(1, for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
+                }
+                return true
+            case "x":
+                if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
+                    viewModel.rejectAndAdvance(for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
+                }
+                return true
+            case "u":
+                viewModel.clearPickFlagOnSelection()
+                return true
+            default:
+                break
             }
-            return true
-        case "x":
-            if viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < count {
-                viewModel.rejectAndAdvance(for: viewModel.filteredPhotoSets[viewModel.focusedPhotoIndex].id)
-            }
-            return true
-        case "u":
-            viewModel.clearPickFlagOnSelection()
-            return true
-        default:
-            break
         }
 
         for tag in viewModel.tagStore.tags {
@@ -740,19 +745,26 @@ struct MainLayout: View {
         }
     }
 
+    /// Wrapped in a ScrollView (like the photo grid) so the window toolbar lays out
+    /// identically whether or not a library is loaded.
+    private func emptyState(isScanning: Bool) -> some View {
+        GeometryReader { proxy in
+            ScrollView {
+                EmptyLibraryView(isScanning: isScanning) {
+                    viewModel.importItems()
+                }
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+        }
+    }
+
     @ViewBuilder
     private var mainCenter: some View {
         switch (viewModel.photoSets.isEmpty, viewModel.isScanning) {
         case (true, false):
-            EmptyLibraryView(isScanning: false) {
-                viewModel.importItems()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            emptyState(isScanning: false)
         case (true, true):
-            EmptyLibraryView(isScanning: true) {
-                viewModel.importItems()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            emptyState(isScanning: true)
         case (false, _):
             PhotoGridView(viewModel: viewModel)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

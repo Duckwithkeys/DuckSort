@@ -23,6 +23,7 @@
 //
 
 import AppKit
+import ImageIO
 import CryptoKit
 import Foundation
 import ImageIO
@@ -77,9 +78,10 @@ actor DiskThumbnailCache {
         let fileURL = cacheFileURL(for: url, size: size)
         guard let jpeg = jpegData(from: image) else { return }
         let byteCount = jpeg.count
+        let existingSize = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int) ?? 0
         do {
             try jpeg.write(to: fileURL, options: .atomic)
-            currentDiskBytes += byteCount
+            currentDiskBytes = max(0, currentDiskBytes - existingSize) + byteCount
             AppLogger.thumbnails.trace("Disk cache write: \(fileURL.lastPathComponent) (\(byteCount / 1024) KB)")
             if currentDiskBytes > maxDiskBytes {
                 evictLRU()
@@ -124,8 +126,23 @@ actor DiskThumbnailCache {
         return cacheDirectory.appendingPathComponent("\(hash).jpg")
     }
 
-    /// Encode an NSImage to JPEG at quality 0.85.
+    /// Encode an NSImage to JPEG at quality 0.85 directly via ImageIO (avoiding TIFF round-trip).
     nonisolated private func jpegData(from image: NSImage) -> Data? {
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let data = NSMutableData()
+            if let destination = CGImageDestinationCreateWithData(
+                data as CFMutableData,
+                "public.jpeg" as CFString,
+                1,
+                nil
+            ) {
+                let options: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.85]
+                CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+                if CGImageDestinationFinalize(destination) {
+                    return data as Data
+                }
+            }
+        }
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
         return bitmap.representation(

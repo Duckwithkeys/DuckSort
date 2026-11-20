@@ -50,24 +50,28 @@ enum CollisionResolver {
             return .normal(originalDest)
         }
         
-        // 1. SHA-256 Checksum Skip
-        if let sourceHash = fileHash(url: source),
+        // Stat both files first so we can skip expensive full-file SHA-256
+        // hashing whenever the byte sizes don't match.
+        let sourceAttrs = try? fileManager.attributesOfItem(atPath: source.path)
+        let destAttrs = try? fileManager.attributesOfItem(atPath: originalDest.path)
+        let sourceSize = sourceAttrs?[.size] as? Int64
+        let destSize = destAttrs?[.size] as? Int64
+        let sameSize = sourceSize != nil && sourceSize == destSize
+
+        // 1. SHA-256 Checksum Skip (only possible when byte sizes match)
+        if sameSize,
+           let sourceHash = fileHash(url: source),
            let destHash = fileHash(url: originalDest),
            sourceHash == destHash {
             return .skip
         }
-        
+
         // 2. Overwrite if identical file size & creation date
-        if let sourceAttrs = try? fileManager.attributesOfItem(atPath: source.path),
-           let destAttrs = try? fileManager.attributesOfItem(atPath: originalDest.path) {
-            let sourceSize = sourceAttrs[.size] as? Int64
-            let destSize = destAttrs[.size] as? Int64
-            let sourceDate = sourceAttrs[.creationDate] as? Date
-            let destDate = destAttrs[.creationDate] as? Date
-            
-            if sourceSize != nil && sourceSize == destSize && sourceDate != nil && sourceDate == destDate {
-                return .overwrite
-            }
+        if sameSize,
+           let sourceDate = sourceAttrs?[.creationDate] as? Date,
+           let destDate = destAttrs?[.creationDate] as? Date,
+           sourceDate == destDate {
+            return .overwrite
         }
         
         // 3. Sequential Suffix Rename

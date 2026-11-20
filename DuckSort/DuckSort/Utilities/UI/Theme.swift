@@ -23,57 +23,27 @@ enum Theme {
     enum Color {
 
         static var background: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark
-                    ? NSColor(red: 0.176, green: 0.176, blue: 0.176, alpha: 1.0)
-                    : NSColor(red: 0.96,  green: 0.96,  blue: 0.96,  alpha: 1.0)
-            })
+            SwiftUI.Color(nsColor: .windowBackgroundColor)
         }
 
         static var sidebarBackground: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark
-                    ? NSColor(red: 0.110, green: 0.110, blue: 0.110, alpha: 1.0)
-                    : NSColor(red: 0.92,  green: 0.92,  blue: 0.92,  alpha: 1.0)
-            })
+            SwiftUI.Color(nsColor: .underPageBackgroundColor)
         }
 
         static var toolbarBackground: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark
-                    ? NSColor(red: 0.200, green: 0.200, blue: 0.200, alpha: 1.0)
-                    : NSColor(red: 0.94,  green: 0.94,  blue: 0.94,  alpha: 1.0)
-            })
+            SwiftUI.Color(nsColor: .windowBackgroundColor)
         }
 
         static var cellBackground: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark
-                    ? NSColor(red: 0.160, green: 0.160, blue: 0.160, alpha: 1.0)
-                    : NSColor(white: 1.0, alpha: 1.0)
-            })
+            SwiftUI.Color(nsColor: .controlBackgroundColor)
         }
 
         static var footerBackground: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark
-                    ? NSColor(red: 0.125, green: 0.125, blue: 0.125, alpha: 1.0)
-                    : NSColor(red: 0.88,  green: 0.88,  blue: 0.88,  alpha: 1.0)
-            })
+            SwiftUI.Color(nsColor: .windowBackgroundColor)
         }
 
         static var separator: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark
-                    ? NSColor(red: 0.227, green: 0.227, blue: 0.227, alpha: 1.0)
-                    : NSColor(red: 0.82,  green: 0.82,  blue: 0.82,  alpha: 1.0)
-            })
+            SwiftUI.Color(nsColor: .separatorColor)
         }
 
         // Settings-window surfaces (adaptive for light + dark mode).
@@ -220,9 +190,9 @@ enum Theme {
     // MARK: - Typography
 
     enum Font {
-        static let display       = SwiftUI.Font.system(size: 34, weight: .bold, design: .rounded)
-        static let title         = SwiftUI.Font.system(size: 22, weight: .semibold, design: .rounded)
-        static let headline      = SwiftUI.Font.system(size: 17, weight: .semibold, design: .rounded)
+        static let display       = SwiftUI.Font.system(size: 28, weight: .bold)
+        static let title         = SwiftUI.Font.system(size: 20, weight: .semibold)
+        static let headline      = SwiftUI.Font.system(size: 15, weight: .semibold)
         static let body          = SwiftUI.Font.system(size: 13, weight: .regular)
         static let bodyBold      = SwiftUI.Font.system(size: 13, weight: .semibold)
         static let callout       = SwiftUI.Font.system(size: 13, weight: .medium)
@@ -230,13 +200,13 @@ enum Theme {
         static let footnote      = SwiftUI.Font.system(size: 11, weight: .regular)
         static let caption       = SwiftUI.Font.system(size: 11, weight: .medium)
         static let caption2      = SwiftUI.Font.system(size: 10, weight: .medium)
-        static let badge         = SwiftUI.Font.system(size: 10, weight: .bold, design: .rounded)
-        static let badgeTiny     = SwiftUI.Font.system(size: 9,  weight: .bold, design: .rounded)
+        static let badge         = SwiftUI.Font.system(size: 10, weight: .semibold)
+        static let badgeTiny     = SwiftUI.Font.system(size: 9,  weight: .semibold)
         static let iconBadge     = SwiftUI.Font.system(size: 12, weight: .bold)
         static let monoCaption   = SwiftUI.Font.system(size: 10, weight: .semibold, design: .monospaced)
         static let monoBody      = SwiftUI.Font.system(size: 11, weight: .regular, design: .monospaced)
-        static let iconHero      = SwiftUI.Font.system(size: 36, weight: .regular)
-        static let iconLarge     = SwiftUI.Font.system(size: 28, weight: .light)
+        static let iconHero      = SwiftUI.Font.system(size: 32, weight: .regular)
+        static let iconLarge     = SwiftUI.Font.system(size: 26, weight: .light)
     }
 
     // MARK: - Motion / Animation Tokens (emilkowalski/skills)

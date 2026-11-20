@@ -48,76 +48,63 @@ private struct TagPacksSidebar: View {
 
     @State private var showContactConfirm = false
     @State private var pendingContactCount = 0
+    @State private var pendingContactNames: [String] = []
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("TAG PACKS")
-                    .font(Theme.Font.caption2)
-                    .tracking(0.5)
-                    .foregroundStyle(Theme.Color.textTertiary)
-                Spacer()
-            }
-            .padding(.horizontal, Theme.Space.s12)
-            .padding(.top, Theme.Space.s12)
-            .padding(.bottom, Theme.Space.s6)
-
-            ScrollView {
-                GlassEffectContainer(spacing: Theme.Space.s2) {
-                    LazyVStack(alignment: .leading, spacing: Theme.Space.s2) {
-                        ForEach(viewModel.packLibrary.packs) { state in
-                            TagPackSidebarRow(
-                                state: state,
-                                isActive: state.id == UserPreferences.shared.activeTagPackID,
-                                onActivate: {
-                                    pendingSwitchID = state.id
-                                    showingSwitchConfirm = true
-                                },
-                                onRename: {
-                                    renameText = state.name
-                                    renameTarget = state
-                                },
-                                onReset: {
-                                    pendingResetID = state.id
-                                    showingResetConfirm = true
-                                },
-                                onDuplicate: {
-                                    if let copy = viewModel.duplicatePack(id: state.id,
-                                                                             newName: "\(state.name) Copy") {
-                                        viewModel.switchTagPack(id: copy.id)
-                                    }
-                                },
-                                onDelete: {
-                                    pendingDeleteID = state.id
-                                    showingDeleteConfirm = true
-                                },
-                                onExport: {
-                                    viewModel.exportPack(id: state.id)
-                                },
-                                onRestyle: {
-                                    styleTarget = state
-                                },
-                                onSetHotkey: {
-                                    hotkeyTarget = state
-                                },
-                                onClearHotkey: {
-                                    viewModel.packLibrary.clearHotkey(forPackID: state.id)
+            List {
+                Section("Tag Packs") {
+                    ForEach(viewModel.packLibrary.packs) { state in
+                        TagPackSidebarRow(
+                            state: state,
+                            isActive: state.id == UserPreferences.shared.activeTagPackID,
+                            onActivate: {
+                                guard state.id != UserPreferences.shared.activeTagPackID else { return }
+                                pendingSwitchID = state.id
+                                showingSwitchConfirm = true
+                            },
+                            onRename: {
+                                renameText = state.name
+                                renameTarget = state
+                            },
+                            onReset: {
+                                pendingResetID = state.id
+                                showingResetConfirm = true
+                            },
+                            onDuplicate: {
+                                if let copy = viewModel.duplicatePack(id: state.id,
+                                                                      newName: "\(state.name) Copy") {
+                                    viewModel.switchTagPack(id: copy.id)
                                 }
-                            )
-                        }
+                            },
+                            onDelete: {
+                                pendingDeleteID = state.id
+                                showingDeleteConfirm = true
+                            },
+                            onExport: {
+                                viewModel.exportPack(id: state.id)
+                            },
+                            onRestyle: {
+                                styleTarget = state
+                            },
+                            onSetHotkey: {
+                                hotkeyTarget = state
+                            },
+                            onClearHotkey: {
+                                viewModel.packLibrary.clearHotkey(forPackID: state.id)
+                            }
+                        )
                     }
-                    .padding(.horizontal, Theme.Space.s8)
-                    .padding(.bottom, Theme.Space.s8)
                 }
             }
+            .listStyle(.sidebar)
 
-            Rectangle()
-                .fill(Theme.Color.surfaceDivider)
-                .frame(height: Theme.Stroke.hairline)
+            Divider()
 
             sidebarActions
-                .padding(.horizontal, Theme.Space.s8)
-                .padding(.vertical, Theme.Space.s8)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(nsColor: .underPageBackgroundColor))
         }
         .sheet(isPresented: $showingNewPack) {
             NewPackSheet(viewModel: viewModel, isPresented: $showingNewPack)
@@ -222,30 +209,34 @@ private struct TagPacksSidebar: View {
     }
 
     private var sidebarActions: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s4) {
-            sidebarActionButton(title: "New Pack", systemImage: "plus", action: { showingNewPack = true })
-            sidebarActionButton(title: "Import Pack", systemImage: "square.and.arrow.down", action: { viewModel.importPack() })
-            sidebarActionButton(title: "Import Contacts", systemImage: "person.crop.circle.badge.plus", action: { showContactPicker() })
-        }
-    }
-
-    private func sidebarActionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: Theme.Space.s8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Color.textSecondary)
-                    .frame(width: 18)
-                Text(title)
-                    .font(Theme.Font.body)
-                    .foregroundStyle(Theme.Color.textPrimary)
-                Spacer()
+        HStack(spacing: 4) {
+            Button {
+                showingNewPack = true
+            } label: {
+                Image(systemName: "plus")
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
             }
-            .padding(.horizontal, Theme.Space.s10)
-            .padding(.vertical, Theme.Space.s6)
-            .flatSidebarButton()
+            .buttonStyle(.borderless)
+            .help("New Tag Pack…")
+
+            Menu {
+                Button("New Pack…") { showingNewPack = true }
+                Divider()
+                Button("Import Pack…") { viewModel.importPack() }
+                Button("Import Contacts as Tags…") { showContactPicker() }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .frame(width: 24, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More Tag Pack Actions")
+
+            Spacer()
         }
-        .buttonStyle(.plain)
     }
 
     private func showContactPicker() {
@@ -260,47 +251,38 @@ private struct TagPacksSidebar: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let content = try String(contentsOf: url, encoding: .utf8)
-            pendingContactCount = parseVCardNames(content).count
-            guard pendingContactCount > 0 else { return }
+            let names = parseVCardNames(content)
+            guard !names.isEmpty else { return }
+            pendingContactNames = names
+            pendingContactCount = names.count
             showContactConfirm = true
         } catch {
-            print("Failed to read vCard: \(error)")
+            AppLogger.ui.error("Failed to read vCard: \(error.localizedDescription)")
         }
     }
 
     private func performContactImport() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.vCard]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.title = "Import Contacts as Tags"
-        panel.prompt = "Import"
+        let names = pendingContactNames
+        pendingContactNames = []
+        guard !names.isEmpty else { return }
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            let content = try String(contentsOf: url, encoding: .utf8)
-            let names = parseVCardNames(content)
-            guard !names.isEmpty else { return }
+        let categoryName = "People"
+        let category: TagCategory
+        if let existing = viewModel.tagStore.categories.first(where: {
+            $0.name.lowercased() == categoryName.lowercased()
+        }) {
+            category = existing
+        } else {
+            category = viewModel.tagStore.addCategory(name: categoryName)
+        }
 
-            let categoryName = "People"
-            let category: TagCategory
-            if let existing = viewModel.tagStore.categories.first(where: {
-                $0.name.lowercased() == categoryName.lowercased()
-            }) {
-                category = existing
-            } else {
-                category = viewModel.tagStore.addCategory(name: categoryName)
+        var existingLower = Set(viewModel.tagStore.tags(in: category.id).map { $0.name.lowercased() })
+        for name in names {
+            let lower = name.lowercased()
+            if !existingLower.contains(lower) {
+                _ = viewModel.tagStore.addTag(name: name, categoryID: category.id)
+                existingLower.insert(lower)
             }
-
-            for name in names {
-                let existingTags = viewModel.tagStore.tags(in: category.id)
-                if !existingTags.contains(where: { $0.name.lowercased() == name.lowercased() }) {
-                    _ = viewModel.tagStore.addTag(name: name, categoryID: category.id)
-                }
-            }
-        } catch {
-            print("Failed to import contacts: \(error)")
         }
     }
 
@@ -362,38 +344,37 @@ private struct TagPackSidebarRow: View {
 
     var body: some View {
         Button(action: onActivate) {
-            HStack(spacing: Theme.Space.s10) {
+            HStack(spacing: 8) {
                 Image(systemName: state.systemImage)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Color(hex: state.accentColor) ?? Theme.Color.accent)
                     .frame(width: 18)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: Theme.Space.s6) {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
                         Text(state.name)
-                            .font(isActive ? Theme.Font.bodyBold : Theme.Font.body)
-                            .foregroundStyle(isActive ? Theme.Color.textInverse : Theme.Color.textPrimary)
+                            .font(isActive ? .body.weight(.semibold) : .body)
+                            .foregroundStyle(.primary)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if !state.isBuiltIn {
-                            Text("CUSTOM")
-                                .font(.system(size: 9, weight: .heavy, design: .rounded))
-                                .tracking(0.5)
-                                .foregroundStyle(Theme.Color.textInverse)
+                            Text("Custom")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.secondary)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
-                                .background(Capsule().fill(Theme.Color.accent))
+                                .background(Capsule().fill(Color.primary.opacity(0.08)))
                                 .fixedSize()
                         }
                     }
-                    Text("\(state.tags.count) tags · \(state.categories.count) cats")
-                        .font(Theme.Font.caption2)
-                        .foregroundStyle(Theme.Color.textSecondary)
+                    Text("\(state.tags.count) tags · \(state.categories.count) categories")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                if isHovered {
+                if isHovered || isActive {
                     Menu {
                         Button("Activate", action: onActivate)
                         Button("Export…", action: onExport)
@@ -419,9 +400,9 @@ private struct TagPackSidebarRow: View {
                             Button("Duplicate to Edit Logo", action: onDuplicate)
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Theme.Color.textSecondary)
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                             .frame(width: 18, height: 18)
                             .contentShape(Rectangle())
                     }
@@ -430,17 +411,16 @@ private struct TagPackSidebarRow: View {
                     .fixedSize()
                 }
             }
-            .padding(.horizontal, Theme.Space.s10)
-            .padding(.vertical, Theme.Space.s8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .flatSidebarButton(
-                isHovered: isHovered,
-                isSelected: isActive,
-                accentColor: Color(hex: state.accentColor) ?? Theme.Color.accent
-            )
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.m))
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isActive ? Color.primary.opacity(0.11) : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+        )
         .onHover { hovering in
             isHovered = hovering
         }
@@ -461,17 +441,17 @@ private func displayableShortcut(_ raw: String) -> String {
     return parts.joined()
 }
 
-// MARK: - Tags detail panel (edge-to-edge)
+// MARK: - Tags detail panel
 
 private struct TagsDetailPanel: View {
     @ObservedObject var tagStore: TagStore
     @ObservedObject var viewModel: PhotoLibraryViewModel
 
-    private let spine: CGFloat = Theme.Space.s24
+    private let spine: CGFloat = 20
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: Theme.Space.s20) {
+            LazyVStack(alignment: .leading, spacing: 18) {
                 ForEach(tagStore.categories) { category in
                     CategorySection(
                         category: category,
@@ -480,19 +460,18 @@ private struct TagsDetailPanel: View {
                         spine: spine
                     )
                     Divider()
-                        .overlay(Theme.Color.surfaceDivider)
                 }
 
                 Button {
                     viewModel.tagStore.addCategory(name: "New Category")
                 } label: {
-                    Label("Add Category", systemImage: "plus.circle")
-                        .font(Theme.Font.caption)
+                    Label("Add Category", systemImage: "plus")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 .padding(.horizontal, spine)
             }
-            .padding(.vertical, Theme.Space.s20)
+            .padding(.vertical, 20)
         }
     }
 }
@@ -504,10 +483,10 @@ private struct CategorySection: View {
     let spine: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Space.s12) {
-            HStack(spacing: Theme.Space.s8) {
-                Image(systemName: "folder.fill")
-                    .foregroundStyle(Theme.Color.textSecondary)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
                 TextField("Category name", text: Binding(
                     get: { category.name },
                     set: { newName in
@@ -517,57 +496,57 @@ private struct CategorySection: View {
                     }
                 ))
                 .textFieldStyle(.plain)
-                .font(Theme.Font.bodyBold)
-                .foregroundStyle(Theme.Color.textInverse)
+                .font(.headline)
+                .foregroundStyle(.primary)
                 .frame(maxWidth: 220)
 
                 Text("\(tags.count)")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textTertiary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.primary.opacity(0.06)))
 
                 if tags.isEmpty {
                     Button(role: .destructive) {
                         tagStore.deleteCategory(id: category.id)
                     } label: {
-                        Image(systemName: "minus.circle.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(Theme.Color.danger.opacity(0.8))
+                        Image(systemName: "trash")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.borderless)
                     .help("Remove empty category")
                 }
 
                 Spacer()
+
+                Button {
+                    tagStore.addTag(name: "New Tag", categoryID: category.id)
+                } label: {
+                    Label("Add Tag", systemImage: "plus")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
             }
             .padding(.horizontal, spine)
 
             if tags.isEmpty {
-                Text("No tags yet in this category.")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textTertiary)
+                Text("No tags in this category.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
                     .padding(.horizontal, spine)
             } else {
                 LazyVGrid(columns: [
-                    GridItem(.adaptive(minimum: 260), spacing: Theme.Space.s8)
-                ], alignment: .leading, spacing: Theme.Space.s8) {
+                    GridItem(.adaptive(minimum: 220), spacing: 8)
+                ], alignment: .leading, spacing: 8) {
                     ForEach(tags) { tag in
                         TagChip(tag: tag, tagStore: tagStore)
                     }
                 }
                 .padding(.horizontal, spine)
             }
-
-            HStack(spacing: Theme.Space.s8) {
-                Button {
-                    tagStore.addTag(name: "New Tag", categoryID: category.id)
-                } label: {
-                    Label("Add Tag to \(category.name)", systemImage: "plus")
-                        .font(Theme.Font.caption)
-                }
-                .buttonStyle(.borderless)
-                .controlSize(.small)
-            }
-            .padding(.horizontal, spine)
         }
     }
 }
@@ -578,13 +557,10 @@ private struct TagChip: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: Theme.Space.s6) {
+        HStack(spacing: 8) {
             TagColorPicker(tag: tag, tagStore: tagStore)
-                .padding(.leading, Theme.Space.s4)
-                .padding(.trailing, Theme.Space.s2)
-                .padding(.vertical, Theme.Space.s4)
 
-            TextField("", text: Binding(
+            TextField("Tag name", text: Binding(
                 get: { tag.name },
                 set: { newName in
                     var updated = tag
@@ -593,56 +569,50 @@ private struct TagChip: View {
                 }
             ))
             .textFieldStyle(.plain)
-            .font(Theme.Font.caption)
-            .foregroundStyle(Theme.Color.textInverse)
+            .font(.body)
+            .foregroundStyle(.primary)
             .truncationMode(.middle)
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
-
-            HStack(spacing: Theme.Space.s4) {
-                ShortcutRecorderView(
-                    hotkey: Binding(
-                        get: { tag.hotkey },
-                        set: { newValue in
-                            var updated = tag
-                            updated.hotkey = newValue
-                            tagStore.updateTag(updated)
-                        }
-                    ),
-                    validationMessage: { proposed in tagHotkeyConflict(proposed, for: tag, in: tagStore) },
-                    isBorderless: true
-                )
-                .controlSize(.mini)
-             
-            }
+            ShortcutRecorderView(
+                hotkey: Binding(
+                    get: { tag.hotkey },
+                    set: { newValue in
+                        var updated = tag
+                        updated.hotkey = newValue
+                        tagStore.updateTag(updated)
+                    }
+                ),
+                validationMessage: { proposed in tagHotkeyConflict(proposed, for: tag, in: tagStore) },
+                isBorderless: true
+            )
+            .controlSize(.mini)
 
             if isHovered {
                 Button {
                     tagStore.deleteTag(id: tag.id)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(Theme.Color.danger)
-                        .font(.system(size: 15))
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
                 }
                 .buttonStyle(.borderless)
-                .padding(.trailing, Theme.Space.s4)
+                .help("Delete tag")
             }
         }
-        .padding(.horizontal, Theme.Space.s8)
-        .padding(.vertical, Theme.Space.s8)
-        .frame(minHeight: 36)
-        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(minHeight: 32)
         .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.m)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.Radius.m)
-                .stroke(Color.white.opacity(0.04), lineWidth: Theme.Stroke.hairline)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
         )
         .onHover { hovering in
-            withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) { isHovered = hovering }
+            isHovered = hovering
         }
     }
 

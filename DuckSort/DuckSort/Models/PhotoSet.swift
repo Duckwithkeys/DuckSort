@@ -54,6 +54,10 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
     /// Structured breakdown of every file the set owns, tagged with the
     /// role it plays. Used by the large image viewer's metadata sidebar.
     let fileBreakdown: [FileBreakdownEntry]
+    /// Total file size in bytes captured during scanning, if available.
+    let totalFileSize: Int64?
+    /// Earliest/primary file modification date captured during scanning, if available.
+    let modificationDate: Date?
 
     // MARK: - Computed properties
 
@@ -63,7 +67,8 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
     private static func role(for url: URL) -> FileBreakdownEntry.Role {
         switch url.pathExtension.lowercased() {
         case "jpg", "jpeg":                       return .jpeg
-        case "heic", "heif", "hif":                return .heif
+        case "heic", "heif", "hif", "heics", "heifs", "avif", "avifs":
+                                                   return .heif
         case "raf":                                return .raw(.fuji)
         case "arw":                                return .raw(.sony)
         case "cr2":                                return .raw(.canonCR2)
@@ -87,13 +92,17 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
         id: UUID = UUID(),
         baseName: String,
         mediaFiles: [URL],
-        editPath: URL?
+        editPath: URL?,
+        totalFileSize: Int64? = nil,
+        modificationDate: Date? = nil
     ) {
         self.id = id
         self.baseName = baseName
         let sortedFiles = mediaFiles.sorted { Self.previewRank(for: $0) < Self.previewRank(for: $1) }
         self.mediaFiles = sortedFiles
         self.editPath = editPath
+        self.totalFileSize = totalFileSize
+        self.modificationDate = modificationDate
 
         self.displayName = baseName.replacingOccurrences(of: "_", with: " ")
                                    .replacingOccurrences(of: "-", with: " ")
@@ -116,9 +125,9 @@ struct PhotoSet: Identifiable, Hashable, Sendable {
             // reports `formatLabel = "RAW + HEIF"`, not "RAW".
             if ["jpg", "jpeg"].contains(ext) {
                 hasJpeg = true
-            } else if ["heic", "heif", "hif"].contains(ext) {
+            } else if ["heic", "heif", "hif", "heics", "heifs", "avif", "avifs"].contains(ext) {
                 hasHeif = true
-            } else if FileExtension.rawLikeExtensions.contains(ext) {
+            } else if ext == "raw" || FileExtension.rawLikeExtensions.contains(ext) {
                 hasRaw = true
             }
         }

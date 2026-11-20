@@ -147,7 +147,10 @@ actor RoutedTransferService {
             throw TransferError.sameSourceAndDestination
         }
 
-        // 5. Pre-create directories sequentially to avoid race conditions
+        // 5. Verify deepest existing ancestor of each routed folder does not
+        // traverse a symlink outside baseDestination BEFORE creating any
+        // subdirectories, then pre-create directories sequentially.
+        try Self.verifyExistingAncestorContainment(allRoutedFolders, under: plan.baseDestination, fileManager: fm)
         for result in routingResults {
             for folder in result.folders {
                 let existed = fm.fileExists(atPath: folder.path)
@@ -156,19 +159,13 @@ actor RoutedTransferService {
             }
         }
 
-        // 5b. `verifyContained` above is lexical and cannot see a symlink,
-        // because `resolvingSymlinksInPath()` only resolves path segments
-        // that already exist — a pre-creation check can't catch a folder
-        // name (attacker-controlled, e.g. via camera model) that matches a
-        // symlink planted inside the destination ahead of time. Re-check
-        // with symlinks resolved now that directory creation has walked
-        // through any such link, and before any job below copies, moves,
-        // or writes a byte.
+        // 5b. Re-verify with symlinks resolved after creation as defense-in-depth.
         try Self.verifyResolvedContainment(allRoutedFolders, under: plan.baseDestination)
 
         // 6. Execute jobs in bounded concurrent task group
         let limit = min(8, ProcessInfo.processInfo.activeProcessorCount)
         let localSidecarService = self.sidecarService
+        let iptc = XMPTaggingService.iptcFromPreferences()
         let startTime = Date()
         var completedBytes: Int64 = 0
         var processed = 0
@@ -200,7 +197,7 @@ actor RoutedTransferService {
                 group.addTask {
                     try await self.executeJob(
                         job, operation: plan.operation, baseDestination: plan.baseDestination,
-                        sidecarService: localSidecarService
+                        iptc: iptc, sidecarService: localSidecarService
                     )
                 }
             }
@@ -237,7 +234,7 @@ actor RoutedTransferService {
                     group.addTask {
                         try await self.executeJob(
                             job, operation: plan.operation, baseDestination: plan.baseDestination,
-                            sidecarService: localSidecarService
+                            iptc: iptc, sidecarService: localSidecarService
                         )
                     }
                 }
@@ -288,6 +285,7 @@ actor RoutedTransferService {
         _ job: RoutedJob,
         operation: RoutedOperation,
         baseDestination: URL,
+        iptc: IPTCMetadata,
         sidecarService: XMPTaggingService
     ) async throws -> (Int64, Bool, URL, URL, Bool) {
         let fm = FileManager.default
@@ -295,6 +293,7 @@ actor RoutedTransferService {
 
         let dest: URL
         var skipTransfer = false
+        var isOverwrite = false
         var isSameLocation = false
 
         switch resolution {
@@ -303,7 +302,7 @@ actor RoutedTransferService {
             skipTransfer = true
         case .overwrite:
             dest = job.destinationFolder.appendingPathComponent(job.sourceURL.lastPathComponent)
-            try? fm.removeItem(at: dest)
+            isOverwrite = true
         case .rename(let uniqueURL):
             dest = uniqueURL
         case .normal(let destURL):
@@ -314,7 +313,22 @@ actor RoutedTransferService {
         if !skipTransfer {
             isSameLocation = job.sourceURL.standardizedFileURL == dest.standardizedFileURL
             if !isSameLocation {
-                try fm.copyItem(at: job.sourceURL, to: dest)
+                if isOverwrite {
+                    // Copy to a temporary sibling first so a failed copy (e.g. disk full)
+                    // never destroys the existing destination file.
+                    let tempDest = job.destinationFolder.appendingPathComponent(
+                        ".\(dest.lastPathComponent).ducksort-\(UUID().uuidString).tmp"
+                    )
+                    do {
+                        try fm.copyItem(at: job.sourceURL, to: tempDest)
+                        _ = try fm.replaceItemAt(dest, withItemAt: tempDest)
+                    } catch {
+                        try? fm.removeItem(at: tempDest)
+                        throw error
+                    }
+                } else {
+                    try fm.copyItem(at: job.sourceURL, to: dest)
+                }
             }
         }
         // No copy exists for this source unless a real transfer happened:
@@ -329,7 +343,7 @@ actor RoutedTransferService {
             let payload = SidecarPayload(
                 tagNames: job.tagNames,
                 capture: job.metadata,
-                iptc: XMPTaggingService.iptcFromPreferences()
+                iptc: iptc
             )
             // The sidecar path is derived from `dest`, a CollisionResolver
             // result, not directly from one of the folders the phase-0
@@ -397,6 +411,31 @@ actor RoutedTransferService {
     /// same way because macOS `/tmp` and `/var` are themselves symlinks —
     /// resolving only one side would reject every real destination under
     /// them.
+    /// Walks each target folder up to its deepest existing ancestor on disk and
+    /// verifies that resolving symlinks on that ancestor stays inside `base`.
+    /// Prevents `createDirectory(withIntermediateDirectories: true)` from walking
+    /// through a planted symlink inside `base` to create directories outside it,
+    /// while still allowing `base` itself to be reached through a symlink.
+    static func verifyExistingAncestorContainment(
+        _ folders: [URL],
+        under base: URL,
+        fileManager fm: FileManager = .default
+    ) throws {
+        let basePath = base.resolvingSymlinksInPath().path
+        for folder in folders {
+            var probe = folder.standardizedFileURL
+            while !fm.fileExists(atPath: probe.path) && probe.path != "/" {
+                let parent = probe.deletingLastPathComponent()
+                if parent.path == probe.path { break }
+                probe = parent
+            }
+            let real = probe.resolvingSymlinksInPath().path
+            guard Self.isContained(real, under: basePath) else {
+                throw TransferError.destinationEscapesBase(folder)
+            }
+        }
+    }
+
     static func verifyResolvedContainment(_ folders: [URL], under base: URL) throws {
         let basePath = base.resolvingSymlinksInPath().path
         for folder in folders {

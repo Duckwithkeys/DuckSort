@@ -21,24 +21,24 @@ final class ScrollStateObserver: ObservableObject {
     }
 
     @objc private func handleScrollStart() {
-        isScrolling = true
+        if !isScrolling { isScrolling = true }
         timer?.invalidate()
     }
 
     @objc private func handleScrollEnd() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
-            Task { @MainActor in
-                self.isScrolling = false
-            }
-        }
+        scheduleScrollEnd()
     }
 
     @objc private func handleScrollMove() {
-        isScrolling = true
+        if !isScrolling { isScrolling = true }
+        scheduleScrollEnd()
+    }
+
+    private func scheduleScrollEnd() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: false) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: false) { [weak self] _ in
             Task { @MainActor in
+                guard let self, self.isScrolling else { return }
                 self.isScrolling = false
             }
         }

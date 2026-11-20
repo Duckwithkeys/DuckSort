@@ -12,9 +12,6 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            brandBar
-                .padding(.top, Theme.Space.s16)
-
             // Permanent filter bar — stays put so it doesn't shift the
             // rest of the sidebar when the user picks or clears filters.
             // Greys out when no filters are active.
@@ -28,8 +25,9 @@ struct SidebarView: View {
                     }
                 }
             )
-            .padding(.horizontal, Theme.Space.s16)
-            .padding(.bottom, Theme.Space.s8)
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
             List {
                 if isTagsExpanded {
@@ -43,19 +41,7 @@ struct SidebarView: View {
             .scrollContentBackground(.hidden)
         }
         .frame(minWidth: 220, idealWidth: 240, maxWidth: 280)
-        .background(Theme.Color.sidebarBackground)
-    }
-
-    private var brandBar: some View {
-        HStack {
-            Text("DuckSort")
-                .font(Theme.Font.title)
-                .foregroundStyle(Theme.Color.textPrimary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, Theme.Space.s16)
-        .padding(.bottom, Theme.Space.s12)
+        .background(Color(nsColor: .underPageBackgroundColor))
     }
 }
 
@@ -67,7 +53,7 @@ struct SourcesSectionView: View {
     @Binding var expandedFolderPaths: Set<String>
 
     var body: some View {
-        Section("SOURCES") {
+        Section("Sources") {
             ForEach(viewModel.sourceDirectories, id: \.self) { url in
                 FolderTreeNode(
                     viewModel: viewModel,
@@ -120,7 +106,7 @@ struct TagsSectionView: View {
     @State private var isStatusExpanded: Bool = true
 
     var body: some View {
-        Section("TAGS") {
+        Section("Tags") {
             // Permanent built-in status & ratings category
             PermanentStatusCategoryView(
                 viewModel: viewModel,
@@ -668,6 +654,11 @@ struct FolderTreeNode: View {
         )
     }
 
+    private func refreshChildren() {
+        cachedChildren = viewModel.childSubfolders(of: folder)
+        cachedPhotos = viewModel.photoSetsDirectlyIn(folder: folder)
+    }
+
     private func ensureChildrenLoaded() {
         if cachedChildren == nil {
             cachedChildren = viewModel.childSubfolders(of: folder)
@@ -712,6 +703,14 @@ struct FolderTreeNode: View {
             .onAppear {
                 if expandedFolderPaths.contains(folder.path) {
                     ensureChildrenLoaded()
+                }
+            }
+            .onChange(of: viewModel.photoSets.count) { _, _ in
+                if expandedFolderPaths.contains(folder.path) {
+                    refreshChildren()
+                } else {
+                    cachedChildren = nil
+                    cachedPhotos = nil
                 }
             }
             .listRowBackground(
@@ -1025,7 +1024,7 @@ struct LibrarySectionView: View {
     @State private var hoveredRule: PhotoFilterRule? = nil
 
     var body: some View {
-        Section("LIBRARY") {
+        Section("Library") {
             ForEach(PhotoFilterRule.allCases) { rule in
                 Button {
                     viewModel.filterRule = rule
@@ -1086,7 +1085,7 @@ struct ActiveTagsDetailSectionView: View {
     var body: some View {
         let activeTags = viewModel.tagStore.tags.filter { viewModel.selectedTagFilters.contains($0.id) }
         
-        Section("ACTIVE TAGS") {
+        Section("Active Tags") {
             if activeTags.isEmpty {
                 Text("No active tags")
                     .font(Theme.Font.caption)
@@ -1152,17 +1151,17 @@ struct LiquidGlassRowBackground: View {
     var indentationLevel: Int = 0
 
     var body: some View {
-        Capsule()
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
             .fill(
                 isSelected
-                    ? Color(white: 0.22)
-                    : (isHovered ? Color(white: 0.18) : Color.clear)
+                    ? Color.primary.opacity(0.11)
+                    : (isHovered ? Color.primary.opacity(0.05) : Color.clear)
             )
-            .animation(.spring(response: 0.18, dampingFraction: 1.0), value: isSelected)
-            .animation(.spring(response: 0.15, dampingFraction: 1.0), value: isHovered)
-            .padding(.leading, Theme.Space.s8 + CGFloat(indentationLevel) * 12)
-            .padding(.trailing, Theme.Space.s8)
-            .padding(.vertical, 2)
+            .animation(.easeOut(duration: 0.12), value: isSelected)
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .padding(.leading, 6 + CGFloat(indentationLevel) * 10)
+            .padding(.trailing, 6)
+            .padding(.vertical, 1)
     }
 }
 

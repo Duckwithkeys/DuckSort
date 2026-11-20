@@ -179,6 +179,67 @@ final class TagStore: ObservableObject {
         return tag
     }
 
+    /// Finds an existing tag matching `name` (case-insensitive) or creates a new one in the first available category.
+    @discardableResult
+    func ensureTag(named name: String) -> CustomTag {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let existing = tags.first(where: { $0.name.lowercased() == trimmed.lowercased() }) {
+            return existing
+        }
+        let categoryID: UUID
+        if let firstCategory = categories.first {
+            categoryID = firstCategory.id
+        } else {
+            let defaultCategory = addCategory(name: "General")
+            categoryID = defaultCategory.id
+        }
+        return addTag(name: trimmed, categoryID: categoryID)
+    }
+
+    /// Batch version of `ensureTag` for registering multiple tag names efficiently.
+    @discardableResult
+    func ensureTags(named names: Set<String>) -> [String: CustomTag] {
+        var existingByLower: [String: CustomTag] = Dictionary(minimumCapacity: tags.count)
+        for tag in tags {
+            existingByLower[tag.name.lowercased()] = tag
+        }
+
+        var map: [String: CustomTag] = Dictionary(minimumCapacity: names.count)
+        var didMutate = false
+        var defaultCategoryID = categories.first?.id
+
+        for name in names {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            let lower = trimmed.lowercased()
+            if let existing = existingByLower[lower] {
+                map[lower] = existing
+                continue
+            }
+            if defaultCategoryID == nil {
+                let defaultCategory = TagCategory(name: "General")
+                categories.append(defaultCategory)
+                defaultCategoryID = defaultCategory.id
+            }
+            let newTag = CustomTag(
+                name: trimmed,
+                categoryID: defaultCategoryID!,
+                hotkey: nil,
+                colorHex: "#007AFF"
+            )
+            tags.append(newTag)
+            existingByLower[lower] = newTag
+            map[lower] = newTag
+            didMutate = true
+        }
+
+        if didMutate {
+            updateIndexes()
+            save()
+        }
+        return map
+    }
+
     func updateTag(_ tag: CustomTag) {
         guard let index = tags.firstIndex(where: { $0.id == tag.id }) else { return }
         var updated = tag

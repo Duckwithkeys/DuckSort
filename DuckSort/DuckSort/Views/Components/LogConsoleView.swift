@@ -9,7 +9,7 @@
 import SwiftUI
 
 struct LogConsoleView: View {
-    @StateObject private var store = LogConsoleStore.shared
+    @ObservedObject private var store = LogConsoleStore.shared
     @State private var filterText = ""
     @State private var selectedLevel: String = "All"
     @State private var selectedCategory: String = "All"
@@ -150,10 +150,14 @@ struct LogConsoleView: View {
         }
     }
 
-    private func formatTime(_ date: Date) -> String {
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func formatTime(_ date: Date) -> String {
+        Self.timeFormatter.string(from: date)
     }
 
     private func categoryColor(_ category: String) -> Color {
