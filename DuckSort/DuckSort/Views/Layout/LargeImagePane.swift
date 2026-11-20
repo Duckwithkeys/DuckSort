@@ -47,8 +47,7 @@ struct LargeImagePane: View {
 
                 let highResImage = (imageLoader.loadedURL == photoSet.preferredPreviewURL ? imageLoader.image : nil) ?? LargeImageLoader.cachedImage(for: photoSet.preferredPreviewURL)
                 let lowResImage = photoSet.preferredPreviewURL.flatMap {
-                    ThumbnailCache.global.image(for: $0, size: CGSize(width: 600, height: 600)) ??
-                    ThumbnailCache.global.image(for: $0, size: CGSize(width: 128, height: 128))
+                    ThumbnailCache.global.anyCachedImage(for: $0)
                 }
 
                 if highResImage != nil || lowResImage != nil {
@@ -229,10 +228,22 @@ final class LargeImageLoader: ObservableObject {
                 }
 
                 let ext = url.pathExtension.lowercased()
-                let alwaysCreate = FileExtension.rawLikeExtensions.contains(ext)
+                let isRawLike = FileExtension.rawLikeExtensions.contains(ext)
 
-                // 1. Primary ImageIO decode
-                if let cgImage = await decodeThumbnailWithImageIO(url: url, maxPixels: 3072, alwaysCreate: alwaysCreate) {
+                // 1. Fast path for RAW: try full-size embedded JPEG preview first (~15 ms).
+                // Most cameras embed a 2000–4000 px preview inside RAW files; if it is
+                // already high resolution (>= 1600 px on the long edge), use it directly!
+                if isRawLike,
+                   let embedded = await decodeThumbnailWithImageIO(url: url, maxPixels: 3072, alwaysCreate: false),
+                   max(embedded.width, embedded.height) >= 1600 {
+                    let preview = NSImage(cgImage: embedded, size: NSSize(width: embedded.width, height: embedded.height))
+                    let cost = embedded.width * embedded.height * 4
+                    cacheWrapper.cache.setObject(preview, forKey: key, cost: cost)
+                    return preview
+                }
+
+                // 2. Primary ImageIO decode (full decode / demosaic)
+                if let cgImage = await decodeThumbnailWithImageIO(url: url, maxPixels: 3072, alwaysCreate: true) {
                     let preview = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
                     let cost = cgImage.width * cgImage.height * 4
                     cacheWrapper.cache.setObject(preview, forKey: key, cost: cost)
@@ -365,13 +376,17 @@ final class LargeImageLoader: ObservableObject {
                     return
                 }
 
-                let options: [CFString: Any] = [
-                    (alwaysCreate ? kCGImageSourceCreateThumbnailFromImageAlways : kCGImageSourceCreateThumbnailFromImageIfAbsent): true,
+                var options: [CFString: Any] = [
                     kCGImageSourceThumbnailMaxPixelSize: maxPixels,
                     kCGImageSourceCreateThumbnailWithTransform: true,
                     kCGImageSourceShouldCacheImmediately: true,
                     kCGImageSourceShouldAllowFloat: true
                 ]
+                if alwaysCreate {
+                    options[kCGImageSourceCreateThumbnailFromImageAlways] = true
+                } else {
+                    options[kCGImageSourceCreateThumbnailFromImageIfAbsent] = false
+                }
                 let result = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, options as CFDictionary)
                 continuation.resume(returning: result)
             }
@@ -415,9 +430,8 @@ final class LargeImageLoader: ObservableObject {
             return
         }
 
-        // 2. Instantly promote existing cached thumbnail as placeholder while high-res decodes
-        if let proxy = ThumbnailCache.global.image(for: url, size: CGSize(width: 600, height: 600)) ??
-                       ThumbnailCache.global.image(for: url, size: CGSize(width: 128, height: 128)) {
+        // 2. Instantly promote any cached thumbnail as placeholder while high-res decodes
+        if let proxy = ThumbnailCache.global.anyCachedImage(for: url) {
             image = proxy
             loadedURL = url
         }

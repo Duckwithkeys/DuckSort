@@ -517,6 +517,25 @@ final class ThumbnailCache {
         cache.object(forKey: cacheKey(for: url, size: size))
     }
 
+    /// Returns the highest-resolution cached thumbnail available for `url` across
+    /// all bucket tiers so LargeImagePane can render instantaneously on frame 0.
+    func anyCachedImage(for url: URL) -> NSImage? {
+        let sizes = [
+            CGSize(width: 800, height: 800),
+            CGSize(width: 560, height: 560),
+            CGSize(width: 600, height: 600),
+            CGSize(width: 320, height: 320),
+            CGSize(width: 160, height: 160),
+            CGSize(width: 128, height: 128)
+        ]
+        for s in sizes {
+            if let hit = cache.object(forKey: cacheKey(for: url, size: s)) {
+                return hit
+            }
+        }
+        return nil
+    }
+
     func insert(_ image: NSImage, for url: URL, size: CGSize) {
         let rep = image.representations.first
         let pw = rep?.pixelsWide ?? Int(image.size.width)

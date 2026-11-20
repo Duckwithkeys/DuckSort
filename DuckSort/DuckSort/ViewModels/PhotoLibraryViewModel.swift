@@ -1799,7 +1799,14 @@ final class PhotoLibraryViewModel: ObservableObject {
         isLargeImageViewerOpen = true
         currentTagCategoryID = tagStore.categories.first?.id
         statusMessage = "Viewer mode — use ←/→ to navigate, hotkeys to tag, Esc to close."
-        preloadNeighbors(around: focusedPhotoIndex)
+        // Defer neighbor preloading slightly so the focused photo gets 100% of disk/CPU
+        // bandwidth first and opens instantaneously.
+        let targetIndex = focusedPhotoIndex
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 150_000_000)
+            guard let self, self.isLargeImageViewerOpen, self.focusedPhotoIndex == targetIndex else { return }
+            self.preloadNeighbors(around: targetIndex)
+        }
     }
     
     func closeLargeImageViewer() {

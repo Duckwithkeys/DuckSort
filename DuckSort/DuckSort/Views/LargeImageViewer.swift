@@ -12,17 +12,6 @@ import AppKit
 struct LargeImageViewer: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
 
-    private var scrollPositionBinding: Binding<Int?> {
-        Binding(
-            get: { viewModel.focusedPhotoIndex },
-            set: { newValue in
-                if let newValue {
-                    viewModel.focusedPhotoIndex = newValue
-                }
-            }
-        )
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
@@ -80,24 +69,13 @@ struct LargeImageViewer: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Theme.Color.background, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
-            } else {
-                GeometryReader { geometry in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 0) {
-                            ForEach(0..<viewModel.filteredPhotoSets.count, id: \.self) { index in
-                                let photo = viewModel.filteredPhotoSets[index]
-                                LargeImagePane(photoSet: photo, zoomState: viewModel.singleZoomState)
-                                    .frame(width: geometry.size.width, height: geometry.size.height)
-                                    .background(Theme.Color.background, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
-                                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
-                                    .id(index)
-                            }
-                        }
-                        .scrollTargetLayout()
-                    }
-                    .scrollPosition(id: scrollPositionBinding)
-                    .scrollTargetBehavior(.paging)
-                }
+            } else if let activePhoto = viewModel.currentFocusedPhotoSet {
+                // Render only the focused photo directly instead of laying out a
+                // LazyHStack of thousands of full-screen pages on open.
+                LargeImagePane(photoSet: activePhoto, zoomState: viewModel.singleZoomState)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Theme.Color.background, in: RoundedRectangle(cornerRadius: Theme.Radius.xl))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl))
             }
         }
     }

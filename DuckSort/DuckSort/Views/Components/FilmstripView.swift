@@ -15,8 +15,12 @@ struct FilmstripView: View {
             ScrollViewReader { scrollProxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: Theme.Space.s8) {
-                        ForEach(Array(viewModel.filteredPhotoSets.enumerated()), id: \.element.id) { index, photoSet in
-                            let isFocused = index == viewModel.focusedPhotoIndex
+                        let sets = viewModel.filteredPhotoSets
+                        let focusedID = (viewModel.focusedPhotoIndex >= 0 && viewModel.focusedPhotoIndex < sets.count)
+                            ? sets[viewModel.focusedPhotoIndex].id
+                            : nil
+                        ForEach(sets) { photoSet in
+                            let isFocused = photoSet.id == focusedID
                             let previewURL = photoSet.preferredPreviewURL
 
                             FilmstripThumbnailCell(
@@ -24,8 +28,10 @@ struct FilmstripView: View {
                                 previewURL: previewURL,
                                 isFocused: isFocused,
                                 onSelect: {
-                                    withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
-                                        viewModel.focusedPhotoIndex = index
+                                    if let idx = viewModel.filteredPhotoSets.firstIndex(where: { $0.id == photoSet.id }) {
+                                        withAnimation(.spring(response: 0.25, dampingFraction: 1.0)) {
+                                            viewModel.focusedPhotoIndex = idx
+                                        }
                                     }
                                 }
                             )
