@@ -35,6 +35,10 @@ struct ThumbnailView: View {
     @State private var isLoading = true
 
     var body: some View {
+        let bucketed = ThumbnailService.bucketSize(for: size)
+        let cachedHit = url.flatMap { ThumbnailCache.global.image(for: $0, size: bucketed) }
+        let displayedImage = loader.image ?? cachedHit
+
         Color.clear
             .overlay {
                 ZStack {
@@ -51,11 +55,10 @@ struct ThumbnailView: View {
                             )
                         )
 
-                    if let image = loader.image {
+                    if let image = displayedImage {
                         Image(nsImage: image)
                             .resizable()
                             .scaledToFill()
-                            .transition(.opacity.animation(.spring(response: 0.25, dampingFraction: 1.0)))
                     } else {
                         // Show subtle animated shimmer while loading
                         ShimmerView()
@@ -65,34 +68,33 @@ struct ThumbnailView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             }
-        .task(id: url) {
+        .task(id: ThumbnailTaskKey(url: url, bucket: Int(bucketed.width))) {
             guard let url else {
                 isLoading = false
                 return
             }
 
-            isLoading = true
-
-            // Fast memory-cache hit
-            if let hit = ThumbnailCache.global.image(for: url, size: size) {
-                AppLogger.thumbnails.trace("Memory cache hit: \(url.lastPathComponent)")
+            // Fast synchronous memory-cache hit (already rendered above)
+            if let hit = ThumbnailCache.global.image(for: url, size: bucketed) {
                 loader.image = hit
                 isLoading = false
                 return
             }
 
-            loader.image = nil
-
+            isLoading = true
             let scale = NSScreen.main?.backingScaleFactor ?? 2
 
-            // Dynamic LOD Adaptive Preloading:
-            // Fast 128px proxy when scrolling, full size on scroll settle
+            // Stage 1 (Instant): embedded EXIF/JPEG preview (<2 ms even for 50 MB RAWs)
+            // so thousands of photos pop in immediately while scrolling or loading.
+            if loader.image == nil,
+               let preview = await ThumbnailService.shared.embeddedPreview(for: url, maxPixels: 320) {
+                guard !Task.isCancelled else { return }
+                loader.image = preview
+            }
+
+            // While actively scrolling, hold off on full Retina upgrades until scroll settles
+            // so fast-scrolling through thousands of photos stays 120 fps.
             if ScrollStateObserver.shared.isScrolling {
-                let fastSize = CGSize(width: 128, height: 128)
-                if let fastProxy = await ThumbnailService.shared.thumbnail(for: url, size: fastSize, scale: scale) {
-                    guard !Task.isCancelled else { return }
-                    loader.image = fastProxy
-                }
                 for await isScrolling in ScrollStateObserver.shared.$isScrolling.values {
                     if !isScrolling { break }
                 }
@@ -100,14 +102,19 @@ struct ThumbnailView: View {
 
             guard !Task.isCancelled else { return }
 
-            AppLogger.thumbnails.trace("Decode started: \(url.lastPathComponent)")
-            if let result = await ThumbnailService.shared.thumbnail(for: url, size: size, scale: scale, skipMemoryCache: true) {
+            // Stage 2 (Crisp Retina Upgrade): decode full bucketed resolution and cache to disk.
+            if let result = await ThumbnailService.shared.thumbnail(for: url, size: bucketed, scale: scale) {
                 guard !Task.isCancelled else { return }
                 loader.image = result
             }
             isLoading = false
         }
     }
+}
+
+private struct ThumbnailTaskKey: Equatable {
+    let url: URL?
+    let bucket: Int
 }
 
 // MARK: - Shimmer placeholder
@@ -157,7 +164,29 @@ actor ThumbnailActor {
 final class ThumbnailService {
     static let shared = ThumbnailService()
 
-    private let cache = ThumbnailCache()
+    /// Dedicated `.default` QoS queue for ImageIO decodes so SwiftUI `.userInitiated`
+    /// tasks never block the cooperative pool or invert priority against ImageIO's
+    /// internal `.default`-QoS codec threads.
+    nonisolated private static let decodeQueue = DispatchQueue(
+        label: "com.ducksort.thumbnail.decode",
+        qos: .default,
+        attributes: .concurrent
+    )
+
+    /// Quantize thumbnail decode dimensions into 3 crisp Retina tiers so dragging
+    /// the thumbnail size slider scales GPU textures smoothly at 120 fps without
+    /// invalidating caches on every pixel.
+    nonisolated static func bucketSize(for size: CGSize) -> CGSize {
+        let maxDim = max(size.width, size.height)
+        if maxDim <= 180 {
+            return CGSize(width: 320, height: 320)
+        } else if maxDim <= 300 {
+            return CGSize(width: 560, height: 560)
+        } else {
+            return CGSize(width: 800, height: 800)
+        }
+    }
+
     // Semaphore limit: core-count, bounded to 4–8 to avoid thrashing.
     private let semaphore = AsyncSemaphore(
         limit: ProcessInfo.processInfo.activeProcessorCount.clamped(to: 4...8)
@@ -166,12 +195,34 @@ final class ThumbnailService {
 
     private init() {}
 
-    private func diskCacheSize(for size: CGSize) -> CGSize {
-        let maxDim = max(size.width, size.height)
-        if maxDim <= 128 {
-            return CGSize(width: 128, height: 128)
+    /// Stage 1 instant embedded EXIF/JPEG preview (no full RAW demosaic).
+    /// Returns nil quickly if the file has no embedded thumbnail.
+    nonisolated func embeddedPreview(for url: URL, maxPixels: CGFloat = 320) async -> NSImage? {
+        let previewSize = CGSize(width: 160, height: 160)
+        if let hit = ThumbnailCache.global.image(for: url, size: previewSize) {
+            return hit
         }
-        return CGSize(width: 600, height: 600)
+        guard let cg = await decodeWithImageIO(url: url, maxPixels: maxPixels, alwaysCreate: false) else {
+            return nil
+        }
+        let ns = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+        ThumbnailCache.global.insert(ns, for: url, size: previewSize)
+        return ns
+    }
+
+    /// Prefetch a batch of upcoming thumbnails in the background at low priority.
+    nonisolated static func prefetch(urls: [URL], size: CGSize, scale: CGFloat = 2.0) {
+        let bucketed = Self.bucketSize(for: size)
+        Task.detached(priority: .utility) {
+            for url in urls {
+                if ThumbnailCache.global.image(for: url, size: bucketed) != nil { continue }
+                _ = await ThumbnailService.shared.thumbnail(for: url, size: bucketed, scale: scale)
+            }
+        }
+    }
+
+    private func diskCacheSize(for size: CGSize) -> CGSize {
+        Self.bucketSize(for: size)
     }
 
     func thumbnail(for url: URL?, size: CGSize, scale: CGFloat = 2.0, skipMemoryCache: Bool = false) async -> NSImage? {
@@ -343,84 +394,97 @@ final class ThumbnailService {
     }
 
     nonisolated private func decodeWithImageIO(url: URL, maxPixels: CGFloat, alwaysCreate: Bool) async -> CGImage? {
-        let ext = url.pathExtension.lowercased()
-        var sourceOptions: [CFString: Any] = [
-            kCGImageSourceShouldCache: true
-        ]
-        if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
-            sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
-        }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
-            return nil
-        }
-        guard !Task.isCancelled else {
-            return nil
-        }
+        guard !Task.isCancelled else { return nil }
+        return await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let ext = url.pathExtension.lowercased()
+                var sourceOptions: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true
+                ]
+                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
+                }
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
 
-        let decodeOptions: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true,
-            kCGImageSourceShouldAllowFloat: true
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
+                var decodeOptions: [CFString: Any] = [
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceShouldAllowFloat: true
+                ]
+                if alwaysCreate {
+                    decodeOptions[kCGImageSourceCreateThumbnailFromImageAlways] = true
+                } else {
+                    // Instant path: only return embedded EXIF/JPEG preview if present.
+                    decodeOptions[kCGImageSourceCreateThumbnailFromImageIfAbsent] = false
+                }
+                let result = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary)
+                continuation.resume(returning: result)
+            }
+        }
     }
 
     nonisolated private func loadWithImageIOFallback(url: URL, maxPixels: CGFloat) async -> CGImage? {
-        let ext = url.pathExtension.lowercased()
-        var sourceOptions: [CFString: Any] = [
-            kCGImageSourceShouldCache: true
-        ]
-        if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
-            sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
-        }
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
-            return nil
-        }
-        
-        let decodeOptions: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) {
-            return thumb
-        }
+        await withCheckedContinuation { continuation in
+            Self.decodeQueue.async {
+                let ext = url.pathExtension.lowercased()
+                var sourceOptions: [CFString: Any] = [
+                    kCGImageSourceShouldCache: true
+                ]
+                if let typeHint = FileExtension.typeIdentifierHint(for: ext) {
+                    sourceOptions[kCGImageSourceTypeIdentifierHint] = typeHint
+                }
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
 
-        guard let rawCGImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
-            return nil
+                let decodeOptions: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true
+                ]
+                if let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, decodeOptions as CFDictionary) {
+                    continuation.resume(returning: thumb)
+                    return
+                }
+
+                guard let rawCGImage = CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let orientedImage = Self.applyOrientation(from: source, to: rawCGImage)
+                let width = CGFloat(orientedImage.width)
+                let height = CGFloat(orientedImage.height)
+                let scale = min(maxPixels / max(width, height), 1.0)
+                guard scale < 1.0 else {
+                    continuation.resume(returning: orientedImage)
+                    return
+                }
+                let targetW = Int(width * scale)
+                let targetH = Int(height * scale)
+                guard let colorSpace = orientedImage.colorSpace,
+                      let context = CGContext(
+                          data: nil,
+                          width: targetW,
+                          height: targetH,
+                          bitsPerComponent: orientedImage.bitsPerComponent,
+                          bytesPerRow: 0,
+                          space: colorSpace,
+                          bitmapInfo: orientedImage.bitmapInfo.rawValue
+                      ) else {
+                    continuation.resume(returning: orientedImage)
+                    return
+                }
+                context.interpolationQuality = .high
+                context.draw(orientedImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
+                continuation.resume(returning: context.makeImage() ?? orientedImage)
+            }
         }
-        
-        let orientedImage = Self.applyOrientation(from: source, to: rawCGImage)
-        
-        let width = CGFloat(orientedImage.width)
-        let height = CGFloat(orientedImage.height)
-        let scale = min(maxPixels / max(width, height), 1.0)
-        guard scale < 1.0 else {
-            return orientedImage
-        }
-        
-        let targetW = Int(width * scale)
-        let targetH = Int(height * scale)
-        
-        guard let colorSpace = orientedImage.colorSpace,
-              let context = CGContext(
-                  data: nil,
-                  width: targetW,
-                  height: targetH,
-                  bitsPerComponent: orientedImage.bitsPerComponent,
-                  bytesPerRow: 0,
-                  space: colorSpace,
-                  bitmapInfo: orientedImage.bitmapInfo.rawValue
-              ) else {
-            return orientedImage
-        }
-              
-        context.interpolationQuality = .high
-        context.draw(orientedImage, in: CGRect(x: 0, y: 0, width: targetW, height: targetH))
-        return context.makeImage() ?? orientedImage
     }
 }
 

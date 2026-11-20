@@ -17,6 +17,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
+      working-directory: DuckSort
       run: swift build -v
     - name: Run tests
+      working-directory: DuckSort
       run: swift test -v

@@ -31,8 +31,10 @@ private struct RulesSidebar: View {
             List(selection: Binding(
                 get: { ruleStore.selectedRuleID },
                 set: { newID in
-                    if let newID {
-                        ruleStore.selectRule(id: newID)
+                    if let newID, newID != ruleStore.selectedRuleID {
+                        Task { @MainActor in
+                            ruleStore.selectRule(id: newID)
+                        }
                     }
                 }
             )) {

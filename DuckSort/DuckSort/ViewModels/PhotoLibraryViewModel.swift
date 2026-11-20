@@ -72,11 +72,9 @@ final class PhotoLibraryViewModel: ObservableObject {
     private func rebuildPhotoSetIndex() {
         photoSetIndex = Dictionary(uniqueKeysWithValues: photoSets.enumerated().map { ($1.id, $0) })
     }
-    @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:] {
-        didSet {
-            photoDateCache.removeAll(keepingCapacity: true)
-        }
-    }
+    @Published private(set) var photoMetadata: [UUID: MetadataSnapshot] = [:]
+    @Published private(set) var exifLoadProgress: (completed: Int, total: Int)? = nil
+    private var lastFolderIndexKey: (count: Int, sources: [URL], firstID: UUID?, lastID: UUID?) = (-1, [], nil, nil)
 
     func setPhotoMetadata(for id: UUID, metadata: MetadataSnapshot) {
         photoMetadata[id] = metadata
@@ -718,6 +716,7 @@ final class PhotoLibraryViewModel: ObservableObject {
         photoDateCache = [:]
         photoFileSizeCache = [:]
         selectedSubfolderFilter = nil
+        exifLoadProgress = nil
         undoManager.clear()
         isScanning = false
         persistSources()
@@ -812,18 +811,23 @@ final class PhotoLibraryViewModel: ObservableObject {
         loadMetadataAndTags(for: photoSets)
     }
 
-    /// Adaptive multi-batch loader: reads EXIF + XMP for every photo in
-    /// `metadataBatchSize`-sized chunks so the UI populates progressively
-    /// for large libraries (5,000+ photos) without blocking.
-    ///
-    /// The first batch (size == metadataBatchSize) is applied immediately so
-    /// the visible grid rows are never blank for more than one round-trip.
-    /// Subsequent batches are applied as they complete.
+    /// Two-pass metadata loader optimized for thousands of photos:
+    /// - **Pass 1 (Instant XMP Sidecars):** Reads only lightweight `.xmp` sidecar
+    ///   files across the entire library in parallel so all pick/reject flags,
+    ///   star ratings, saved tags, and captions appear immediately.
+    /// - **Pass 2 (Background EXIF Trickle):** Quietly streams full ImageIO EXIF
+    ///   (camera, lens, ISO, aperture, shutter, capture date) in batches at
+    ///   `.utility` priority while reporting progress via `exifLoadProgress`.
     private func loadMetadataAndTags(for photoSets: [PhotoSet]) {
         metadataTask?.cancel()
         tagTask?.cancel()
 
         let sets = photoSets
+        guard !sets.isEmpty else {
+            exifLoadProgress = nil
+            return
+        }
+
         let batchSize = Self.metadataBatchSize
         let allTags = tagStore.tags
         let nameToID: [String: UUID] = Dictionary(
@@ -831,26 +835,150 @@ final class PhotoLibraryViewModel: ObservableObject {
             uniquingKeysWith: { first, _ in first }
         )
 
-        AppLogger.metadata.info("Starting metadata load: \(sets.count) sets, batch size \(batchSize)")
+        AppLogger.metadata.info("Starting two-pass metadata load: \(sets.count) sets, batch size \(batchSize)")
 
-        metadataTask = Task { @MainActor [metadataReader, xmpTagging] in
+        metadataTask = Task { @MainActor [weak self, metadataReader, xmpTagging] in
+            // Pass 1: Instant XMP sidecars (flags, stars, tags, captions) across all sets.
+            let sidecarResults = await Task.detached(priority: .userInitiated) {
+                await Self.loadSidecarsOnly(sets, xmpTagging: xmpTagging)
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.applySidecarOnlyResults(sidecarResults)
+
+            // Pass 2: Quietly trickle-load full ImageIO EXIF in background batches.
+            self.exifLoadProgress = (completed: 0, total: sets.count)
             var offset = 0
             while offset < sets.count {
-                if Task.isCancelled { return }
+                if Task.isCancelled {
+                    self.exifLoadProgress = nil
+                    return
+                }
                 let upper = min(offset + batchSize, sets.count)
                 let batch = Array(sets[offset..<upper])
-                let results = await Self.loadBatchMetadataAndTags(
-                    batch,
-                    metadataReader: metadataReader,
-                    xmpTagging: xmpTagging
-                )
-                if Task.isCancelled { return }
+                let results = await Task.detached(priority: .utility) {
+                    await Self.loadBatchMetadataAndTags(
+                        batch,
+                        metadataReader: metadataReader,
+                        xmpTagging: xmpTagging
+                    )
+                }.value
+                guard !Task.isCancelled else {
+                    self.exifLoadProgress = nil
+                    return
+                }
                 self.applyMetadataAndTagResults(results, nameToID: nameToID)
-                AppLogger.metadata.debug("Applied metadata batch \(offset / batchSize + 1): \(results.count) sets")
-                offset += batchSize
+                offset = upper
+                self.exifLoadProgress = (completed: offset, total: sets.count)
+                AppLogger.metadata.debug("Applied EXIF batch: \(offset)/\(sets.count) sets")
             }
-            AppLogger.metadata.info("Metadata load complete: \(sets.count) sets processed")
+            self.exifLoadProgress = nil
+            AppLogger.metadata.info("Two-pass metadata load complete: \(sets.count) sets processed")
         }
+    }
+
+    private struct SidecarOnlyInfo: Sendable {
+        let id: UUID
+        let tags: Set<String>
+        let rating: Int?
+        let pick: Int?
+        let description: String?
+    }
+
+    /// Pass 1: Fast parallel `.xmp` sidecar reader (no ImageIO/RAW opens).
+    private static func loadSidecarsOnly(
+        _ sets: [PhotoSet],
+        xmpTagging: XMPTaggingService
+    ) async -> [SidecarOnlyInfo] {
+        let maxConcurrency = 32
+        return await withTaskGroup(of: SidecarOnlyInfo?.self) { group in
+            var inFlight = 0
+            var out: [SidecarOnlyInfo] = []
+            for photo in sets {
+                if inFlight >= maxConcurrency {
+                    if let item = await group.next(), let unwrapped = item {
+                        out.append(unwrapped)
+                    }
+                    inFlight -= 1
+                }
+                inFlight += 1
+                group.addTask {
+                    let sidecar = xmpTagging.readSidecarData(from: photo)
+                    if sidecar.tags.isEmpty && sidecar.rating == nil && sidecar.pick == nil && sidecar.description == nil {
+                        return nil
+                    }
+                    return SidecarOnlyInfo(
+                        id: photo.id,
+                        tags: sidecar.tags,
+                        rating: sidecar.rating,
+                        pick: sidecar.pick,
+                        description: sidecar.description
+                    )
+                }
+            }
+            for await item in group {
+                if let unwrapped = item { out.append(unwrapped) }
+            }
+            return out
+        }
+    }
+
+    private func applySidecarOnlyResults(_ results: [SidecarOnlyInfo]) {
+        guard !results.isEmpty else { return }
+
+        var allDiscoveredNames = Set<String>()
+        for info in results {
+            allDiscoveredNames.formUnion(info.tags)
+        }
+        if !allDiscoveredNames.isEmpty {
+            tagStore.ensureTags(named: allDiscoveredNames)
+        }
+        let activeNameToID = Dictionary(
+            tagStore.tags.map { ($0.name.lowercased(), $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        suppressDerivedUpdates = true
+        var batchTags: [UUID: Set<UUID>] = [:]
+        var updatedCaptions = self.photoCaptions
+        var captionsChanged = false
+        var updatedSets = self.photoSets
+        var setsChanged = false
+
+        for info in results {
+            if !info.tags.isEmpty {
+                let tagIDs = Set(info.tags.compactMap { activeNameToID[$0.lowercased()] })
+                if !tagIDs.isEmpty {
+                    batchTags[info.id] = tagIDs
+                }
+            }
+            if let description = info.description, !description.isEmpty {
+                updatedCaptions[info.id] = description
+                captionsChanged = true
+            }
+            if let idx = photoSetIndex[info.id] {
+                if updatedSets[idx].rating == nil, let rating = info.rating {
+                    updatedSets[idx].rating = rating
+                    setsChanged = true
+                }
+                if updatedSets[idx].pick == nil, let pick = info.pick {
+                    updatedSets[idx].pick = pick
+                    setsChanged = true
+                }
+            }
+        }
+
+        if !batchTags.isEmpty {
+            tagStore.setTagsBatch(batchTags)
+        }
+        if captionsChanged {
+            self.photoCaptions = updatedCaptions
+        }
+        if setsChanged {
+            self.photoSets = updatedSets
+        }
+        suppressDerivedUpdates = false
+        updateGlobalCounts()
+        updateDerivedState()
     }
 
     /// Read EXIF metadata + XMP sidecar for every photo in `batch` in parallel.
@@ -946,6 +1074,7 @@ final class PhotoLibraryViewModel: ObservableObject {
 
         for info in results {
             metadataCache[info.id] = info.metadata
+            photoDateCache.removeValue(forKey: info.id)
 
             if !info.sidecarTags.isEmpty {
                 let tagIDs = Set(info.sidecarTags.compactMap { activeNameToID[$0.lowercased()] })
@@ -975,9 +1104,11 @@ final class PhotoLibraryViewModel: ObservableObject {
             tagStore.setTagsBatch(batchTags)
         }
         if !batchCaptions.isEmpty {
+            var mergedCaptions = self.photoCaptions
             for (id, caption) in batchCaptions {
-                self.photoCaptions[id] = caption
+                mergedCaptions[id] = caption
             }
+            self.photoCaptions = mergedCaptions
         }
         self.photoSets = updatedSets
         suppressDerivedUpdates = false
@@ -2472,6 +2603,12 @@ final class PhotoLibraryViewModel: ObservableObject {
         var tagHistogram = [UUID: Int]()
         for tag in tagStore.tags { tagHistogram[tag.id] = 0 }
 
+        let currentFolderKey = (photoSets.count, sourceDirectories, photoSets.first?.id, photoSets.last?.id)
+        let needsFolderRebuild = currentFolderKey.0 != lastFolderIndexKey.count
+            || currentFolderKey.1 != lastFolderIndexKey.sources
+            || currentFolderKey.2 != lastFolderIndexKey.firstID
+            || currentFolderKey.3 != lastFolderIndexKey.lastID
+
         var photoSetsBySubfolder = [URL: Set<UUID>]()
 
         // Reset selection counters before the loop so they stay consistent
@@ -2509,9 +2646,11 @@ final class PhotoLibraryViewModel: ObservableObject {
                 tagHistogram[tagID, default: 0] += 1
             }
             
-            for file in photoSet.mediaFiles {
-                let parentDir = file.deletingLastPathComponent().standardizedFileURL
-                photoSetsBySubfolder[parentDir, default: []].insert(photoSet.id)
+            if needsFolderRebuild {
+                for file in photoSet.mediaFiles {
+                    let parentDir = file.deletingLastPathComponent().standardizedFileURL
+                    photoSetsBySubfolder[parentDir, default: []].insert(photoSet.id)
+                }
             }
         }
         
@@ -2522,15 +2661,18 @@ final class PhotoLibraryViewModel: ObservableObject {
         self.cachedFlagCounts = [1: pick1Count, -1: pickMinus1Count, 0: pick0Count]
         self.cachedRatingCounts = ratingCounts
 
-        let folderIndex = FolderTreeIndex.build(
-            from: photoSetsBySubfolder,
-            sourceDirectories: sourceDirectories
-        )
-        self.cachedSubfolders = folderIndex.cachedSubfolders
-        self.cachedSubfolderCounts = folderIndex.cachedSubfolderCounts
-        self.childSubfoldersIndex = folderIndex.childSubfoldersIndex
-        self.recursivePhotoCountIndex = folderIndex.recursivePhotoCountIndex
-        self.childFolderURLs = folderIndex.childFolderURLs
+        if needsFolderRebuild {
+            lastFolderIndexKey = currentFolderKey
+            let folderIndex = FolderTreeIndex.build(
+                from: photoSetsBySubfolder,
+                sourceDirectories: sourceDirectories
+            )
+            self.cachedSubfolders = folderIndex.cachedSubfolders
+            self.cachedSubfolderCounts = folderIndex.cachedSubfolderCounts
+            self.childSubfoldersIndex = folderIndex.childSubfoldersIndex
+            self.recursivePhotoCountIndex = folderIndex.recursivePhotoCountIndex
+            self.childFolderURLs = folderIndex.childFolderURLs
+        }
     }
 
     func relativePath(of subfolderURL: URL, relativeTo sourceURL: URL) -> String {

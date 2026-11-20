@@ -49,6 +49,7 @@ final class ExportRuleStore: ObservableObject {
     }
 
     func selectRule(id: UUID) {
+        guard selectedRuleID != id else { return }
         selectedRuleID = id
         save()
     }

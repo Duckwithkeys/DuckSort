@@ -68,36 +68,34 @@ enum Theme {
         static let danger             = SwiftUI.Color(red: 1.000, green: 0.271, blue: 0.227) // #FF453A
         static let rating             = SwiftUI.Color(red: 1.000, green: 0.804, blue: 0.196) // systemYellow
 
+        // Pre-cached dynamic NSColors so grid cell body evaluations never allocate
+        // new NSColor provider closures on every scroll frame.
+        private static let cachedTextPrimaryHC = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .white : .black
+        })
+        private static let cachedTextSecondaryHC = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? NSColor(white: 0.90, alpha: 1) : NSColor(white: 0.15, alpha: 1)
+        })
+        private static let cachedTextTertiaryHC = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.30, alpha: 1)
+        })
+        private static let cachedLabelColor = SwiftUI.Color(nsColor: .labelColor)
+        private static let cachedSecondaryLabelColor = SwiftUI.Color(nsColor: .secondaryLabelColor)
+        private static let cachedTertiaryLabelColor = SwiftUI.Color(nsColor: .tertiaryLabelColor)
+
         // Text (adaptive - boosted contrast when highContrastEnabled is active)
         static var textPrimary: SwiftUI.Color {
-            if UserPreferences.shared.highContrastEnabled {
-                return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .white : .black
-                })
-            }
-            return SwiftUI.Color(nsColor: .labelColor)
+            UserPreferences.shared.highContrastEnabled ? cachedTextPrimaryHC : cachedLabelColor
         }
         static var textSecondary: SwiftUI.Color {
-            if UserPreferences.shared.highContrastEnabled {
-                return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? NSColor(white: 0.90, alpha: 1) : NSColor(white: 0.15, alpha: 1)
-                })
-            }
-            return SwiftUI.Color(nsColor: .secondaryLabelColor)
+            UserPreferences.shared.highContrastEnabled ? cachedTextSecondaryHC : cachedSecondaryLabelColor
         }
         static var textTertiary: SwiftUI.Color {
-            if UserPreferences.shared.highContrastEnabled {
-                return SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? NSColor(white: 0.75, alpha: 1) : NSColor(white: 0.30, alpha: 1)
-                })
-            }
-            return SwiftUI.Color(nsColor: .tertiaryLabelColor)
+            UserPreferences.shared.highContrastEnabled ? cachedTextTertiaryHC : cachedTertiaryLabelColor
         }
-        static var textInverse: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .white : .black
-            })
-        }
+        static let textInverse = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .white : .black
+        })
 
         // Selection / row hover tints (over any background).
         static var rowSelectedFill: SwiftUI.Color {
@@ -106,54 +104,41 @@ enum Theme {
         static let rowHoverFill      = SwiftUI.Color.primary.opacity(0.06)
 
         // Image-pane scrim (the photo viewer sits on a white canvas in light mode and black scrim in dark mode).
-        static var scrim: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                let isDark = (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                return isDark ? .black : .white
-            })
-        }
+        static let scrim = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) ? .black : .white
+        })
 
         // Overlays (capsules behind badges, captions).
-        static var overlayDim: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                    ? NSColor(white: 0.0, alpha: 0.60)
-                    : NSColor(white: 1.0, alpha: 0.85)
-            })
-        }
-        static var overlayScrim: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                    ? NSColor(white: 0.0, alpha: 0.30)
-                    : NSColor(white: 0.9, alpha: 0.50)
-            })
-        }
-        static var overlaySoft: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                    ? NSColor(white: 1.0, alpha: 0.06)
-                    : NSColor(white: 0.0, alpha: 0.06)
-            })
-        }
-        static var overlaySofter: SwiftUI.Color {
-            SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                    ? NSColor(white: 1.0, alpha: 0.04)
-                    : NSColor(white: 0.0, alpha: 0.04)
-            })
-        }
+        static let overlayDim = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                ? NSColor(white: 0.0, alpha: 0.60)
+                : NSColor(white: 1.0, alpha: 0.85)
+        })
+        static let overlayScrim = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                ? NSColor(white: 0.0, alpha: 0.30)
+                : NSColor(white: 0.9, alpha: 0.50)
+        })
+        static let overlaySoft = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                ? NSColor(white: 1.0, alpha: 0.06)
+                : NSColor(white: 0.0, alpha: 0.06)
+        })
+        static let overlaySofter = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+            (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                ? NSColor(white: 1.0, alpha: 0.04)
+                : NSColor(white: 0.0, alpha: 0.04)
+        })
 
         enum FileColor {
             static let raw   = SwiftUI.Color(red: 0.85, green: 0.20, blue: 0.20) // red
             static let jpeg  = SwiftUI.Color(red: 0.18, green: 0.55, blue: 0.30) // green
             static let heif  = SwiftUI.Color(red: 0.20, green: 0.35, blue: 0.85) // indigo
-            static var other: SwiftUI.Color {
-                SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
-                    return (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
-                        ? NSColor(white: 0.0, alpha: 0.78)
-                        : NSColor(white: 0.9, alpha: 0.85)
-                })
-            }
+            static let other = SwiftUI.Color(nsColor: NSColor(name: nil) { appearance in
+                (appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua)
+                    ? NSColor(white: 0.0, alpha: 0.78)
+                    : NSColor(white: 0.9, alpha: 0.85)
+            })
         }
     }
 

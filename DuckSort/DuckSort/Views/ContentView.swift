@@ -8,6 +8,7 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var viewModel = PhotoLibraryViewModel()
+    @AppStorage("gridThumbnailWidth") private var gridItemWidth: Double = 180
     @State private var showOnboarding: Bool = false
     @State private var showFilterPopover: Bool = false
     @State private var showTagsPopover: Bool = false
@@ -221,7 +222,7 @@ struct ContentView: View {
                 .help("Move originals to destination using selected rule")
             }
 
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 Button {
                     showInsights = true
                 } label: {
@@ -229,6 +230,34 @@ struct ContentView: View {
                         .foregroundStyle(Theme.Color.textSecondary)
                 }
                 .help("Camera & Lens Performance Insights")
+
+                HStack(spacing: Theme.Space.s6) {
+                    Button {
+                        gridItemWidth = max(120, gridItemWidth - 20)
+                    } label: {
+                        Image(systemName: "photo")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Smaller Thumbnails")
+
+                    Slider(value: $gridItemWidth, in: 120...360)
+                        .frame(width: 96)
+                        .controlSize(.small)
+                        .help("Thumbnail Size")
+
+                    Button {
+                        gridItemWidth = min(360, gridItemWidth + 20)
+                    } label: {
+                        Image(systemName: "photo")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Theme.Color.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Larger Thumbnails")
+                }
+                .padding(.horizontal, Theme.Space.s4)
             }
 
             ToolbarItem(placement: .primaryAction) {
