@@ -108,7 +108,28 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
 
 
-    @Published var isInspectorOpen: Bool = false {
+    struct CullingToast: Equatable, Sendable {
+        let id = UUID()
+        let icon: String
+        let text: String
+        let isWarning: Bool
+        let isPositive: Bool
+    }
+
+    @Published var cullingToast: CullingToast? = nil
+    private var cullingToastTask: Task<Void, Never>?
+
+    func showCullingToast(icon: String, text: String, isPositive: Bool = false, isWarning: Bool = false) {
+        cullingToastTask?.cancel()
+        cullingToast = CullingToast(icon: icon, text: text, isWarning: isWarning, isPositive: isPositive)
+        cullingToastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard !Task.isCancelled else { return }
+            self?.cullingToast = nil
+        }
+    }
+
+    @Published var isInspectorOpen: Bool = true {
         didSet {
             guard !isInitializing else { return }
             UserPreferences.shared.isInspectorOpen = isInspectorOpen

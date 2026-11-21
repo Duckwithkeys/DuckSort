@@ -17,6 +17,8 @@ struct PhotoSetCell: View, Equatable {
     let photoSet: PhotoSet
     let tags: [CustomTag]
     let isFocusedGridItem: Bool
+    var aspectFit: Bool = false
+    var isCompact: Bool = false
     let handleClick: (MouseClick) -> Void
     let openInViewer: () -> Void
     @State private var isHovered = false
@@ -24,7 +26,9 @@ struct PhotoSetCell: View, Equatable {
     nonisolated static func == (lhs: PhotoSetCell, rhs: PhotoSetCell) -> Bool {
         lhs.photoSet == rhs.photoSet &&
         lhs.tags == rhs.tags &&
-        lhs.isFocusedGridItem == rhs.isFocusedGridItem
+        lhs.isFocusedGridItem == rhs.isFocusedGridItem &&
+        lhs.aspectFit == rhs.aspectFit &&
+        lhs.isCompact == rhs.isCompact
     }
 
     enum MouseClick {
@@ -83,25 +87,27 @@ struct PhotoSetCell: View, Equatable {
 
                     VStack(alignment: .leading, spacing: Theme.Space.s4) {
                         HStack(alignment: .top, spacing: Theme.Space.s4) {
-                            FormatBadge(status: formatBadgeStatus, label: photoSet.formatLabel)
+                            if !isCompact {
+                                FormatBadge(status: formatBadgeStatus, label: photoSet.formatLabel)
+                            }
                             Spacer(minLength: 0)
                             if let pick = photoSet.pick, pick == 1 || pick == -1 {
                                 Image(systemName: pick == 1 ? "flag.fill" : "flag.slash.fill")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(Theme.Color.textInverse)
-                                    .frame(width: 22, height: 22)
-                                    .background(pick == 1 ? Theme.Color.danger : Theme.Color.warning, in: Circle())
-                                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                                    .font(.system(size: isCompact ? 10 : 11, weight: .semibold))
+                                    .foregroundStyle(pick == 1 ? Theme.Color.danger : Theme.Color.warning)
+                                    .frame(width: isCompact ? 20 : 22, height: isCompact ? 20 : 22)
+                                    .background(.ultraThinMaterial, in: Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.22), lineWidth: Theme.Stroke.hairline))
                             }
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(Theme.Space.s8)
+                    .padding(isCompact ? Theme.Space.s6 : Theme.Space.s8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                     if let rating = photoSet.rating, rating > 0 {
                         RatingBadge(rating: rating)
-                            .padding(Theme.Space.s8)
+                            .padding(isCompact ? Theme.Space.s6 : Theme.Space.s8)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     }
                 }
@@ -120,7 +126,7 @@ struct PhotoSetCell: View, Equatable {
 
                 metadataBar
             }
-            .padding(Theme.Space.s4)
+            .padding(isCompact ? 2 : Theme.Space.s4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.responsive(scale: 0.98))
@@ -141,34 +147,39 @@ struct PhotoSetCell: View, Equatable {
     }
 
     private var thumbnail: some View {
-        ThumbnailView(url: photoSet.preferredPreviewURL)
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
-            .saturation(isRejected ? 0 : 1)
-            .opacity(isRejected ? 0.55 : 1.0)
+        ThumbnailView(
+            url: photoSet.preferredPreviewURL,
+            contentMode: aspectFit ? .fit : .fill
+        )
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .saturation(isRejected ? 0 : 1)
+        .opacity(isRejected ? 0.55 : 1.0)
     }
 
     private var metadataBar: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s2) {
             Text(photoSet.baseName)
-                .font(Theme.Font.callout)
+                .font(isCompact ? Theme.Font.caption : Theme.Font.callout)
                 .foregroundStyle(photoSet.isSelected ? Theme.Color.success
                                 : (isFocusedGridItem ? Theme.Color.accent : Theme.Color.textPrimary))
                 .lineLimit(1)
 
-            HStack(spacing: Theme.Space.s6) {
-                Text("\(photoSet.mediaCount) media\(photoSet.hasEdit ? " + edit" : "")")
-                    .font(Theme.Font.caption)
-                    .foregroundStyle(Theme.Color.textSecondary)
+            if !isCompact {
+                HStack(spacing: Theme.Space.s6) {
+                    Text("\(photoSet.mediaCount) media\(photoSet.hasEdit ? " + edit" : "")")
+                        .font(Theme.Font.caption)
+                        .foregroundStyle(Theme.Color.textSecondary)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
+                .lineLimit(1)
+
+                // Always reserve a single line of vertical space for tag pills so
+                // adding/removing tags doesn't shift the cell's metadata text or
+                // change the position of the rating badge on the thumbnail.
+                tagPillsArea
             }
-            .lineLimit(1)
-
-            // Always reserve a single line of vertical space for tag pills so
-            // adding/removing tags doesn't shift the cell's metadata text or
-            // change the position of the rating badge on the thumbnail.
-            tagPillsArea
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -262,37 +273,42 @@ private struct FormatBadge: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(label.uppercased())
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                .tracking(0.6)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(pillBackground, in: Capsule())
-                .overlay(
-                    Capsule().stroke(.white.opacity(0.55), lineWidth: Theme.Stroke.hairline)
-                )
+            HStack(spacing: 5) {
+                Circle()
+                    .fill(pillBackground)
+                    .frame(width: 6, height: 6)
+                Text(label.uppercased())
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .tracking(0.5)
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3.5)
+            .background(.ultraThinMaterial, in: Capsule())
+            .overlay(
+                Capsule().stroke(.white.opacity(0.22), lineWidth: Theme.Stroke.hairline)
+            )
 
             switch status {
             case .normal:
                 EmptyView()
             case .edited:
                 Image(systemName: "wand.and.stars")
-                    .font(Theme.Font.badge)
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(Theme.Color.warning, in: Circle())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.Color.warning)
+                    .frame(width: 21, height: 21)
+                    .background(.ultraThinMaterial, in: Circle())
                     .overlay(
-                        Circle().stroke(.white.opacity(0.4), lineWidth: Theme.Stroke.hairline)
+                        Circle().stroke(.white.opacity(0.22), lineWidth: Theme.Stroke.hairline)
                     )
             case .incomplete:
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(Theme.Font.badge)
-                    .foregroundStyle(.white)
-                    .frame(width: 22, height: 22)
-                    .background(Theme.Color.danger, in: Circle())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Theme.Color.danger)
+                    .frame(width: 21, height: 21)
+                    .background(.ultraThinMaterial, in: Circle())
                     .overlay(
-                        Circle().stroke(.white.opacity(0.4), lineWidth: Theme.Stroke.hairline)
+                        Circle().stroke(.white.opacity(0.22), lineWidth: Theme.Stroke.hairline)
                     )
             }
         }
@@ -305,19 +321,19 @@ private struct RatingBadge: View {
     let rating: Int
 
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 3) {
             Text("\(rating)")
                 .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(Theme.Color.textPrimary)
+                .foregroundStyle(.primary)
             Image(systemName: "star.fill")
                 .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(Theme.Color.textPrimary)
+                .foregroundStyle(Theme.Color.rating)
         }
-        .padding(.horizontal, Theme.Space.s8)
-        .padding(.vertical, Theme.Space.s4)
-        .background(Theme.Color.rating, in: Capsule())
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(.ultraThinMaterial, in: Capsule())
         .overlay(
-            Capsule().stroke(Theme.Color.textInverse.opacity(0.25), lineWidth: Theme.Stroke.hairline)
+            Capsule().stroke(.white.opacity(0.22), lineWidth: Theme.Stroke.hairline)
         )
     }
 }

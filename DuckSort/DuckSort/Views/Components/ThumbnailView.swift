@@ -31,6 +31,7 @@ struct ThumbnailView: View {
     let url: URL?
     var size: CGSize = CGSize(width: 600, height: 600)
     var cornerRadius: CGFloat = Theme.Radius.xl
+    var contentMode: ContentMode = .fill
     @StateObject private var loader = ThumbnailLoader()
     @State private var isLoading = true
 
@@ -58,7 +59,7 @@ struct ThumbnailView: View {
                     if let image = displayedImage {
                         Image(nsImage: image)
                             .resizable()
-                            .scaledToFill()
+                            .aspectRatio(contentMode: contentMode)
                     } else {
                         // Show subtle animated shimmer while loading
                         ShimmerView()

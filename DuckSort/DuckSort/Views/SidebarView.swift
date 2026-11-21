@@ -7,6 +7,7 @@ import SwiftUI
 
 struct SidebarView: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
+    @ObservedObject private var preferences = UserPreferences.shared
     @State private var expandedFolderPaths: Set<String> = []
     @State private var isTagsExpanded: Bool = false
 

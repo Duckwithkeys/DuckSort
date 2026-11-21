@@ -8,7 +8,9 @@ import AppKit
 
 struct ContentView: View {
     @StateObject private var viewModel = PhotoLibraryViewModel()
+    @ObservedObject private var preferences = UserPreferences.shared
     @AppStorage("gridThumbnailWidth") private var gridItemWidth: Double = 180
+    @AppStorage("gridThumbnailAspectFit") private var gridAspectFit: Bool = false
     @State private var showOnboarding: Bool = false
     @State private var showFilterPopover: Bool = false
     @State private var showTagsPopover: Bool = false
@@ -23,6 +25,7 @@ struct ContentView: View {
         ErrorBoundaryView(errorMessage: nil) {
             MainLayout(viewModel: viewModel)
         }
+        .tint(preferences.customAccent.color)
         .background(WindowConfigurator())
         .frame(minWidth: 920, minHeight: 640)
         .navigationTitle("")
@@ -256,6 +259,18 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Larger Thumbnails")
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            gridAspectFit.toggle()
+                        }
+                    } label: {
+                        Image(systemName: gridAspectFit ? "rectangle.arrowtriangle.2.inward" : "square.grid.2x2")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(gridAspectFit ? Theme.Color.accent : Theme.Color.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(gridAspectFit ? "Original Aspect Ratio (click for Square Crop)" : "Square Crop (click for Original Aspect Ratio)")
                 }
                 .padding(.horizontal, Theme.Space.s4)
             }
@@ -464,8 +479,11 @@ struct ContentView: View {
                     viewModel.clearTags(forIDs: ids)
                     viewModel.setRating(nil, forIDs: ids)
                     viewModel.setPick(0, forIDs: ids)
+                    viewModel.showCullingToast(icon: "arrow.uturn.backward.circle.fill", text: "Cleared")
                 } else {
                     viewModel.setRating(rating, forIDs: ids)
+                    let stars = String(repeating: "★", count: rating)
+                    viewModel.showCullingToast(icon: "star.fill", text: stars, isPositive: true)
                 }
                 if viewModel.speedCullingEnabled {
                     viewModel.triggerHapticFeedback()
@@ -481,6 +499,7 @@ struct ContentView: View {
                 // Pick-flag is a culling workflow; stays single-photo.
                 if let photo = viewModel.currentFocusedPhotoSet {
                     viewModel.setPick(1, for: photo.id)
+                    viewModel.showCullingToast(icon: "flag.fill", text: "Picked", isPositive: true)
                     if viewModel.speedCullingEnabled {
                         viewModel.triggerHapticFeedback()
                         viewModel.advanceToNext()
@@ -488,11 +507,17 @@ struct ContentView: View {
                 }
                 return true
             case "x":
-                if let photo = viewModel.currentFocusedPhotoSet { viewModel.rejectAndAdvance(for: photo.id) }
+                if let photo = viewModel.currentFocusedPhotoSet {
+                    viewModel.rejectAndAdvance(for: photo.id)
+                    viewModel.showCullingToast(icon: "flag.slash.fill", text: "Rejected", isWarning: true)
+                }
                 return true
             case "u":
                 let hasTargets = !viewModel.batchTargetPhotoSets.isEmpty
                 viewModel.clearPickFlagOnSelection()
+                if hasTargets {
+                    viewModel.showCullingToast(icon: "flag", text: "Unflagged")
+                }
                 if hasTargets && viewModel.speedCullingEnabled {
                     viewModel.triggerHapticFeedback()
                     viewModel.advanceToNext()

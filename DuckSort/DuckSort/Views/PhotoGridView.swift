@@ -11,11 +11,16 @@ import AppKit
 
 struct PhotoGridView: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
+    @ObservedObject private var preferences = UserPreferences.shared
 
     @AppStorage("gridThumbnailWidth") private var itemWidth: Double = 180
+    @AppStorage("gridThumbnailAspectFit") private var gridAspectFit: Bool = false
     private static let gridSpacing: CGFloat = Theme.Space.s14
     private static let horizontalPadding: CGFloat = Theme.Space.s20
     private static let topPadding: CGFloat = Theme.Space.s16
+
+    @State private var showStatusToast = false
+    @State private var statusFadeTask: Task<Void, Never>?
 
     // Non-@State scroll offset holder so scrolling causes ZERO SwiftUI body re-evaluations.
     private final class ScrollOffsetBox {
@@ -220,14 +225,31 @@ struct PhotoGridView: View {
             floatingStatusPill
                 .padding(.trailing, Theme.Space.s16)
                 .padding(.bottom, Theme.Space.s12)
+                .animation(.easeInOut(duration: 0.22), value: showStatusToast)
+                .animation(.easeInOut(duration: 0.22), value: viewModel.exifLoadProgress != nil)
         }
+        .onChange(of: viewModel.statusMessage) { _, newMessage in
+            statusFadeTask?.cancel()
+            guard !newMessage.isEmpty else {
+                showStatusToast = false
+                return
+            }
+            showStatusToast = true
+            statusFadeTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                guard !Task.isCancelled else { return }
+                showStatusToast = false
+            }
+        }
+        .id(preferences.highContrastEnabled)
     }
 
     @ViewBuilder
     private var floatingStatusPill: some View {
-        let hasExifProgress = viewModel.exifLoadProgress != nil
+        let hasActiveWork = viewModel.exifLoadProgress != nil || viewModel.isTransferring
         let message = viewModel.statusMessage
-        if hasExifProgress || !message.isEmpty {
+        let showMessage = showStatusToast && !message.isEmpty
+        if hasActiveWork || showMessage {
             HStack(spacing: Theme.Space.s8) {
                 if let progress = viewModel.exifLoadProgress, progress.total > 0 {
                     ProgressView()
@@ -236,13 +258,13 @@ struct PhotoGridView: View {
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.Color.textPrimary)
                         .monospacedDigit()
-                    if !message.isEmpty {
+                    if showMessage {
                         Text("•")
                             .font(Theme.Font.caption)
                             .foregroundStyle(Theme.Color.textTertiary)
                     }
                 }
-                if !message.isEmpty {
+                if showMessage {
                     Text(message)
                         .font(Theme.Font.caption)
                         .foregroundStyle(Theme.Color.textSecondary)
@@ -258,6 +280,7 @@ struct PhotoGridView: View {
             )
             .shadow(color: Theme.Color.overlayScrim, radius: 6, y: 2)
             .allowsHitTesting(false)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
 
@@ -267,6 +290,8 @@ struct PhotoGridView: View {
             photoSet: photoSet,
             tags: viewModel.assignedTags(for: photoSet),
             isFocusedGridItem: isFocused,
+            aspectFit: gridAspectFit,
+            isCompact: itemWidth < 155,
             handleClick: { click in
                 if let idx = viewModel.filteredPhotoSets.firstIndex(where: { $0.id == photoSet.id }) {
                     viewModel.focusedPhotoIndex = idx

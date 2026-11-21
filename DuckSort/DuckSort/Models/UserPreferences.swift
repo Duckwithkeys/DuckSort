@@ -68,7 +68,7 @@ final class UserPreferences: ObservableObject {
     @Published var lastLooseFilePaths: [String] = []
     @Published var lastDestinationDirectoryID: String?
     @Published var lastFilterRule: PhotoFilterRule = .allPhotos
-    @Published var isInspectorOpen: Bool = false
+    @Published var isInspectorOpen: Bool = true
     @Published var showAdvancedEXIF: Bool = false
     @Published var speedCullingEnabled: Bool = false {
         didSet { save() }
@@ -299,7 +299,11 @@ final class UserPreferences: ObservableObject {
             lastFilterRule = rule
         }
 
-        isInspectorOpen = UserDefaults.standard.bool(forKey: Keys.isInspectorOpen)
+        if UserDefaults.standard.object(forKey: Keys.isInspectorOpen) != nil {
+            isInspectorOpen = UserDefaults.standard.bool(forKey: Keys.isInspectorOpen)
+        } else {
+            isInspectorOpen = true
+        }
         showAdvancedEXIF = UserDefaults.standard.bool(forKey: Keys.showAdvancedEXIF)
         speedCullingEnabled = UserDefaults.standard.bool(forKey: Keys.speedCullingEnabled)
         autoAdvanceHapticEnabled = UserDefaults.standard.bool(forKey: Keys.autoAdvanceHapticEnabled)
