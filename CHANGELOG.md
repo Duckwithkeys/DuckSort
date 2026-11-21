@@ -139,6 +139,21 @@ Major performance, responsiveness, and UI polish release built for 5,000+ photo 
 
 ---
 
+## [v1.3.2] — 2026-11-21
+
+Visual polish and ergonomics release — refining the grid badges, status pill, Large Image Viewer controls, and live theme updates.
+
+### 🎨 UI & Visual Polish
+
+- **Frosted Glass Grid Badges:** Replaced solid opaque format (`RAW + HEIF`, `JPEG`, `RAW`), edit wand, pick/reject flag, and star rating pills with translucent `.ultraThinMaterial` glass capsules with colored dot/icon accents so photos stay the visual hero.
+- **Compact Contact-Sheet Mode:** Sliding the grid thumbnail size below `155 pt` hides subtitles and tag pills and tightens cell padding for a clean, dense contact sheet.
+- **Auto-Fading Status Pill:** Transient messages in the bottom-right floating status pill now auto-fade out after 3 seconds, staying pinned only while background EXIF or transfer work is active.
+- **Floating Glass Viewer Controls & Collapsible Inspector:** Kept the macOS titlebar band clear of overlapping text and placed a clickable frosted glass bar just below it with filename/format, **Edit in Photomator (`E`)**, **Toggle Inspector (`I`)**, and **Close (`Esc`)**; wired `I` to smoothly collapse/expand the right inspector sidebar.
+- **Culling Feedback Toast:** Rating (`1–5`), clearing (`0`), picking (`Z`), rejecting (`X`), or unflagging (`U`) in the viewer flashes a subtle frosted glass HUD capsule above the filmstrip.
+- **Live Accent Color & High Contrast:** Changing Accent Color or High Contrast in Settings now redraws the main window and sidebar live.
+
+---
+
 ### How to Upgrade
 
 1. Open DuckSort → Preferences → check for updates (or download from GitHub Releases).
