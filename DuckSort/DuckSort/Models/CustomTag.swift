@@ -136,7 +136,9 @@ enum TagHotkeyRules {
         "i": "Toggle inspector",
         "z": "Flag pick",
         "x": "Reject",
-        "u": "Clear pick"
+        "u": "Clear pick",
+        "y": "Approve top AI prediction",
+        "n": "Dismiss top AI prediction"
     ]
 
     static func reservedReason(for hotkey: String?) -> String? {

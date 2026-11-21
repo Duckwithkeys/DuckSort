@@ -43,8 +43,12 @@ struct AutoTagSuggestionsView: View {
                                 .background(Theme.Color.accent, in: Capsule())
                         }
 
-                        ForEach(suggestions) { suggestion in
-                            AutoTagSuggestionCard(viewModel: viewModel, suggestion: suggestion)
+                        ForEach(Array(suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            AutoTagSuggestionCard(
+                                viewModel: viewModel,
+                                suggestion: suggestion,
+                                isTopPrediction: index == 0
+                            )
                         }
                     }
                 }
@@ -58,7 +62,12 @@ struct AutoTagSuggestionsView: View {
 struct AutoTagSuggestionCard: View {
     @ObservedObject var viewModel: PhotoLibraryViewModel
     let suggestion: AutoTagSuggestion
+    var isTopPrediction: Bool = false
     @State private var isHovered = false
+
+    private var isFaceMatch: Bool {
+        suggestion.source == .faceRecognition
+    }
 
     private var isExistingTag: Bool {
         suggestion.categoryID != nil
@@ -80,29 +89,53 @@ struct AutoTagSuggestionCard: View {
                 Button {
                     viewModel.acceptSuggestion(suggestion)
                 } label: {
-                    Text(suggestion.tagName)
-                        .font(Theme.Font.caption)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, Theme.Space.s8)
-                        .padding(.vertical, 2.5)
-                        .background(
-                            Capsule().fill(isExistingTag ? Theme.Color.accent.opacity(0.08) : Theme.Color.warning.opacity(0.08))
+                    HStack(spacing: 4) {
+                        if isFaceMatch {
+                            Image(systemName: "person.crop.circle.badge.checkmark")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        Text(suggestion.tagName)
+                            .font(Theme.Font.caption)
+                            .fontWeight(.bold)
+                    }
+                    .padding(.horizontal, Theme.Space.s8)
+                    .padding(.vertical, 2.5)
+                    .background(
+                        Capsule().fill(
+                            isFaceMatch ? Theme.Color.accent.opacity(0.18)
+                                        : (isExistingTag ? Theme.Color.accent.opacity(0.08) : Theme.Color.warning.opacity(0.08))
                         )
-                        .foregroundStyle(isExistingTag ? Theme.Color.accent : Theme.Color.warning)
-                        .overlay(
-                            Capsule().stroke(
-                                isExistingTag ? Theme.Color.accent.opacity(0.25) : Theme.Color.warning.opacity(0.25),
-                                style: StrokeStyle(lineWidth: 1, dash: isExistingTag ? [] : [2, 2])
-                            )
+                    )
+                    .foregroundStyle(isFaceMatch || isExistingTag ? Theme.Color.accent : Theme.Color.warning)
+                    .overlay(
+                        Capsule().stroke(
+                            isFaceMatch ? Theme.Color.accent.opacity(0.55)
+                                        : (isExistingTag ? Theme.Color.accent.opacity(0.25) : Theme.Color.warning.opacity(0.25)),
+                            style: StrokeStyle(lineWidth: 1, dash: (isFaceMatch || isExistingTag) ? [] : [2, 2])
                         )
+                    )
                 }
                 .buttonStyle(.plain)
-                .help("Click tag to accept suggestion")
+                .help(isTopPrediction ? "Click or press Y to approve" : "Click tag to accept suggestion")
 
                 Spacer(minLength: 4)
 
                 // Accept & Dismiss Actions
                 HStack(spacing: Theme.Space.s6) {
+                    if isTopPrediction {
+                        Text("Y")
+                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.Color.textSecondary)
+                            .padding(.horizontal, 4.5)
+                            .padding(.vertical, 1.5)
+                            .background(Theme.Color.overlaySoft, in: RoundedRectangle(cornerRadius: 4))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Theme.Color.surfaceDivider, lineWidth: 0.75)
+                            )
+                            .help("Press Y to approve • Press N to dismiss")
+                    }
+
                     Button {
                         viewModel.acceptSuggestion(suggestion)
                     } label: {
@@ -113,7 +146,7 @@ struct AutoTagSuggestionCard: View {
                             .background(Theme.Color.success, in: Circle())
                     }
                     .buttonStyle(.plain)
-                    .help("Accept Suggestion")
+                    .help(isTopPrediction ? "Approve Suggestion (Y)" : "Accept Suggestion")
 
                     Button {
                         viewModel.dismissSuggestion(suggestion)

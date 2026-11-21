@@ -83,6 +83,9 @@ final class PhotoLibraryViewModel: ObservableObject {
     }
     @Published private(set) var photoCaptions: [UUID: String] = [:]
     @Published private(set) var visionSuggestionsCache: [UUID: [AutoTagSuggestion]] = [:]
+    @Published private(set) var faceSuggestionsCache: [UUID: [AutoTagSuggestion]] = [:]
+    private var inFlightVisionIDs: Set<UUID> = []
+    private var inFlightFaceIDs: Set<UUID> = []
     @Published var filterRule: PhotoFilterRule = .allPhotos {
         didSet {
             guard !isInitializing else { return }
@@ -713,6 +716,10 @@ final class PhotoLibraryViewModel: ObservableObject {
         photoMetadata = [:]
         photoCaptions = [:]
         visionSuggestionsCache = [:]
+        faceSuggestionsCache = [:]
+        inFlightVisionIDs = []
+        inFlightFaceIDs = []
+        Task { await FaceRecognitionEngine.shared.reset() }
         photoDateCache = [:]
         photoFileSizeCache = [:]
         selectedSubfolderFilter = nil
@@ -983,6 +990,47 @@ final class PhotoLibraryViewModel: ObservableObject {
         suppressDerivedUpdates = false
         updateGlobalCounts()
         updateDerivedState()
+        seedFaceRecognitionFromExistingTags(batchTags: batchTags)
+    }
+
+    /// Quietly seeds `FaceRecognitionEngine` with up to 3 face samples per
+    /// already-tagged People tag when a library opens so predictions work right away.
+    private func seedFaceRecognitionFromExistingTags(batchTags: [UUID: Set<UUID>]) {
+        guard UserPreferences.shared.autoTaggingEnabled, !batchTags.isEmpty else { return }
+        var samplesPerPerson: [UUID: [(tagName: String, categoryID: UUID, url: URL)]] = [:]
+        for (photoID, tagIDs) in batchTags {
+            guard let idx = photoSetIndex[photoID],
+                  let url = photoSets[idx].preferredPreviewURL else { continue }
+            for tagID in tagIDs {
+                guard let tag = tagStore.tag(id: tagID),
+                      isPeopleCategory(tag.categoryID) else { continue }
+                let existingCount = samplesPerPerson[tagID]?.count ?? 0
+                if existingCount < 3 {
+                    samplesPerPerson[tagID, default: []].append((tag.name, tag.categoryID, url))
+                }
+            }
+        }
+        let work = samplesPerPerson.values.flatMap { $0 }
+        guard !work.isEmpty else { return }
+
+        Task.detached(priority: .utility) { [weak self] in
+            var learnedAny = false
+            for item in work {
+                if Task.isCancelled { return }
+                let learned = await FaceRecognitionEngine.shared.learnPerson(
+                    tagName: item.tagName,
+                    categoryID: item.categoryID,
+                    from: item.url
+                )
+                if learned { learnedAny = true }
+            }
+            if learnedAny {
+                await MainActor.run {
+                    self?.faceSuggestionsCache.removeAll()
+                    self?.inFlightFaceIDs.removeAll()
+                }
+            }
+        }
     }
 
     /// Read EXIF metadata + XMP sidecar for every photo in `batch` in parallel.
@@ -1907,6 +1955,7 @@ final class PhotoLibraryViewModel: ObservableObject {
                 commitTagChange(current.union([tagID]),
                                 for: entry.photo,
                                 remove: false)
+                learnPersonFaceIfApplicable(tag: tag, for: entry.photo)
             }
             statusMessage = "Applied \(tag.name) to \(photos.count) photo set\(photos.count == 1 ? "" : "s")."
         } else {
@@ -1978,22 +2027,80 @@ final class PhotoLibraryViewModel: ObservableObject {
     
     // MARK: - Auto-tagging
     
-    /// Returns auto-tag suggestions for the given photo set, based on
-    /// the user's enabled rules, EXIF metadata, and Vision ML classifications.
+    private func isPeopleCategory(_ categoryID: UUID?) -> Bool {
+        guard let categoryID, let name = tagStore.categoryName(id: categoryID)?.lowercased() else {
+            return false
+        }
+        let keywords = ["people", "person", "subject", "portrait", "cast", "talent", "model", "client", "family", "friend"]
+        return keywords.contains(where: { name.contains($0) })
+    }
+
+    /// Teaches the on-device face recognizer whenever a photo is tagged with a
+    /// People-category tag (or when the user approves a face prediction).
+    private func learnPersonFaceIfApplicable(tag: CustomTag, for photo: PhotoSet, forceLearn: Bool = false) {
+        guard forceLearn || isPeopleCategory(tag.categoryID),
+              let url = photo.preferredPreviewURL else { return }
+        let tagName = tag.name
+        let categoryID = tag.categoryID
+        Task { @MainActor [weak self] in
+            let learned = await FaceRecognitionEngine.shared.learnPerson(
+                tagName: tagName,
+                categoryID: categoryID,
+                from: url
+            )
+            if learned {
+                // Invalidate cached face predictions so other photos immediately
+                // surface matches for the newly learned person.
+                self?.faceSuggestionsCache.removeAll()
+                self?.inFlightFaceIDs.removeAll()
+            }
+        }
+    }
+
+    /// Returns auto-tag suggestions for the given photo set, placing on-device
+    /// Face Recognition person predictions at the very top above Vision ML tags.
     func suggestedTags(for photoSet: PhotoSet) -> [AutoTagSuggestion] {
         guard UserPreferences.shared.autoTaggingEnabled else { return [] }
         
-        // Trigger background Vision ML classification if not already cached
-        if visionSuggestionsCache[photoSet.id] == nil, let previewURL = photoSet.preferredPreviewURL {
-            Task { @MainActor in
-                if self.visionSuggestionsCache[photoSet.id] == nil {
-                    let mlSuggestions = await AutoTagEngine.shared.visionSuggestions(for: previewURL)
-                    self.visionSuggestionsCache[photoSet.id] = mlSuggestions
+        // Trigger background Vision ML classification if not already cached/in-flight
+        if visionSuggestionsCache[photoSet.id] == nil,
+           !inFlightVisionIDs.contains(photoSet.id),
+           let previewURL = photoSet.preferredPreviewURL {
+            inFlightVisionIDs.insert(photoSet.id)
+            let photoID = photoSet.id
+            Task { @MainActor [weak self] in
+                let mlSuggestions = await AutoTagEngine.shared.visionSuggestions(for: previewURL)
+                guard let self else { return }
+                self.inFlightVisionIDs.remove(photoID)
+                self.visionSuggestionsCache[photoID] = mlSuggestions
+            }
+        }
+
+        // Trigger background on-device Face Recognition prediction if not cached/in-flight
+        if faceSuggestionsCache[photoSet.id] == nil,
+           !inFlightFaceIDs.contains(photoSet.id),
+           let previewURL = photoSet.preferredPreviewURL {
+            inFlightFaceIDs.insert(photoSet.id)
+            let photoID = photoSet.id
+            Task { @MainActor [weak self] in
+                let peopleCount = await FaceRecognitionEngine.shared.learnedPeopleCount
+                guard peopleCount > 0 else {
+                    self?.inFlightFaceIDs.remove(photoID)
+                    return
                 }
+                let predictions = await FaceRecognitionEngine.shared.predictPeople(for: previewURL)
+                guard let self else { return }
+                self.inFlightFaceIDs.remove(photoID)
+                self.faceSuggestionsCache[photoID] = predictions
             }
         }
 
         var combined: [AutoTagSuggestion] = []
+
+        // Face Recognition person predictions ALWAYS appear at the top.
+        if let faceMatches = faceSuggestionsCache[photoSet.id] {
+            combined.append(contentsOf: faceMatches)
+        }
 
         if let visionML = visionSuggestionsCache[photoSet.id] {
             combined.append(contentsOf: visionML)
@@ -2017,6 +2124,30 @@ final class PhotoLibraryViewModel: ObservableObject {
         }
 
         return deduplicated
+    }
+
+    /// Approves the top AI / Face prediction for the currently focused photo (hotkey `Y`).
+    @discardableResult
+    func acceptTopSuggestion() -> Bool {
+        guard let photo = currentFocusedPhotoSet,
+              let top = suggestedTags(for: photo).first else {
+            return false
+        }
+        acceptSuggestion(top)
+        triggerHapticFeedback()
+        return true
+    }
+
+    /// Dismisses the top AI / Face prediction for the currently focused photo (hotkey `N`).
+    @discardableResult
+    func dismissTopSuggestion() -> Bool {
+        guard let photo = currentFocusedPhotoSet,
+              let top = suggestedTags(for: photo).first else {
+            return false
+        }
+        dismissSuggestion(top)
+        statusMessage = "Dismissed suggestion \(top.tagName)."
+        return true
     }
     
     /// Accepts a suggestion: applies the tag to the photo (or creates it
