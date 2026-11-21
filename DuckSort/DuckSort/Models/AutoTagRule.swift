@@ -12,7 +12,6 @@ import Foundation
 // MARK: - Suggestion
 
 enum SuggestionSource: String, Codable, Sendable {
-    case faceRecognition = "Face Recognition"
     case visionML = "AI Vision ML"
     case exifRule = "EXIF Camera Rule"
 }

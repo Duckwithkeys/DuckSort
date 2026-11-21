@@ -498,14 +498,6 @@ struct ContentView: View {
                     viewModel.advanceToNext()
                 }
                 return true
-            case "y":
-                if viewModel.acceptTopSuggestion() {
-                    return true
-                }
-            case "n":
-                if viewModel.dismissTopSuggestion() {
-                    return true
-                }
             default:
                 break
             }
