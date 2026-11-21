@@ -14,7 +14,6 @@ struct PhotoGridView: View {
     @ObservedObject private var preferences = UserPreferences.shared
 
     @AppStorage("gridThumbnailWidth") private var itemWidth: Double = 180
-    @AppStorage("gridThumbnailAspectFit") private var gridAspectFit: Bool = false
     private static let gridSpacing: CGFloat = Theme.Space.s14
     private static let horizontalPadding: CGFloat = Theme.Space.s20
     private static let topPadding: CGFloat = Theme.Space.s16
@@ -290,7 +289,6 @@ struct PhotoGridView: View {
             photoSet: photoSet,
             tags: viewModel.assignedTags(for: photoSet),
             isFocusedGridItem: isFocused,
-            aspectFit: gridAspectFit,
             isCompact: itemWidth < 155,
             handleClick: { click in
                 if let idx = viewModel.filteredPhotoSets.firstIndex(where: { $0.id == photoSet.id }) {

@@ -10,7 +10,6 @@ struct ContentView: View {
     @StateObject private var viewModel = PhotoLibraryViewModel()
     @ObservedObject private var preferences = UserPreferences.shared
     @AppStorage("gridThumbnailWidth") private var gridItemWidth: Double = 180
-    @AppStorage("gridThumbnailAspectFit") private var gridAspectFit: Bool = false
     @State private var showOnboarding: Bool = false
     @State private var showFilterPopover: Bool = false
     @State private var showTagsPopover: Bool = false
@@ -259,18 +258,6 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Larger Thumbnails")
-
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            gridAspectFit.toggle()
-                        }
-                    } label: {
-                        Image(systemName: gridAspectFit ? "rectangle.arrowtriangle.2.inward" : "square.grid.2x2")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(gridAspectFit ? Theme.Color.accent : Theme.Color.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(gridAspectFit ? "Original Aspect Ratio (click for Square Crop)" : "Square Crop (click for Original Aspect Ratio)")
                 }
                 .padding(.horizontal, Theme.Space.s4)
             }

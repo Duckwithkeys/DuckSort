@@ -90,7 +90,6 @@ struct LargeImageViewer: View {
 
     private var floatingViewerControls: some View {
         let activePhoto = viewModel.currentFocusedPhotoSet
-        let currentZoom = viewModel.singleZoomState.zoomScale + viewModel.singleZoomState.currentAmount
 
         return HStack(spacing: Theme.Space.s8) {
             if let photo = activePhoto {
@@ -116,29 +115,6 @@ struct LargeImageViewer: View {
             Spacer()
 
             HStack(spacing: Theme.Space.s6) {
-                // Zoom level pill (click to toggle Fit <-> 200%)
-                Button {
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                        if currentZoom > 1.05 {
-                            viewModel.singleZoomState.reset()
-                        } else {
-                            viewModel.singleZoomState.zoomScale = 2.0
-                        }
-                    }
-                } label: {
-                    Text(currentZoom > 1.05 ? "\(Int((currentZoom * 100).rounded()))%" : "Fit")
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(currentZoom > 1.05 ? Theme.Color.accent : Theme.Color.textPrimary)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Toggle Zoom (Fit / 200%)")
-
-                Divider()
-                    .frame(height: 14)
-
                 // Edit in Photomator (E)
                 Button {
                     viewModel.openFocusedPhotoInPhotomator()
